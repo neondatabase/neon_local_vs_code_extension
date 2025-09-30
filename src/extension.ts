@@ -171,7 +171,8 @@ export async function activate(context: vscode.ExtensionContext) {
     dockerService
   );
 
-  // Store schema service for cleanup
+
+  // Store services for cleanup
   globalServices.schemaService = schemaViewProvider.getSchemaService();
 
   // Register core commands
@@ -532,6 +533,7 @@ export async function deactivate() {
       await globalServices.schemaService.cleanup();
       console.debug('Schema service cleanup completed');
     }
+    
     
     console.debug('Extension deactivation cleanup completed');
   } catch (error) {

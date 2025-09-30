@@ -61,8 +61,6 @@
         "title": "Refresh",
         "icon": "$(refresh)"
       },
-
-
       {
         "command": "neonLocal.schema.openSqlQuery",
         "title": "Open SQL Editor"
@@ -203,13 +201,11 @@
         }
       ],
       "view/item/context": [
-
         {
           "command": "neonLocal.schema.resetFromParent",
           "when": "view == neonLocalSchema && viewItem == connection",
           "group": "2_reset"
         },
-
         {
           "command": "neonLocal.schema.openSqlQuery",
           "when": "view == neonLocalSchema && viewItem != table && viewItem != connection",
@@ -298,10 +294,19 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.19.0",
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/lint": "^6.8.5",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.38.3",
     "@types/vscode": "^1.87.0",
     "@vscode/codicons": "^0.0.35",
     "@vscode/webview-ui-toolkit": "^1.4.0",
     "axios": "^1.6.7",
+    "codemirror": "^6.0.2",
     "dockerode": "^4.0.2",
     "node-sql-parser": "^5.3.10",
     "opener": "^1.5.2",

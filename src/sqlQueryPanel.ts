@@ -60,7 +60,7 @@ export class SqlQueryPanel {
     ) {
         this.panel = panel;
         this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-        this.panel.webview.html = this.getWebviewContent();
+        this.panel.webview.html = this.getWebviewContent(this.panel.webview);
 
         // Set up message handling
         this.panel.webview.onDidReceiveMessage(
@@ -128,11 +128,96 @@ export class SqlQueryPanel {
                     });
                 }
                 break;
+
+            case 'getSchemaForAutocomplete':
+                try {
+                    const schemaInfo = await this.getSchemaForAutocomplete();
+                    this.sendMessage({
+                        command: 'schemaForAutocomplete',
+                        schemaInfo,
+                        success: true
+                    });
+                } catch (error) {
+                    console.error('Failed to get schema for autocomplete:', error);
+                    this.sendMessage({
+                        command: 'schemaForAutocomplete',
+                        error: error instanceof Error ? error.message : 'Failed to get schema',
+                        success: false
+                    });
+                }
+                break;
+                
         }
     }
 
     private sendMessage(message: any) {
         this.panel.webview.postMessage(message);
+    }
+
+    private async getSchemaForAutocomplete(): Promise<any> {
+        try {
+            // Get the current state to access schema information
+            const viewData = await this.stateService.getViewData();
+            
+            if (!viewData.connection.connected) {
+                throw new Error('Not connected to database');
+            }
+
+            // Create a simple schema structure for autocomplete
+            const schemaInfo = {
+                tables: [] as any[],
+                columns: [] as any[]
+            };
+
+            // Get database schema using the schema service
+            const schemaService = new (require('./services/schema.service').SchemaService)(
+                this.stateService, 
+                new (require('./services/api.service').NeonApiService)(this.context)
+            );
+
+            // Get tables and their columns
+            const databases = await schemaService.getDatabases();
+            if (databases && databases.length > 0) {
+                for (const database of databases) {
+                    // Get tables for this database
+                    const tablesResult = await schemaService.getTables(database.name, 'public');
+                    if (tablesResult && tablesResult.length > 0) {
+                        for (const table of tablesResult) {
+                            schemaInfo.tables.push({
+                                name: table.name,
+                                schema: 'public',
+                                database: database.name
+                            });
+
+                            // Get columns for this table
+                            try {
+                                const columnsResult = await schemaService.getColumns(database.name, 'public', table.name);
+                                if (columnsResult && columnsResult.length > 0) {
+                                    for (const column of columnsResult) {
+                                        schemaInfo.columns.push({
+                                            name: column.column_name,
+                                            type: column.data_type,
+                                            table: table.name,
+                                            schema: 'public',
+                                            database: database.name
+                                        });
+                                    }
+                                }
+                            } catch (columnError) {
+                                console.warn(`Failed to get columns for table ${table.name}:`, columnError);
+                            }
+                        }
+                    }
+                }
+            }
+
+            console.log('Schema info for autocomplete:', schemaInfo);
+            return schemaInfo;
+
+        } catch (error) {
+            console.error('Error getting schema for autocomplete:', error);
+            throw error;
+        }
     }
 
     public setQuery(query: string) {
@@ -238,7 +323,7 @@ export class SqlQueryPanel {
         }
     }
 
-    private getWebviewContent(): string {
+    private getWebviewContent(webview: vscode.Webview): string {
         // Note: We use inline styles instead of external CSS files
 
         return `<!DOCTYPE html>
@@ -366,14 +451,25 @@ export class SqlQueryPanel {
 
         .query-editor {
             flex: 1;
-            min-height: 100px;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .embedded-editor {
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .embedded-editor .cm-editor {
+            height: 100%;
             font-family: var(--vscode-editor-font-family);
             font-size: var(--vscode-editor-font-size);
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            padding: 12px;
-            resize: none;
+        }
+        
+        .embedded-editor .cm-focused {
             outline: none;
         }
 
@@ -782,12 +878,7 @@ export class SqlQueryPanel {
                 </div>
             </div>
             
-            <textarea 
-                id="queryEditor" 
-                class="query-editor" 
-                placeholder="Enter your SQL query here..."
-                spellcheck="false"
-            ></textarea>
+            <div id="queryEditor" class="query-editor embedded-editor"></div>
         </div>
         
         <div class="splitter" id="splitter"></div>
@@ -838,6 +929,34 @@ export class SqlQueryPanel {
         </div>
     </div>
 
+    <!-- Load CodeMirror bundle via webview URI -->
+    <script src="${webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'embeddedSqlEditor.js'))}"></script>
+    <!-- Load SQL Parser for syntax validation -->
+    <script>
+        // Load SQL Parser with error handling
+        const sqlParserScript = document.createElement('script');
+        sqlParserScript.src = '${webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'node-sql-parser', 'umd', 'index.umd.js'))}';
+        sqlParserScript.onload = function() {
+            console.log('SQL Parser loaded successfully');
+            console.log('Available parsers:', window.NodeSQLParser ? Object.keys(window.NodeSQLParser) : 'NodeSQLParser not found');
+            
+            // Test the parser
+            if (window.NodeSQLParser) {
+                try {
+                    const { Parser } = window.NodeSQLParser;
+                    const parser = new Parser();
+                    console.log('SQL Parser initialized successfully');
+                } catch (error) {
+                    console.error('Failed to initialize SQL Parser:', error);
+                }
+            }
+        };
+        sqlParserScript.onerror = function(error) {
+            console.error('Failed to load SQL Parser:', error);
+            console.log('Will use basic SQL validation instead');
+        };
+        document.head.appendChild(sqlParserScript);
+    </script>
     <script>
         const vscode = acquireVsCodeApi();
         
@@ -849,8 +968,91 @@ export class SqlQueryPanel {
         let sortDirection = 'asc';
         
         // Elements
-        const queryEditor = document.getElementById('queryEditor');
+        const queryEditorContainer = document.getElementById('queryEditor');
         const executeBtn = document.getElementById('executeBtn');
+        
+        // Initialize embedded SQL editor
+        let sqlEditor = null;
+        
+        // Wait for CodeMirror to load, then initialize
+        function initializeSqlEditor() {
+            console.log('Attempting to initialize SQL editor...');
+            console.log('window.SimpleSqlEditor:', window.SimpleSqlEditor);
+            console.log('queryEditorContainer:', queryEditorContainer);
+            
+            if (window.SimpleSqlEditor && queryEditorContainer) {
+                try {
+                    sqlEditor = new window.SimpleSqlEditor(queryEditorContainer, vscode);
+                    
+                    // Set up execute callback
+                    sqlEditor.onExecute((query) => {
+                        executeQueryWithText(query);
+                    });
+                    
+                    console.log('CodeMirror SQL Editor initialized successfully');
+                    
+                    // Try to load schema information for better autocomplete
+                    if (window.loadSchemaForAutocomplete) {
+                        window.loadSchemaForAutocomplete();
+                    }
+                    
+                    return true; // Success
+                } catch (error) {
+                    console.error('Error initializing SQL editor:', error);
+                    return false; // Failed
+                }
+            } else {
+                console.log('SimpleSqlEditor not ready, retrying...');
+                return false; // Not ready
+            }
+        }
+        
+        // Initialize when DOM is ready
+        let initRetries = 0;
+        const maxRetries = 50; // 5 seconds max
+        
+        function tryInitialize() {
+            if (initializeSqlEditor()) {
+                console.log('SQL Editor initialized successfully');
+                return;
+            }
+            
+            initRetries++;
+            if (initRetries < maxRetries) {
+                setTimeout(tryInitialize, 100);
+            } else {
+                console.error('Failed to initialize SQL Editor after maximum retries');
+                // Fall back to a simple textarea
+                if (queryEditorContainer) {
+                    queryEditorContainer.innerHTML = '<textarea id="fallbackEditor" placeholder="-- Enter your SQL query here\\n-- Press Ctrl+Enter to execute" style="width: 100%; height: 300px; font-family: monospace; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); padding: 8px; resize: vertical;"></textarea>';
+                    const fallbackEditor = document.getElementById('fallbackEditor');
+                    if (fallbackEditor) {
+                        sqlEditor = {
+                            getValue: () => fallbackEditor.value,
+                            setValue: (value) => { fallbackEditor.value = value; },
+                            onExecute: () => {}, // Not implemented for fallback
+                            insertText: (text) => { fallbackEditor.value += text; }
+                        };
+                    }
+                }
+            }
+        }
+        
+        // Start initialization
+        tryInitialize();
+        
+        // Function to load schema information for autocomplete
+        function loadSchemaForAutocomplete() {
+            console.log('Loading schema information for autocomplete...');
+            
+            // Request schema information from the extension
+            vscode.postMessage({
+                command: 'getSchemaForAutocomplete'
+            });
+        }
+        
+        // Expose the function so it can be called from the initialization
+        window.loadSchemaForAutocomplete = loadSchemaForAutocomplete;
         const exportBtn = document.getElementById('exportBtn');
         const openNeonConsoleBtn = document.getElementById('openNeonConsoleBtn');
         const databaseIndicator = document.getElementById('databaseIndicator');
@@ -889,13 +1091,7 @@ export class SqlQueryPanel {
         resultsTab.addEventListener('click', () => switchTab('results'));
         performanceTab.addEventListener('click', () => switchTab('performance'));
         
-        // Keyboard shortcuts
-        queryEditor.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.key === 'Enter') {
-                e.preventDefault();
-                executeQuery();
-            }
-        });
+        // CodeMirror handles keyboard shortcuts internally (Ctrl+Enter, F5, etc.)
         
         // Global keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -1007,8 +1203,62 @@ export class SqlQueryPanel {
         });
         
         function executeQuery() {
-            const query = queryEditor.value.trim();
+            const query = sqlEditor ? sqlEditor.getValue().trim() : '';
             if (!query) return;
+            executeQueryWithText(query);
+        }
+        
+        function executeQueryWithText(query) {
+            console.log('🔍 executeQueryWithText() called with query:', query.substring(0, 100) + (query.length > 100 ? '...' : ''));
+            
+            if (!query) {
+                console.log('🔍 Empty query, aborting');
+                return;
+            }
+            
+            // Validate SQL before execution using the SQL editor's validation
+            console.log('🔍 Starting SQL validation...');
+            if (sqlEditor && sqlEditor.validateSql) {
+                const validation = sqlEditor.validateSql(query);
+                console.log('🔍 Validation result:', validation);
+                
+                if (!validation.isValid) {
+                    // Show validation errors and prevent execution
+                    const errorMessage = \`SQL Validation Failed:\\n\\n\${validation.errors.join('\\n')}\`;
+                    console.log('🔍 BLOCKING QUERY EXECUTION - Validation failed:', validation.errors);
+                    
+                    // Show errors in the editor with highlighting
+                    if (sqlEditor && sqlEditor.showValidationErrors) {
+                        console.log('🔍 Showing validation errors in editor');
+                        sqlEditor.showValidationErrors(validation.errors, query);
+                    }
+                    
+                    // Display error in results area with subtle styling
+                    resultsContainer.innerHTML = \`
+                        <div style="padding: 16px; background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); border-radius: 4px; margin: 10px; color: var(--vscode-inputValidation-errorForeground, #f8f8f2);">
+                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                <span style="margin-right: 8px;">⚠️</span>
+                                <h3 style="margin: 0; font-size: 14px; font-weight: 500;">SQL Validation Failed</h3>
+                            </div>
+                            <pre style="margin: 0; white-space: pre-wrap; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; line-height: 1.4; opacity: 0.9;">\${errorMessage}</pre>
+                        </div>
+                    \`;
+                    resultsInfo.textContent = 'Query blocked due to validation errors';
+                    updateStatus('❌ Query validation failed', 'error');
+                    setButtonsEnabled(true);
+                    console.log('🔍 Query execution blocked');
+                    return;
+                }
+            } else {
+                console.log('🔍 ⚠️ SQL Editor validation not available, executing without validation');
+            }
+            
+            console.log('🔍 ✅ Validation passed, executing query...');
+            
+            // Clear any previous validation errors in the editor
+            if (sqlEditor && sqlEditor.clearValidationErrors) {
+                sqlEditor.clearValidationErrors();
+            }
             
             updateStatus('Executing query...');
             setButtonsEnabled(false);
@@ -1024,6 +1274,7 @@ export class SqlQueryPanel {
                 command: 'openNeonConsole'
             });
         }
+        
         
         function exportResults() {
             if (currentData.length === 0) return;
@@ -1068,6 +1319,11 @@ export class SqlQueryPanel {
                 displayPerformanceStats(result.performanceStats);
                 updateStatus(\`Query executed in \${result.executionTime}ms - \${result.rowCount} rows\`);
                 exportBtn.disabled = result.rowCount === 0;
+                
+                // Clear any error highlighting on successful execution
+                if (window.sqlEditor && window.sqlEditor.clearErrorHighlight) {
+                    window.sqlEditor.clearErrorHighlight();
+                }
             } else {
                 displayError(message.error);
                 updateStatus('Query failed');
@@ -1145,22 +1401,40 @@ export class SqlQueryPanel {
         function displayError(error) {
             const errorDiv = document.createElement('div');
             errorDiv.className = 'error';
+            errorDiv.style.cssText = \`
+                padding: 12px 8px;
+                background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+                border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+                border-radius: 3px;
+                margin: 8px 0;
+                color: var(--vscode-inputValidation-errorForeground, #f8f8f2);
+                font-family: var(--vscode-editor-font-family, monospace);
+                white-space: nowrap;
+                min-height: auto;
+                max-height: 48px;
+                overflow: hidden;
+                display: flex;
+                align-items: center;
+            \`;
             
-            let errorText = error.message;
-            if (error.line) {
-                errorText += \`\\nLine: \${error.line}\`;
-            }
-            if (error.position) {
-                errorText += \`\\nPosition: \${error.position}\`;
-            }
-            if (error.detail) {
-                errorText += \`\\nDetail: \${error.detail}\`;
-            }
+            // Simple error message with just line number
+            const lineNumber = error.line || 'Unknown';
             
-            errorDiv.textContent = errorText;
+            errorDiv.innerHTML = \`
+                <span style="margin-right: 6px; font-size: 11px;">❌</span>
+                <span style="font-weight: 500; font-size: 12px; margin-right: 8px;">SQL Syntax Error</span>
+                <span style="font-size: 11px; color: var(--vscode-descriptionForeground); opacity: 0.9;">Line: \${lineNumber}</span>
+            \`;
+            
+            // Show error banner in results area
             resultsContainer.innerHTML = '';
             resultsContainer.appendChild(errorDiv);
             resultsInfo.textContent = 'Error';
+            
+            // Highlight the error line in the SQL editor
+            if (error.line && window.sqlEditor && window.sqlEditor.highlightErrorLine) {
+                window.sqlEditor.highlightErrorLine(error.line);
+            }
         }
         
         function setButtonsEnabled(enabled) {
@@ -1419,6 +1693,65 @@ export class SqlQueryPanel {
             
             displayTable();
         }
+        
+        // Handle messages from the extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            
+            switch (message.command) {
+                case 'queryResult':
+                    handleQueryResult(message);
+                    break;
+                    
+                case 'setQuery':
+                    if (sqlEditor) {
+                        sqlEditor.setValue(message.query || '');
+                        sqlEditor.focus();
+                    }
+                    break;
+                    
+                case 'initialize':
+                    if (message.query && sqlEditor) {
+                        sqlEditor.setValue(message.query);
+                    }
+                    if (message.database) {
+                        updateStatus(\`Connected to: \${message.database}\`);
+                    }
+                    break;
+                    
+                case 'schemaForAutocomplete':
+                    if (message.success && sqlEditor && message.schemaInfo) {
+                        console.log('Received schema info for autocomplete:', message.schemaInfo);
+                        sqlEditor.updateSchema(message.schemaInfo);
+                    } else if (!message.success) {
+                        console.warn('Failed to get schema for autocomplete:', message.error);
+                    }
+                    break;
+                    
+                case 'showError':
+                    // Display validation errors to the user
+                    console.error('SQL Validation Error:', message.message);
+                    updateStatus('❌ ' + (message.message.split('\\n')[0] || 'Validation failed'), 'error');
+                    
+                    // Show detailed error in a more prominent way
+                    const errorLines = message.message.split('\\n');
+                    if (errorLines.length > 1) {
+                        // Multi-line error, show in results area
+                        resultsContainer.innerHTML = \`
+                            <div style="padding: 20px; background: #ff1744; color: white; border-radius: 4px; margin: 10px;">
+                                <h3 style="margin: 0 0 10px 0;">❌ Query Validation Failed</h3>
+                                <pre style="margin: 0; white-space: pre-wrap; font-family: monospace;">\${message.message}</pre>
+                            </div>
+                        \`;
+                        resultsInfo.textContent = 'Query blocked due to validation errors';
+                    }
+                    break;
+                    
+                case 'error':
+                    updateStatus(\`Error: \${message.error}\`);
+                    break;
+            }
+        });
     </script>
 </body>
 </html>`;

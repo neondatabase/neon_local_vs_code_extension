@@ -196,6 +196,63 @@ export class SchemaService {
         }
     }
 
+    async getAllSchemaItems(database: string): Promise<SchemaItem[]> {
+        let client: ManagedClient | null = null;
+        
+        try {
+            client = await this.getConnection(database);
+
+            // Get all tables and views
+            const tablesResult = await client.query(`
+                SELECT 
+                    schemaname as schema_name,
+                    tablename as table_name,
+                    'table' as table_type
+                FROM pg_tables 
+                WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+                UNION ALL
+                SELECT 
+                    schemaname as schema_name,
+                    viewname as table_name,
+                    'view' as table_type
+                FROM pg_views 
+                WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+                ORDER BY schema_name, table_name
+            `);
+
+            const items: SchemaItem[] = [];
+
+            // Add tables and views
+            for (const row of tablesResult.rows) {
+                const tableId = `table_${database}_${row.schema_name}_${row.table_name}`;
+                items.push({
+                    id: tableId,
+                    name: row.table_name,
+                    type: row.table_type as 'table' | 'view',
+                    parent: `schema_${database}_${row.schema_name}`,
+                    metadata: {
+                        table_type: row.table_type,
+                        schema_name: row.schema_name
+                    }
+                });
+
+                // Get columns for this table
+                const columns = await this.getColumns(database, row.schema_name, row.table_name);
+                items.push(...columns);
+            }
+
+            return items;
+
+        } catch (error) {
+            console.error('Error fetching all schema items:', error);
+            throw error;
+        } finally {
+            if (client) {
+                client.release();
+            }
+        }
+    }
+
     async getIndexes(database: string, schema: string, table: string): Promise<SchemaItem[]> {
         try {
             const result = await this.connectionPool.executeQuery(`

@@ -33,6 +33,8 @@ export interface QueryError {
     line?: number;
     position?: number;
     detail?: string;
+    where?: string;
+    code?: string;
 }
 
 export class SqlQueryService {
@@ -54,26 +56,26 @@ export class SqlQueryService {
         const startTime = Date.now();
         let connectionTime = 0;
         
+        // Clean the SQL query (move outside try block so it's accessible in catch)
+        const cleanSql = sql.trim();
+        if (!cleanSql) {
+            throw new Error('SQL query cannot be empty');
+        }
+        
         try {
             const connectionStart = Date.now();
             client = await this.getConnection(database);
             connectionTime = Date.now() - connectionStart;
-            
-            // Clean the SQL query
-            const cleanSql = sql.trim();
-            if (!cleanSql) {
-                throw new Error('SQL query cannot be empty');
-            }
 
             console.debug('Executing SQL query:', cleanSql);
-            
-            // Collect performance stats
-            const performanceStats = await this.collectPerformanceStats(client, cleanSql, startTime, connectionTime);
             
             const queryStart = Date.now();
             const result = await client.query(cleanSql);
             const queryExecutionTime = Date.now() - queryStart;
             const executionTime = Date.now() - startTime;
+            
+            // Collect performance stats after successful execution
+            const performanceStats = await this.collectPerformanceStats(client, cleanSql, startTime, connectionTime);
 
             // Handle different types of results
             const columns = result.fields ? result.fields.map(field => field.name) : [];
@@ -105,11 +107,87 @@ export class SqlQueryService {
             
             // Parse PostgreSQL error for better user experience
             const pgError = error as any;
+            
+            // Log all error properties for debugging
+            console.log('🔍 PostgreSQL error properties:', Object.keys(pgError));
+            console.log('🔍 Error message:', pgError.message);
+            console.log('🔍 Error line:', pgError.line);
+            console.log('🔍 Error position:', pgError.position);
+            console.log('🔍 Error where:', pgError.where);
+            console.log('🔍 Error file:', pgError.file);
+            console.log('🔍 Error routine:', pgError.routine);
+            console.log('🔍 Error code:', pgError.code);
+            console.log('🔍 Error severity:', pgError.severity);
+            console.log('🔍 Error hint:', pgError.hint);
+            console.log('🔍 Error internalPosition:', pgError.internalPosition);
+            console.log('🔍 Error internalQuery:', pgError.internalQuery);
+            
+            // Log all properties dynamically
+            Object.keys(pgError).forEach(key => {
+                console.log(`🔍 Error.${key}:`, pgError[key]);
+            });
+            
+            // Calculate the correct line number by adjusting for any prefix content
+            let adjustedLine = pgError.line ? parseInt(pgError.line) : undefined;
+            let adjustedPosition = pgError.position ? parseInt(pgError.position) : undefined;
+            
+            console.log('🔍 Line number correction check:');
+            console.log('🔍   adjustedLine:', adjustedLine);
+            console.log('🔍   adjustedPosition:', adjustedPosition);
+            console.log('🔍   Both truthy?', !!(adjustedLine && adjustedPosition));
+            
+            if (adjustedLine && adjustedPosition) {
+                try {
+                    // Count the actual lines in our clean SQL query
+                    const actualLines = cleanSql.split('\n').length;
+                    console.log('🔍 Actual SQL lines:', actualLines);
+                    console.log('🔍 PostgreSQL reported line:', adjustedLine);
+                    console.log('🔍 PostgreSQL reported position:', adjustedPosition);
+                    console.log('🔍 Clean SQL length:', cleanSql.length);
+                    
+                    // If PostgreSQL reports a line number much higher than our actual query,
+                    // there's likely some prefix content. Let's try to calculate the correct line.
+                    if (adjustedLine > actualLines * 10) { // Heuristic: if reported line is way too high
+                        console.log('🔍 Detected inflated line number, attempting to correct...');
+                        
+                        // Try to find the position within our actual query
+                        if (adjustedPosition <= cleanSql.length) {
+                            console.log('🔍 Position is within query bounds, calculating line...');
+                            // Calculate line number based on position within our query
+                            const textBeforeError = cleanSql.substring(0, adjustedPosition);
+                            const correctedLine = textBeforeError.split('\n').length;
+                            console.log('🔍 Text before error:', JSON.stringify(textBeforeError));
+                            console.log('🔍 Corrected line number:', correctedLine);
+                            adjustedLine = correctedLine;
+                        } else {
+                            console.log('🔍 Position is outside query bounds, using fallback...');
+                            // Position is also inflated, try to extract from error message
+                            const errorText = pgError.message || '';
+                            if (errorText.includes('at or near')) {
+                                // For now, just report line 1 for syntax errors
+                                adjustedLine = 1;
+                                console.log('🔍 Defaulting to line 1 for syntax error');
+                            }
+                        }
+                    } else {
+                        console.log('🔍 Line number seems reasonable, keeping original');
+                    }
+                } catch (error) {
+                    console.log('🔍 Error in line number correction:', error);
+                }
+            }
+
+            console.log('🔍 Final error object construction:');
+            console.log('🔍   Final adjustedLine:', adjustedLine);
+            console.log('🔍   Final adjustedPosition:', adjustedPosition);
+
             const queryError: QueryError = {
                 message: pgError.message || 'Unknown database error',
-                line: pgError.line ? parseInt(pgError.line) : undefined,
-                position: pgError.position ? parseInt(pgError.position) : undefined,
-                detail: pgError.detail
+                line: adjustedLine,
+                position: adjustedPosition,
+                detail: pgError.detail,
+                where: pgError.where,
+                code: pgError.code
             };
 
             throw queryError;

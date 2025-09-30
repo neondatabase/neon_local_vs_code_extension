@@ -379,14 +379,53 @@ export class TableDataService {
                 errors.push(`${column.name} is required`);
             }
 
-            // Check data types (basic validation)
-            if (value !== null && value !== undefined) {
-                if (column.type.includes('int') && isNaN(parseInt(value))) {
-                    errors.push(`${column.name} must be a number`);
+            // Check data types (enhanced validation)
+            if (value !== null && value !== undefined && value !== '') {
+                const type = column.type.toLowerCase();
+                
+                // Numeric validation
+                if ((type.includes('int') || type.includes('serial')) && isNaN(parseInt(String(value)))) {
+                    errors.push(`${column.name} must be a valid integer`);
+                } else if ((type.includes('numeric') || type.includes('decimal') || type.includes('float') || type.includes('double') || type.includes('real')) && isNaN(parseFloat(String(value)))) {
+                    errors.push(`${column.name} must be a valid number`);
                 }
                 
+                // JSON validation
+                if ((type === 'json' || type === 'jsonb') && typeof value === 'string') {
+                    try {
+                        JSON.parse(value);
+                    } catch (e) {
+                        errors.push(`${column.name} must be valid JSON`);
+                    }
+                }
+                
+                // Boolean validation
+                if (type.includes('bool') && typeof value !== 'boolean' && typeof value === 'string') {
+                    const lowerValue = value.toLowerCase();
+                    if (!['true', 'false', 't', 'f', '1', '0'].includes(lowerValue)) {
+                        errors.push(`${column.name} must be a valid boolean value`);
+                    }
+                }
+                
+                // UUID validation (basic format check)
+                if (type === 'uuid' && typeof value === 'string') {
+                    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+                    if (!uuidRegex.test(value)) {
+                        errors.push(`${column.name} must be a valid UUID format`);
+                    }
+                }
+                
+                // String length validation
                 if (column.maxLength && typeof value === 'string' && value.length > column.maxLength) {
                     errors.push(`${column.name} must be ${column.maxLength} characters or less`);
+                }
+                
+                // Date/Time validation (basic check)
+                if ((type === 'date' || type.includes('timestamp') || type.includes('time')) && typeof value === 'string') {
+                    const date = new Date(value);
+                    if (isNaN(date.getTime())) {
+                        errors.push(`${column.name} must be a valid date/time format`);
+                    }
                 }
             }
         }

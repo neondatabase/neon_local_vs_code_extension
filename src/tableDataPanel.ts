@@ -453,14 +453,162 @@ export class TableDataPanel {
 
 
 
-        .cell-editor {
+        .cell-editor, .cell-input {
             width: 100%;
             background-color: var(--vscode-input-background);
             color: var(--vscode-input-foreground);
             border: 1px solid var(--vscode-input-border);
-            padding: 4px;
-            font-size: inherit;
-            font-family: inherit;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 12px;
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            box-sizing: border-box;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
+        }
+        
+        .cell-editor:focus, .cell-input:focus {
+            border-color: var(--vscode-focusBorder);
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+        
+        .cell-editor:hover:not(:focus), .cell-input:hover:not(:focus) {
+            border-color: var(--vscode-input-border);
+        }
+        
+        /* JSON Editor Styles */
+        .json-editor {
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            font-size: 12px;
+            resize: both;
+            min-height: 80px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            padding: 6px 8px;
+            transition: border-color 0.2s;
+            outline: none;
+        }
+        
+        .json-editor:focus {
+            border-color: var(--vscode-focusBorder);
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+        
+        /* Array Editor Styles */
+        .array-editor {
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            font-size: 12px;
+            resize: both;
+            min-height: 60px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            padding: 6px 8px;
+            transition: border-color 0.2s;
+            outline: none;
+        }
+        
+        .array-editor:focus {
+            border-color: var(--vscode-focusBorder);
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+        
+        /* Text Editor Styles */
+        .text-editor {
+            resize: both;
+            min-height: 60px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            font-size: 12px;
+            transition: border-color 0.2s;
+            outline: none;
+        }
+        
+        .text-editor:focus {
+            border-color: var(--vscode-focusBorder);
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+        
+        /* Input validation error styles */
+        .cell-editor.validation-error {
+            border-color: var(--vscode-inputValidation-errorBorder);
+            background-color: var(--vscode-inputValidation-errorBackground);
+        }
+        
+        /* Improved input styles for different types */
+        .cell-editor[type="date"],
+        .cell-editor[type="time"],
+        .cell-editor[type="datetime-local"] {
+            min-width: 150px;
+        }
+        
+        .cell-editor[type="number"] {
+            text-align: right;
+        }
+        
+        /* Data type specific cell styles */
+        .json-cell {
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            background-color: rgba(0, 100, 200, 0.1);
+            border-left: 3px solid var(--vscode-charts-blue);
+        }
+        
+        .json-cell.invalid-json {
+            background-color: rgba(200, 50, 50, 0.1);
+            border-left: 3px solid var(--vscode-errorForeground);
+        }
+        
+        .array-cell {
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            background-color: rgba(100, 150, 100, 0.1);
+            border-left: 3px solid var(--vscode-charts-green);
+        }
+        
+        .uuid-cell {
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            background-color: rgba(150, 100, 200, 0.1);
+            border-left: 3px solid var(--vscode-charts-purple);
+            font-size: 11px;
+        }
+        
+        .bool-cell {
+            text-align: center;
+            font-weight: bold;
+        }
+        
+        .bool-cell.bool-true {
+            color: var(--vscode-charts-green);
+        }
+        
+        .bool-cell.bool-false {
+            color: var(--vscode-charts-red);
+        }
+        
+        .datetime-cell {
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+            background-color: rgba(200, 150, 50, 0.1);
+            border-left: 3px solid var(--vscode-charts-orange);
+        }
+        
+        .numeric-cell {
+            text-align: right;
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+        }
+        
+        .text-cell {
+            max-width: 300px;
+            word-break: break-word;
         }
 
         .page-info {
@@ -1187,10 +1335,16 @@ export class TableDataPanel {
                         td.textContent = 'NULL';
                         td.classList.add('null-value');
                     } else {
-                        td.textContent = String(value);
+                        // Format value for display based on column type
+                        const displayValue = formatValueForDisplay(value, col.type);
+                        td.textContent = displayValue.text;
+                        td.title = displayValue.tooltip;
+                        
+                        // Add special styling for different data types
+                        if (displayValue.className) {
+                            td.classList.add(displayValue.className);
+                        }
                     }
-                    
-                    td.title = td.textContent;
                     td.classList.add('editable-cell');
                     td.dataset.column = col.name;
                     
@@ -1276,48 +1430,16 @@ export class TableDataPanel {
                 const column = columns.find(col => col.name === columnName);
                 if (!column) return;
                 
-                const input = document.createElement('input');
-                input.className = 'cell-editor';
-                input.value = row[column.name] === null ? '' : String(row[column.name]);
-                input.type = getInputType(column.type);
-                input.dataset.column = column.name;
+                const inputElement = createInputElement(column, row[column.name]);
+                inputElement.className = 'cell-editor';
+                inputElement.dataset.column = column.name;
                 
                 // Add keyboard navigation
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        // Move to next cell in the row
-                        const nextCell = findNextEditableCell(cell);
-                        if (nextCell) {
-                            const nextInput = nextCell.cell.querySelector('.cell-editor');
-                            if (nextInput) {
-                                nextInput.focus();
-                                nextInput.select();
-                            }
-                        } else {
-                            // If no next cell, save the row
-                            saveRowEdit(index);
-                        }
-                    } else if (e.key === 'Escape') {
-                        cancelRowEdit(index);
-                    } else if (e.key === 'Tab') {
-                        e.preventDefault();
-                        const nextCell = e.shiftKey 
-                            ? findPreviousEditableCell(cell)
-                            : findNextEditableCell(cell);
-                        if (nextCell) {
-                            const nextInput = nextCell.cell.querySelector('.cell-editor');
-                            if (nextInput) {
-                                nextInput.focus();
-                                nextInput.select();
-                            }
-                        }
-                    }
-                });
+                addKeyboardNavigation(inputElement, cell, index);
                 
                 // Replace cell content with input
                 cell.innerHTML = '';
-                cell.appendChild(input);
+                cell.appendChild(inputElement);
             });
             
             // Focus the first input
@@ -1342,7 +1464,8 @@ export class TableDataPanel {
             
             inputs.forEach(input => {
                 const columnName = input.dataset.column;
-                const newValue = input.value.trim() === '' ? null : input.value;
+                const column = columns.find(col => col.name === columnName);
+                const newValue = extractValueFromInput(input, column);
                 const originalValue = row[columnName];
                 
                 if (newValue !== originalValue) {
@@ -1568,11 +1691,12 @@ export class TableDataPanel {
             const newRow = tableContainer.querySelector('tr[data-row-index="-1"]');
             if (!newRow) return;
             
-            const inputs = newRow.querySelectorAll('input, select');
+            const inputs = newRow.querySelectorAll('.cell-input');
             inputs.forEach(input => {
                 const columnName = input.dataset.column;
                 if (columnName) {
-                    const value = input.type === 'checkbox' ? input.checked : input.value;
+                    const column = columns.find(col => col.name === columnName);
+                    const value = extractValueFromInput(input, column);
                     if (value !== null && value !== '') {
                         rowData[columnName] = value;
                     }
@@ -1620,11 +1744,9 @@ export class TableDataPanel {
                 td.classList.add('editable-cell');
                 td.dataset.column = col.name;
                 
-                const input = document.createElement('input');
-                input.type = getInputType(col.type);
-                input.value = newRowData[col.name] || '';
+                const input = createInputElement(col, newRowData[col.name] || '');
                 input.dataset.column = col.name;
-                input.placeholder = col.defaultValue ? 'Default: ' + col.defaultValue : '';
+                input.placeholder = col.defaultValue ? 'Default: ' + col.defaultValue : getPlaceholderText(col.type);
                 input.className = 'cell-input';
                 
                 if (col.isPrimaryKey) {
@@ -1639,17 +1761,7 @@ export class TableDataPanel {
                 });
                 
                 // Handle tab navigation
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Tab') {
-                        // Let tab navigation work naturally
-                    } else if (e.key === 'Enter') {
-                        e.preventDefault();
-                        saveNewRow();
-                    } else if (e.key === 'Escape') {
-                        e.preventDefault();
-                        cancelNewRow();
-                    }
-                });
+                addNewRowKeyboardNavigation(input);
                 
                 td.appendChild(input);
                 tr.appendChild(td);
@@ -1678,12 +1790,537 @@ export class TableDataPanel {
         
         function getInputType(dataType) {
             const type = dataType.toLowerCase();
+            
+            // Numeric types
             if (type.includes('int') || type.includes('serial')) return 'number';
-            if (type.includes('numeric') || type.includes('decimal') || type.includes('float') || type.includes('double')) return 'number';
+            if (type.includes('numeric') || type.includes('decimal') || type.includes('float') || type.includes('double') || type.includes('real')) return 'number';
+            
+            // Boolean
             if (type.includes('bool')) return 'checkbox';
-            // Treat all date/time types as text to preserve original formatting
-            // This prevents datetime-local inputs from showing placeholder text
+            
+            // Date/Time types - use specific input types for better UX
+            if (type === 'date') return 'date';
+            if (type === 'time' || type.includes('time without time zone')) return 'time';
+            if (type.includes('timestamp') || type.includes('datetime')) return 'datetime-local';
+            
+            // For all other types including JSON, JSONB, TEXT, VARCHAR, UUID, ARRAY, etc.
+            // Use text input as it's the most flexible for complex data types
             return 'text';
+        }
+        
+        function createInputElement(column, value) {
+            const type = column.type.toLowerCase();
+            
+            // Handle JSON/JSONB types specially
+            if (type === 'json' || type === 'jsonb') {
+                return createJsonEditor(column, value);
+            }
+            
+            // Handle arrays
+            if (type.includes('[]') || type.includes('array')) {
+                return createArrayEditor(column, value);
+            }
+            
+            // Handle large text types with textarea
+            if (type === 'text' || type.includes('character varying') && column.maxLength > 255) {
+                return createTextareaEditor(column, value);
+            }
+            
+            // Handle boolean specially
+            if (type.includes('bool')) {
+                return createBooleanEditor(column, value);
+            }
+            
+            // Default to standard input
+            const input = document.createElement('input');
+            input.type = getInputType(column.type);
+            input.value = formatValueForInput(value, column.type);
+            
+            // Add validation attributes
+            addInputValidation(input, column);
+            
+            return input;
+        }
+        
+        function createJsonEditor(column, value) {
+            const textarea = document.createElement('textarea');
+            textarea.className = 'json-editor';
+            textarea.rows = 3;
+            
+            // Format JSON for display
+            let formattedValue = '';
+            if (value !== null && value !== undefined && value !== '') {
+                try {
+                    // If it's already a string, try to parse it
+                    const jsonValue = typeof value === 'string' ? JSON.parse(value) : value;
+                    formattedValue = JSON.stringify(jsonValue, null, 2);
+                } catch (e) {
+                    // If parsing fails, just show the raw value
+                    formattedValue = String(value);
+                }
+            }
+            textarea.value = formattedValue;
+            
+            // Add JSON validation on blur
+            textarea.addEventListener('blur', function() {
+                if (this.value.trim() === '') return;
+                try {
+                    JSON.parse(this.value);
+                    this.style.borderColor = '';
+                    this.title = '';
+                } catch (e) {
+                    this.style.borderColor = 'var(--vscode-inputValidation-errorBorder)';
+                    this.title = 'Invalid JSON: ' + e.message;
+                }
+            });
+            
+            return textarea;
+        }
+        
+        function createArrayEditor(column, value) {
+            const textarea = document.createElement('textarea');
+            textarea.className = 'array-editor';
+            textarea.rows = 2;
+            textarea.placeholder = 'Enter array values, e.g., [1,2,3] or ["a","b","c"]';
+            
+            // Format array for display
+            let formattedValue = '';
+            if (value !== null && value !== undefined && value !== '') {
+                try {
+                    // PostgreSQL arrays come as strings like '{1,2,3}' or as actual arrays
+                    if (typeof value === 'string' && value.startsWith('{') && value.endsWith('}')) {
+                        // Convert PostgreSQL array format to JSON array format
+                        const arrayContent = value.slice(1, -1);
+                        if (arrayContent.trim() === '') {
+                            formattedValue = '[]';
+                        } else {
+                            // Simple parsing - this could be enhanced for complex types
+                            const items = arrayContent.split(',').map(item => {
+                                const trimmed = item.trim();
+                                // If it looks like a string (quoted), keep quotes
+                                if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+                                    return trimmed;
+                                }
+                                // If it's a number, keep as is
+                                if (!isNaN(trimmed) && trimmed !== '') {
+                                    return trimmed;
+                                }
+                                // Otherwise, quote it
+                                return '"' + trimmed + '"';
+                            });
+                            formattedValue = '[' + items.join(', ') + ']';
+                        }
+                    } else if (Array.isArray(value)) {
+                        formattedValue = JSON.stringify(value);
+                    } else {
+                        formattedValue = String(value);
+                    }
+                } catch (e) {
+                    formattedValue = String(value);
+                }
+            }
+            textarea.value = formattedValue;
+            
+            return textarea;
+        }
+        
+        function createTextareaEditor(column, value) {
+            const textarea = document.createElement('textarea');
+            textarea.className = 'text-editor';
+            textarea.rows = 3;
+            textarea.value = value === null ? '' : String(value);
+            
+            if (column.maxLength) {
+                textarea.maxLength = column.maxLength;
+            }
+            
+            return textarea;
+        }
+        
+        function createBooleanEditor(column, value) {
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = value === true || value === 't' || value === 'true' || value === '1';
+            return checkbox;
+        }
+        
+        function formatValueForInput(value, dataType) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            
+            const type = dataType.toLowerCase();
+            
+            // Handle timestamp/datetime formatting
+            if (type.includes('timestamp') || type.includes('datetime')) {
+                try {
+                    const date = new Date(value);
+                    if (!isNaN(date.getTime())) {
+                        // Format for datetime-local input (YYYY-MM-DDTHH:mm)
+                        return date.toISOString().slice(0, 16);
+                    }
+                } catch (e) {
+                    // Fall back to string representation
+                }
+            }
+            
+            // Handle date formatting
+            if (type === 'date') {
+                try {
+                    const date = new Date(value);
+                    if (!isNaN(date.getTime())) {
+                        // Format for date input (YYYY-MM-DD)
+                        return date.toISOString().slice(0, 10);
+                    }
+                } catch (e) {
+                    // Fall back to string representation
+                }
+            }
+            
+            // Handle time formatting
+            if (type === 'time' || type.includes('time without time zone')) {
+                // PostgreSQL time format is usually HH:MM:SS, HTML time input expects HH:MM
+                if (typeof value === 'string' && value.includes(':')) {
+                    const parts = value.split(':');
+                    if (parts.length >= 2) {
+                        return parts[0] + ':' + parts[1];
+                    }
+                }
+            }
+            
+            return String(value);
+        }
+        
+        function addInputValidation(input, column) {
+            const type = column.type.toLowerCase();
+            
+            // Add max length for character types
+            if ((type.includes('character') || type.includes('varchar')) && column.maxLength) {
+                input.maxLength = column.maxLength;
+            }
+            
+            // Add step for numeric types
+            if (type.includes('decimal') || type.includes('numeric')) {
+                input.step = 'any';
+            }
+            
+            // Add required attribute for non-nullable columns
+            if (!column.nullable) {
+                input.required = true;
+            }
+        }
+        
+        function getPlaceholderText(dataType) {
+            const type = dataType.toLowerCase();
+            
+            if (type === 'json' || type === 'jsonb') {
+                return 'Enter valid JSON, e.g., {"key": "value"}';
+            }
+            if (type.includes('[]') || type.includes('array')) {
+                return 'Enter array, e.g., [1,2,3] or ["a","b","c"]';
+            }
+            if (type === 'uuid') {
+                return 'Enter UUID, e.g., 123e4567-e89b-12d3-a456-426614174000';
+            }
+            if (type.includes('timestamp')) {
+                return 'Enter timestamp, e.g., 2023-12-25 14:30:00';
+            }
+            if (type === 'date') {
+                return 'Enter date, e.g., 2023-12-25';
+            }
+            if (type === 'time') {
+                return 'Enter time, e.g., 14:30:00';
+            }
+            
+            return '';
+        }
+        
+        function addKeyboardNavigation(inputElement, cell, index) {
+            // Special handling for textarea elements
+            if (inputElement.tagName.toLowerCase() === 'textarea') {
+                inputElement.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        cancelRowEdit(index);
+                    } else if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const nextCell = e.shiftKey 
+                            ? findPreviousEditableCell(cell)
+                            : findNextEditableCell(cell);
+                        if (nextCell) {
+                            const nextInput = nextCell.cell.querySelector('.cell-editor');
+                            if (nextInput) {
+                                nextInput.focus();
+                                if (nextInput.select) nextInput.select();
+                            }
+                        }
+                    }
+                    // For textareas, allow Enter for new lines, use Ctrl+Enter to move to next cell
+                    else if (e.key === 'Enter' && e.ctrlKey) {
+                        e.preventDefault();
+                        const nextCell = findNextEditableCell(cell);
+                        if (nextCell) {
+                            const nextInput = nextCell.cell.querySelector('.cell-editor');
+                            if (nextInput) {
+                                nextInput.focus();
+                                if (nextInput.select) nextInput.select();
+                            }
+                        } else {
+                            saveRowEdit(index);
+                        }
+                    }
+                });
+            } else {
+                // Standard input elements
+                inputElement.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const nextCell = findNextEditableCell(cell);
+                        if (nextCell) {
+                            const nextInput = nextCell.cell.querySelector('.cell-editor');
+                            if (nextInput) {
+                                nextInput.focus();
+                                if (nextInput.select) nextInput.select();
+                            }
+                        } else {
+                            saveRowEdit(index);
+                        }
+                    } else if (e.key === 'Escape') {
+                        cancelRowEdit(index);
+                    } else if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const nextCell = e.shiftKey 
+                            ? findPreviousEditableCell(cell)
+                            : findNextEditableCell(cell);
+                        if (nextCell) {
+                            const nextInput = nextCell.cell.querySelector('.cell-editor');
+                            if (nextInput) {
+                                nextInput.focus();
+                                if (nextInput.select) nextInput.select();
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function extractValueFromInput(inputElement, column) {
+            const type = column.type.toLowerCase();
+            
+            // Handle checkboxes
+            if (inputElement.type === 'checkbox') {
+                return inputElement.checked;
+            }
+            
+            // Handle empty values
+            if (inputElement.value.trim() === '') {
+                return null;
+            }
+            
+            const value = inputElement.value;
+            
+            // Handle JSON/JSONB
+            if (type === 'json' || type === 'jsonb') {
+                try {
+                    // Validate JSON and return as string (PostgreSQL expects JSON as string)
+                    JSON.parse(value);
+                    return value;
+                } catch (e) {
+                    // If invalid JSON, return as-is and let the backend handle the error
+                    return value;
+                }
+            }
+            
+            // Handle arrays
+            if (type.includes('[]') || type.includes('array')) {
+                try {
+                    // Try to parse as JSON array first
+                    const parsed = JSON.parse(value);
+                    if (Array.isArray(parsed)) {
+                        // Convert to PostgreSQL array format
+                        return '{' + parsed.map(item => {
+                            if (typeof item === 'string') {
+                                return '"' + item.replace(/"/g, '\\\\"') + '"';
+                            }
+                            return String(item);
+                        }).join(',') + '}';
+                    }
+                } catch (e) {
+                    // If not valid JSON, try to parse as simple comma-separated values
+                    if (value.startsWith('[') && value.endsWith(']')) {
+                        // Remove brackets and parse
+                        const content = value.slice(1, -1);
+                        return '{' + content + '}';
+                    }
+                }
+                return value; // Return as-is if parsing fails
+            }
+            
+            // Handle numeric types
+            if (type.includes('int') || type.includes('serial') || 
+                type.includes('numeric') || type.includes('decimal') || 
+                type.includes('float') || type.includes('double') || type.includes('real')) {
+                const numValue = parseFloat(value);
+                return isNaN(numValue) ? value : numValue;
+            }
+            
+            // Handle boolean (for text inputs that might contain boolean values)
+            if (type.includes('bool') && inputElement.type !== 'checkbox') {
+                const lowerValue = value.toLowerCase();
+                if (lowerValue === 'true' || lowerValue === 't' || lowerValue === '1') {
+                    return true;
+                } else if (lowerValue === 'false' || lowerValue === 'f' || lowerValue === '0') {
+                    return false;
+                }
+            }
+            
+            // For all other types, return the string value
+            return value;
+        }
+        
+        function addNewRowKeyboardNavigation(inputElement) {
+            // Special handling for textarea elements
+            if (inputElement.tagName.toLowerCase() === 'textarea') {
+                inputElement.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelNewRow();
+                    } else if (e.key === 'Enter' && e.ctrlKey) {
+                        e.preventDefault();
+                        saveNewRow();
+                    }
+                    // Tab navigation works naturally for textareas
+                });
+            } else {
+                // Standard input elements
+                inputElement.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveNewRow();
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelNewRow();
+                    }
+                    // Tab navigation works naturally
+                });
+            }
+        }
+        
+        function formatValueForDisplay(value, dataType) {
+            const type = dataType.toLowerCase();
+            const stringValue = String(value);
+            
+            // Handle JSON/JSONB
+            if (type === 'json' || type === 'jsonb') {
+                try {
+                    // Try to parse and format JSON
+                    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+                    const formatted = JSON.stringify(parsed, null, 2);
+                    
+                    // Truncate for display if too long
+                    const displayText = formatted.length > 100 
+                        ? JSON.stringify(parsed).substring(0, 100) + '...'
+                        : JSON.stringify(parsed);
+                        
+                    return {
+                        text: displayText,
+                        tooltip: formatted,
+                        className: 'json-cell'
+                    };
+                } catch (e) {
+                    return {
+                        text: stringValue.length > 100 ? stringValue.substring(0, 100) + '...' : stringValue,
+                        tooltip: stringValue,
+                        className: 'json-cell invalid-json'
+                    };
+                }
+            }
+            
+            // Handle Arrays
+            if (type.includes('[]') || type.includes('array')) {
+                let displayText = stringValue;
+                
+                // Convert PostgreSQL array format to more readable format
+                if (stringValue.startsWith('{') && stringValue.endsWith('}')) {
+                    displayText = '[' + stringValue.slice(1, -1) + ']';
+                }
+                
+                return {
+                    text: displayText.length > 100 ? displayText.substring(0, 100) + '...' : displayText,
+                    tooltip: displayText,
+                    className: 'array-cell'
+                };
+            }
+            
+            // Handle UUIDs
+            if (type === 'uuid') {
+                return {
+                    text: stringValue,
+                    tooltip: 'UUID: ' + stringValue,
+                    className: 'uuid-cell'
+                };
+            }
+            
+            // Handle Boolean
+            if (type.includes('bool')) {
+                const boolValue = value === true || value === 't' || value === 'true' || value === '1';
+                return {
+                    text: boolValue ? 'true' : 'false',
+                    tooltip: 'Boolean: ' + (boolValue ? 'true' : 'false'),
+                    className: boolValue ? 'bool-cell bool-true' : 'bool-cell bool-false'
+                };
+            }
+            
+            // Handle Timestamps and Dates
+            if (type.includes('timestamp') || type === 'date' || type.includes('time')) {
+                try {
+                    const date = new Date(value);
+                    if (!isNaN(date.getTime())) {
+                        let displayText;
+                        if (type === 'date') {
+                            displayText = date.toISOString().split('T')[0];
+                        } else if (type.includes('time') && !type.includes('timestamp')) {
+                            displayText = stringValue; // Keep original time format
+                        } else {
+                            displayText = date.toLocaleString();
+                        }
+                        
+                        return {
+                            text: displayText,
+                            tooltip: 'Date/Time: ' + date.toISOString(),
+                            className: 'datetime-cell'
+                        };
+                    }
+                } catch (e) {
+                    // Fall through to default handling
+                }
+            }
+            
+            // Handle Numeric types
+            if (type.includes('int') || type.includes('serial') || 
+                type.includes('numeric') || type.includes('decimal') || 
+                type.includes('float') || type.includes('double') || type.includes('real')) {
+                return {
+                    text: stringValue,
+                    tooltip: 'Number: ' + stringValue,
+                    className: 'numeric-cell'
+                };
+            }
+            
+            // Handle Long Text
+            if (type === 'text' || (type.includes('character varying') && stringValue.length > 50)) {
+                return {
+                    text: stringValue.length > 100 ? stringValue.substring(0, 100) + '...' : stringValue,
+                    tooltip: stringValue,
+                    className: 'text-cell'
+                };
+            }
+            
+            // Default handling for other types
+            return {
+                text: stringValue.length > 200 ? stringValue.substring(0, 200) + '...' : stringValue,
+                tooltip: stringValue,
+                className: null
+            };
         }
         
         function loadPage(page) {
