@@ -6,6 +6,20 @@ Connect any app to any Neon branch over localhost, and manage your database dire
 ## ✨ Features
 
 - **Database Visualization**: Browse your database schema with an intuitive tree view showing databases, schemas, tables, columns, and relationships
+- **Migrations & Queries View**: Automatically discover and execute SQL migrations and queries from your project
+- **ORM Integration**: Visual ORM model and migration management with schema drift detection for Django and Prisma
+- **Database Management**: Professional-grade PostgreSQL management tools including:
+  - **Database Operations**: Create and drop databases with full control
+  - **Schema Management**: Create, rename, and manage database schemas
+  - **Table Management**: Create and edit tables with visual designer
+  - **Index Management**: Create and optimize indexes (B-tree, GIN, GiST, BRIN, etc.)
+  - **Foreign Key Management**: Create and manage foreign key constraints with referential integrity
+  - **Trigger Management**: Create, view, enable/disable, and manage database triggers
+  - **View Management**: Create and manage regular and materialized views
+  - **Function Management**: Create and manage functions and stored procedures (PL/pgSQL, SQL, etc.)
+  - **Sequence Management**: Create and manage sequences for auto-incrementing values
+  - **User & Permission Management**: Create users, drop users, change passwords, manage roles, and control permissions
+  - **Data Import/Export**: Import from CSV/JSON files, export to CSV/JSON/SQL
 - **Built-in SQL Editor**: Write and execute SQL queries directly in your IDE with syntax highlighting, results display, and export capabilities  
 - **Table Data Management**: View, edit, insert, and delete table data with a spreadsheet-like interface without leaving your IDE
 - **Branch Management**: Create and connect to Neon branches using a local connection string without leaving your IDE
@@ -103,12 +117,46 @@ Once connected, the extension provides a comprehensive **Database Schema** view 
 - **Foreign Keys**: Visual indicators for foreign key relationships
 
 ### What you can do:
+- **Right-click the connection** to:
+  - **Create Database**: Create a new database with full control over encoding and templates
+- **Right-click any database** to:
+  - **Create Schema**: Create a new schema namespace
+  - **Drop Database**: Delete the database with safety confirmations
+  - **Manage Users & Roles**: View all database users and roles
+  - **Create User/Role**: Create new users or roles with privileges
+  - **Drop User/Role**: Remove users and roles
+  - **Change Password**: Update user passwords securely
+  - **Manage Permissions**: GRANT and REVOKE permissions on objects
 - **Right-click any table** to access quick actions:
   - **Query Table**: Opens a pre-filled `SELECT *` query in the SQL Editor
   - **View Table Data**: Opens the table data in an editable spreadsheet view
+  - **Create Index**: Visual interface for creating database indexes (B-tree, GIN, GiST, etc.)
+  - **Manage Indexes**: View, drop, and reindex operations
+  - **Create Foreign Key**: Define foreign key constraints with referential actions
+  - **Create Trigger**: Define triggers with events, timing, and functions
+  - **Import Data**: Import CSV or JSON files into the table
+  - **Export Data**: Export table data to CSV, JSON, or SQL
+  - **Edit Table Schema**: Modify table structure, add/remove columns
   - **Truncate Table**: Remove all rows from a table
   - **Drop Table**: Delete the table entirely
-- **Right-click databases** to launch a psql shell for that specific database
+- **Right-click any foreign key** to:
+  - **View Properties**: See constraint details, column mappings, and referential actions
+  - **Drop Foreign Key**: Remove the constraint
+- **Right-click any trigger** to:
+  - **View Properties**: See trigger definition, events, timing, and function
+  - **Enable Trigger**: Activate a disabled trigger
+  - **Disable Trigger**: Temporarily deactivate a trigger without dropping it
+  - **Drop Trigger**: Remove the trigger
+- **Right-click any view** to access view operations:
+  - **Edit View**: Modify view SQL definition
+  - **View Properties**: See metadata, columns, and dependencies
+  - **Drop View**: Remove view with CASCADE or RESTRICT
+  - **Refresh Materialized View**: Update materialized view data
+- **Right-click any sequence** to:
+  - **Sequence Properties**: View current value, increment, limits
+  - **Alter Sequence**: Modify increment, min/max, cycle behavior
+  - **Drop Sequence**: Delete the sequence
+- **Right-click schemas** to create tables, views, functions, sequences, and manage schema properties
 - **Refresh** the schema view to see the latest structural changes
 - **Expand/collapse** database objects to focus on what you need
 
@@ -166,6 +214,270 @@ View and edit your table data with a powerful, spreadsheet-like interface:
 4. Use the refresh button to see updates from other sources
 
 Perfect for quick data inspection, testing, and small data modifications without writing SQL.
+
+## 🎯 Index Management
+
+Optimize your database performance with comprehensive index management tools:
+
+![Index Management](/resources/index_management.png)
+
+### Creating Indexes:
+- **Visual Index Builder**: Create indexes without writing SQL
+- **All PostgreSQL Index Types**: 
+  - B-tree (default, most common)
+  - GIN (full-text search, JSONB)
+  - GiST (geometric data, full-text)
+  - BRIN (very large tables)
+  - Hash (equality comparisons)
+  - SP-GiST (partitioned data)
+- **Multi-Column Indexes**: Select columns in order for composite indexes
+- **Unique Indexes**: Enforce uniqueness constraints
+- **Partial Indexes**: Index subsets with WHERE clauses
+- **Concurrent Creation**: Non-blocking index creation for production
+- **SQL Preview**: See generated SQL before execution
+
+### Managing Indexes:
+- **View All Indexes**: See all indexes on a table with types and definitions
+- **Drop Indexes**: Remove unused indexes (with concurrent option)
+- **Reindex Operations**: Rebuild indexes to reclaim space
+- **Index Statistics**: View primary keys and unique constraints
+- **Safety Features**: Protection against dropping primary keys
+
+### How to access:
+1. **Create Index**: Right-click any table → "Create Index"
+2. **Manage Indexes**: Right-click any table → "Manage Indexes"
+3. Configure index settings and preview SQL
+4. Monitor and optimize database performance
+
+Perfect for performance tuning, query optimization, and ensuring efficient database operations.
+
+## 🚀 Migrations & Queries View
+
+Automatically discover and execute SQL migrations and queries from your project. The extension scans your workspace for migration files and SQL scripts, allowing you to execute them directly.
+
+### Supported Frameworks & Patterns:
+- **Knex**: `migrations/*.{js,ts,sql}`
+- **Sequelize**: `migrations/*.{js,ts}`
+- **TypeORM**: `migration/*.{js,ts}`
+- **Prisma**: `prisma/migrations/*/*.sql`
+- **Flyway**: `db/migration/*.sql`
+- **Liquibase**: `db/changelog/*.{sql,xml,json,yaml}`
+- **Rails**: `db/migrate/*.{rb,sql}`
+- **Laravel**: `database/migrations/*.{php,sql}`
+- **Django**: `migrations/*.py`
+- **Generic SQL**: `queries/*.sql`, `sql/*.sql`, `scripts/*.sql`
+- **Seeds**: `seeds/*.{sql,js,ts}`, `seeders/*.{sql,js,ts}`
+
+### Features:
+- **Auto-Discovery**: Automatically finds migration files in your project
+- **Smart Filtering**: Excludes generated files and build artifacts automatically
+- **Execute Single File**: Run individual migration files with one click
+- **Batch Execution**: Execute all migrations in a folder sequentially
+- **SQL Preview**: Preview SQL before execution
+- **Framework Detection**: Identifies migration framework automatically
+- **Real-time Updates**: Watches for new migration files
+- **Safety Confirmations**: Prompts before executing destructive operations
+
+### How to use:
+1. Open the **Migrations & Queries** view in the Neon Local Connect sidebar
+2. The extension automatically scans for migration files in your workspace
+3. **Execute Single Migration**: Right-click a `.sql` file → "Execute Migration"
+4. **Execute All Migrations**: Right-click a folder → "Execute All Migrations"
+5. **Open File**: Click any file to view its contents
+6. Use the refresh button if you add new migration files
+
+### Framework-Specific Support:
+
+**Django Migrations** (✨ Native Support):
+- Right-click a Django migrations folder → "Execute All Migrations"
+- Extension automatically detects `manage.py` and runs migrations with proper Python interpreter
+- **Smart venv detection**: Automatically finds and uses your virtual environment's Python
+  - Checks VS Code's Python extension settings first
+  - Searches for `venv/`, `.venv/`, `env/`, `virtualenv/` directories
+  - Falls back to system Python if no venv found
+  - Works on Windows (`Scripts/python.exe`) and Unix (`bin/python`)
+- Option to run migrations for specific app or all apps
+- Connection string automatically passed via `DATABASE_URL` environment variable
+- Terminal output shows which Python interpreter is being used
+
+**Other Frameworks**:
+For TypeScript, JavaScript, Ruby, PHP migrations, use the appropriate CLI tool:
+- **Knex**: `npx knex migrate:latest`
+- **Sequelize**: `npx sequelize-cli db:migrate`
+- **TypeORM**: `npx typeorm migration:run`
+- **Prisma**: `npx prisma migrate deploy`
+- **Rails**: `rails db:migrate`
+- **Laravel**: `php artisan migrate`
+
+## 🎯 ORM Integration
+
+Get a comprehensive view of your ORM models and migrations directly in VS Code. The extension automatically detects Django and Prisma projects and provides visual management tools with real-time schema drift detection.
+
+### Key Features:
+
+**📦 Visual Model Tree**:
+- Browse all your ORM models organized by app (Django) or schema (Prisma)
+- See real-time sync status for each model:
+  - ✅ **Green**: Model synced with database
+  - ⚠️ **Yellow**: Schema has changes (drift detected)
+  - ❌ **Red**: Table doesn't exist in database yet
+- Click any model to open its definition file
+- View table directly in database schema panel
+
+**🗄️ Migration Tracking**:
+- Visual list of all migrations with applied/pending status
+- ✅ Applied migrations show green checkmark
+- ⏳ Pending migrations show yellow clock
+- Click to open migration files
+- Grouped by app for easy navigation
+
+**⚡ Quick Actions**:
+- **Django**:
+  - Make Migrations (`python manage.py makemigrations`)
+  - Run All Migrations (`python manage.py migrate`)
+  - Open Django Shell
+  - Test Database
+  - Generate Model from Table
+- **Prisma**:
+  - Pull Schema from DB (`prisma db pull`)
+  - Push Schema to DB (`prisma db push`)
+  - Open Prisma Studio
+  - Generate Client
+  - Validate Schema
+  - Migrate Dev/Deploy
+
+**🔍 Schema Drift Detection**:
+- Automatically compares model definitions with actual database tables
+- Detects missing fields (in model but not in DB)
+- Detects extra fields (in DB but not in model)
+- Visual indicators show which models need attention
+- Helps prevent schema inconsistencies before deployment
+
+### Supported ORMs:
+
+**Django** (Full Support):
+- Parses all `models.py` files in your project
+- Detects apps and model classes automatically
+- Supports custom table names (`Meta.db_table`)
+- Tracks migrations from `django_migrations` table
+- Smart virtual environment detection
+
+**Prisma** (Full Support):
+- Parses `schema.prisma` file
+- Detects all models and fields
+- Supports custom table names (`@@map`)
+- Tracks migrations from `_prisma_migrations` table
+- Direct integration with Prisma CLI
+
+**Coming Soon**: TypeORM, Sequelize, Rails ActiveRecord, Laravel Eloquent
+
+### How to Use:
+
+1. **Open ORM Panel**: Click the Neon logo in sidebar, then expand "ORM" section
+2. **Browse Models**: Expand "Models" to see all your ORM models
+3. **Check Status**: Look for visual indicators (green/yellow/red)
+4. **View Migrations**: Expand "Migrations" to see applied/pending migrations
+5. **Quick Actions**: Use "Quick Actions" for common ORM commands
+6. **Context Menu**: Right-click models for actions like "View Table in Database"
+
+### Example Workflow:
+
+1. Edit your Django model to add a new field
+2. Extension detects change and shows ⚠️ yellow indicator
+3. Click "Make Migrations" in Quick Actions
+4. New migration appears in Migrations section with ⏳ pending status
+5. Click "Run All Migrations" to apply
+6. Model turns ✅ green, migration shows ✓ applied
+
+This tight integration keeps your models and database in perfect sync!
+
+## 👁️ View Management
+
+Create and manage PostgreSQL views to simplify complex queries and improve code organization:
+
+![View Management](/resources/view_management.png)
+
+### Creating Views:
+- **Visual View Builder**: Create views without complex SQL knowledge
+- **Regular Views**: Virtual tables, always show current data
+- **Materialized Views**: Physical storage for faster queries
+- **SQL Editor**: Multi-line SQL editor with table reference
+- **Replace if Exists**: Update existing views safely
+- **SQL Preview**: See generated SQL before execution
+
+### View Types:
+- **Regular Views**
+  - No storage overhead
+  - Always current data
+  - Query executed on access
+  - Best for frequently changing data
+  
+- **Materialized Views**
+  - Physical data storage
+  - Much faster queries
+  - Must be refreshed
+  - Best for complex aggregations and reports
+
+### Managing Views:
+- **Edit View**: Modify view definitions
+- **View Properties**: Display metadata, columns, and dependencies
+- **Drop View**: Remove with CASCADE or RESTRICT options
+- **Refresh Materialized View**: Update data with concurrent option
+- **Dependencies**: See which tables/views a view depends on
+
+### How to access:
+1. **Create View**: Right-click Schema/Database → "Create View"
+2. **Edit View**: Right-click View → "Edit View"
+3. **View Properties**: Right-click View → "View Properties"
+4. **Refresh**: Right-click Materialized View → "Refresh Materialized View"
+
+Perfect for simplifying complex queries, creating data abstractions, and building efficient reporting layers.
+
+## 📤 Data Import/Export
+
+Import and export data easily with support for multiple formats:
+
+![Data Import/Export](/resources/import_export.png)
+
+### Import Features:
+- **CSV Import**: Import comma-separated value files
+- **JSON Import**: Import JSON data arrays
+- **Column Mapping**: Automatic column detection
+- **Data Preview**: Preview file contents before import
+- **Batch Processing**: Efficient import of large datasets
+- **Progress Tracking**: Real-time progress indicator
+- **Options**:
+  - Skip first row (headers)
+  - Custom delimiters (comma, semicolon, tab, pipe)
+  - Quote character configuration
+  - NULL value handling
+  - Truncate table before import
+
+### Export Features:
+- **CSV Export**: Export to comma-separated values
+- **JSON Export**: Export as JSON array
+- **SQL Export**: Generate INSERT statements
+- **Custom Queries**: Export results from custom SQL
+- **Options**:
+  - Include/exclude headers
+  - Custom delimiters
+  - Quote character configuration
+  - NULL value representation
+
+### How to use:
+1. **Import**: Right-click Table → "Import Data"
+   - Select file (CSV or JSON)
+   - Preview data
+   - Configure options
+   - Import with progress tracking
+
+2. **Export**: Right-click Table → "Export Data"
+   - Choose format (CSV, JSON, or SQL)
+   - Select destination
+   - Optionally provide custom SQL query
+   - Export instantly
+
+Perfect for migrating data, seeding databases, backing up table data, and integrating with external systems.
 
 ## 🖱️ Panel actions
 

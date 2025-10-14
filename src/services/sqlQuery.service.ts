@@ -51,10 +51,23 @@ export class SqlQueryService {
         return await this.connectionPool.getConnection(database);
     }
 
-    async executeQuery(sql: string, database?: string): Promise<QueryResult> {
+    async executeQuery(sql: string, paramsOrDatabase?: any[] | string, database?: string): Promise<QueryResult> {
         let client: ManagedClient | null = null;
         const startTime = Date.now();
         let connectionTime = 0;
+        
+        // Handle overloaded parameters
+        let params: any[] = [];
+        let targetDb: string | undefined;
+        
+        if (Array.isArray(paramsOrDatabase)) {
+            // Called with (sql, params, database)
+            params = paramsOrDatabase;
+            targetDb = database;
+        } else {
+            // Called with (sql, database)
+            targetDb = paramsOrDatabase;
+        }
         
         // Clean the SQL query (move outside try block so it's accessible in catch)
         const cleanSql = sql.trim();
@@ -64,13 +77,13 @@ export class SqlQueryService {
         
         try {
             const connectionStart = Date.now();
-            client = await this.getConnection(database);
+            client = await this.getConnection(targetDb);
             connectionTime = Date.now() - connectionStart;
 
-            console.debug('Executing SQL query:', cleanSql);
+            console.debug('Executing SQL query:', cleanSql, 'with params:', params);
             
             const queryStart = Date.now();
-            const result = await client.query(cleanSql);
+            const result = await client.query(cleanSql, params);
             const queryExecutionTime = Date.now() - queryStart;
             const executionTime = Date.now() - startTime;
             

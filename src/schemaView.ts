@@ -5,6 +5,19 @@ import { AuthManager } from './auth/authManager';
 import { SqlQueryPanel } from './sqlQueryPanel';
 import { TableDataPanel } from './tableDataPanel';
 import { DockerService } from './services/docker.service';
+import { CreateTablePanel } from './createTablePanel';
+import { EditTablePanel } from './editTablePanel';
+import { SchemaManagementPanel } from './schemaManagementPanel';
+import { IndexManagementPanel } from './indexManagementPanel';
+import { ViewManagementPanel } from './viewManagementPanel';
+import { UserManagementPanel } from './userManagementPanel';
+import { DataImportExportPanel } from './dataImportExportPanel';
+import { FunctionManagementPanel } from './functionManagementPanel';
+import { DatabaseManagementPanel } from './databaseManagementPanel';
+import { SequenceManagementPanel } from './sequenceManagementPanel';
+import { ForeignKeyManagementPanel } from './foreignKeyManagementPanel';
+import { TriggerManagementPanel } from './triggerManagementPanel';
+import { ModelGeneratorPanel } from './modelGeneratorPanel';
 
 export class SchemaTreeItem extends vscode.TreeItem {
     constructor(
@@ -16,7 +29,22 @@ export class SchemaTreeItem extends vscode.TreeItem {
         this.tooltip = this.getTooltip();
         this.description = this.getDescription();
         this.iconPath = this.getIcon();
-        this.contextValue = item.type;
+        
+        // Set contextValue - use specific values for containers
+        if (item.type === 'container') {
+            const containerType = item.metadata?.containerType;
+            if (containerType === 'roles') {
+                this.contextValue = 'rolesContainer';
+            } else if (containerType === 'databases') {
+                this.contextValue = 'databasesContainer';
+            } else if (containerType === 'schemas') {
+                this.contextValue = 'schemasContainer';
+            } else {
+                this.contextValue = 'container';
+            }
+        } else {
+            this.contextValue = item.type;
+        }
         
         // Set command for leaf items
         if (collapsibleState === vscode.TreeItemCollapsibleState.None) {
@@ -62,7 +90,25 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 return `Function: ${item.name}(${func?.parameters || ''}) → ${func?.return_type || 'void'}`;
             case 'trigger':
                 const trigger = item.metadata;
-                return `Trigger: ${item.name} (${trigger?.timing || ''} ${trigger?.event || ''})`;
+                const events = Array.isArray(trigger?.events) ? trigger.events.filter(Boolean).join(', ') : (trigger?.event || 'Unknown');
+                const status = trigger?.is_enabled ? '✓ Enabled' : '✗ Disabled';
+                return `Trigger: ${item.name}\n${trigger?.timing || 'Unknown'} ${events}\nLevel: FOR EACH ${trigger?.level || 'Unknown'}\nFunction: ${trigger?.function_schema}.${trigger?.function_name}()\nStatus: ${status}`;
+            case 'sequence':
+                const seq = item.metadata;
+                return `Sequence: ${item.name}\nStart: ${seq?.start_value || 'N/A'}, Increment: ${seq?.increment || 'N/A'}`;
+            case 'foreignkey':
+                const fk = item.metadata;
+                return `Foreign Key: ${item.name}\nColumns: ${fk?.columns || 'N/A'}\nReferences: ${fk?.foreign_table_schema}.${fk?.foreign_table_name}(${fk?.foreign_columns})`;
+            case 'role':
+                const role = item.metadata;
+                let roleTooltip = `Role: ${item.name}`;
+                const attributes = [];
+                if (role?.is_superuser) attributes.push('Superuser');
+                if (role?.can_create_db) attributes.push('Create DB');
+                if (role?.can_create_role) attributes.push('Create Role');
+                if (role?.can_login) attributes.push('Login');
+                if (attributes.length > 0) roleTooltip += `\nAttributes: ${attributes.join(', ')}`;
+                return roleTooltip;
             default:
                 return item.name;
         }
@@ -122,8 +168,45 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 return new vscode.ThemeIcon('symbol-function');
             case 'trigger':
                 return new vscode.ThemeIcon('play');
+            case 'sequence':
+                return new vscode.ThemeIcon('symbol-numeric');
+            case 'foreignkey':
+                return new vscode.ThemeIcon('link');
+            case 'role':
+                return new vscode.ThemeIcon('account');
+            case 'container':
+                return this.getContainerIcon(this.item.metadata?.containerType);
             default:
                 return new vscode.ThemeIcon('symbol-misc');
+        }
+    }
+
+    private getContainerIcon(containerType: string): vscode.ThemeIcon {
+        switch (containerType) {
+            case 'databases':
+                return new vscode.ThemeIcon('database');
+            case 'schemas':
+                return new vscode.ThemeIcon('folder-library');
+            case 'roles':
+                return new vscode.ThemeIcon('organization');
+            case 'tables':
+                return new vscode.ThemeIcon('symbol-class');
+            case 'views':
+                return new vscode.ThemeIcon('symbol-interface');
+            case 'functions':
+                return new vscode.ThemeIcon('symbol-method');
+            case 'sequences':
+                return new vscode.ThemeIcon('symbol-numeric');
+            case 'columns':
+                return new vscode.ThemeIcon('list-unordered');
+            case 'indexes':
+                return new vscode.ThemeIcon('list-ordered');
+            case 'constraints':
+                return new vscode.ThemeIcon('shield');
+            case 'triggers':
+                return new vscode.ThemeIcon('flash');
+            default:
+                return new vscode.ThemeIcon('folder');
         }
     }
 }
@@ -216,6 +299,8 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                 return true; // Tables have columns, indexes, and potentially triggers
             case 'view':
                 return true; // Views have columns
+            case 'container':
+                return true; // Container nodes (Tables, Views, Indexes, etc.)
             default:
                 return false;
         }
@@ -265,30 +350,28 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
             switch (element.type) {
                 case 'connection':
                     children = await Promise.race([
-                        this.getDatabases(),
+                        this.getConnectionChildren(),
                         new Promise<SchemaItem[]>((_, reject) => 
                             setTimeout(() => reject(new Error('Connection timeout')), 5000)
                         )
                     ]);
                     break;
                 case 'database':
-                    children = await Promise.race([
-                        this.getSchemas(element.name),
-                        new Promise<SchemaItem[]>((_, reject) => 
-                            setTimeout(() => reject(new Error('Schema loading timeout')), 5000)
-                        )
-                    ]);
+                    // Return schemas container for the database
+                    children = [{
+                        id: `container_schemas_${element.name}`,
+                        name: 'Schemas',
+                        type: 'container' as any,
+                        metadata: { containerType: 'schemas', database: element.name }
+                    }];
                     break;
                 case 'schema':
-                    const parts = element.id.split('_');
-                    const database = parts[1];
-                    const schema = parts[2];
-                    children = await Promise.race([
-                        this.getTablesAndFunctions(database, schema),
-                        new Promise<SchemaItem[]>((_, reject) => 
-                            setTimeout(() => reject(new Error('Tables loading timeout')), 5000)
-                        )
-                    ]);
+                    console.log('[SCHEMA VIEW] Getting schema containers for:', element.name);
+                    children = await this.getSchemaContainers(element);
+                    console.log('[SCHEMA VIEW] Schema containers:', children.map(c => c.name));
+                    break;
+                case 'container':
+                    children = await this.getContainerChildren(element);
                     break;
                 case 'table':
                 case 'view':
@@ -296,7 +379,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     const tableDatabase = tableParts[1];
                     const tableSchema = tableParts[2];
                     const tableName = tableParts.slice(3).join('_');
-                    children = await this.getTableChildren(tableDatabase, tableSchema, tableName);
+                    children = await this.getTableContainers(tableDatabase, tableSchema, tableName, element.type);
                     break;
             }
 
@@ -378,27 +461,249 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
         }
     }
 
+    private async getConnectionChildren(): Promise<SchemaItem[]> {
+        try {
+            // Get databases
+            const databases = await this.getDatabases();
+            
+            // Create "Databases" container
+            const databasesContainer: SchemaItem = {
+                id: `container_databases_cluster`,
+                name: 'Databases',
+                type: 'container' as any,
+                metadata: { containerType: 'databases' }
+            };
+            
+            // Create "Roles" container at connection level (roles are cluster-wide, not database-specific)
+            const rolesContainer: SchemaItem = {
+                id: `container_roles_cluster`,
+                name: 'Roles',
+                type: 'container' as any,
+                metadata: { containerType: 'roles' }
+            };
+            
+            // Return databases container first, then roles container
+            return [databasesContainer, rolesContainer];
+        } catch (error) {
+            console.error('Error fetching connection children:', error);
+            return [];
+        }
+    }
+
+    private async getSchemaContainers(schemaItem: SchemaItem): Promise<SchemaItem[]> {
+        // Create container nodes for organizing schema objects
+        // Parse ID format: schema_v2_database_schema OR schema_database_schema
+        const parts = schemaItem.id.split('_');
+        const database = parts[1] === 'v2' ? parts[2] : parts[1];
+        const schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+        const baseId = `${database}_${schema}`;
+
+        return [
+            {
+                id: `container_tables_${baseId}`,
+                name: 'Tables',
+                type: 'container' as any,
+                metadata: { containerType: 'tables', database, schema }
+            },
+            {
+                id: `container_views_${baseId}`,
+                name: 'Views',
+                type: 'container' as any,
+                metadata: { containerType: 'views', database, schema }
+            },
+            {
+                id: `container_functions_${baseId}`,
+                name: 'Functions',
+                type: 'container' as any,
+                metadata: { containerType: 'functions', database, schema }
+            },
+            {
+                id: `container_sequences_${baseId}`,
+                name: 'Sequences',
+                type: 'container' as any,
+                metadata: { containerType: 'sequences', database, schema }
+            }
+        ];
+    }
+
+    private async getContainerChildren(containerItem: SchemaItem): Promise<SchemaItem[]> {
+        try {
+            const { containerType, database, schema } = containerItem.metadata;
+            console.log(`[SCHEMA VIEW] Getting children for container: ${containerType} in ${database}.${schema}`);
+            
+            let result: SchemaItem[] = [];
+            switch (containerType) {
+                case 'databases':
+                    result = await this.getDatabases();
+                    break;
+                case 'schemas':
+                    result = await this.getSchemas(database);
+                    break;
+                case 'roles':
+                    result = await this.getRoles();
+                    break;
+                case 'tables':
+                    result = await this.schemaService.getTables(database, schema);
+                    break;
+                case 'views':
+                    result = await this.schemaService.getViews(database, schema);
+                    break;
+                case 'functions':
+                    result = await this.schemaService.getFunctions(database, schema);
+                    break;
+                case 'sequences':
+                    result = await this.schemaService.getSequences(database, schema);
+                    break;
+                case 'columns':
+                    result = await this.schemaService.getColumns(database, schema, containerItem.metadata.tableName);
+                    break;
+                case 'indexes':
+                    result = await this.schemaService.getIndexes(database, schema, containerItem.metadata.tableName);
+                    break;
+                case 'constraints':
+                    result = await this.schemaService.getForeignKeys(database, schema, containerItem.metadata.tableName);
+                    break;
+                case 'triggers':
+                    result = await this.schemaService.getTriggers(database, schema, containerItem.metadata.tableName);
+                    break;
+                default:
+                    result = [];
+            }
+            
+            console.log(`[SCHEMA VIEW] Container ${containerType} returned ${result.length} items:`, result.map(r => r.name));
+            return result;
+        } catch (error) {
+            console.error('Error fetching container children:', error);
+            return [];
+        }
+    }
+
+    private async getRoles(): Promise<SchemaItem[]> {
+        try {
+            // Get current database for connection (roles are cluster-wide, so any DB works)
+            const viewData = await this.stateService.getViewData();
+            const database = viewData.selectedDatabase || 'postgres';
+            
+            const sqlService = new (require('./services/sqlQuery.service').SqlQueryService)(this.stateService, (this as any).context);
+            const result = await sqlService.executeQuery(`
+                SELECT 
+                    r.rolname as name,
+                    r.rolsuper as is_superuser,
+                    r.rolcreatedb as can_create_db,
+                    r.rolcreaterole as can_create_role,
+                    r.rolcanlogin as can_login,
+                    ARRAY(
+                        SELECT m.rolname 
+                        FROM pg_auth_members am
+                        JOIN pg_roles m ON am.roleid = m.oid
+                        WHERE am.member = r.oid
+                    ) as member_of
+                FROM pg_catalog.pg_roles r
+                WHERE r.rolname NOT LIKE 'pg_%'
+                  AND r.rolname NOT IN ('cloud_admin', 'neon_superuser')
+                ORDER BY r.rolname
+            `, database);
+
+            return result.rows.map((row: any) => {
+                // Parse member_of array (PostgreSQL returns it as a string like "{role1,role2}")
+                let memberOfArray: string[] = [];
+                if (row.member_of) {
+                    if (Array.isArray(row.member_of)) {
+                        memberOfArray = row.member_of;
+                    } else if (typeof row.member_of === 'string') {
+                        // Parse PostgreSQL array format: "{role1,role2}" -> ["role1", "role2"]
+                        const match = row.member_of.match(/^\{(.*)\}$/);
+                        if (match && match[1]) {
+                            memberOfArray = match[1].split(',').filter((s: string) => s.trim());
+                        }
+                    }
+                }
+                
+                console.log(`Role ${row.name}: member_of raw =`, row.member_of, 'parsed =', memberOfArray);
+                
+                return {
+                    id: `role_cluster_${row.name}`,
+                    name: row.name,
+                    type: 'role' as any,
+                    metadata: {
+                        is_superuser: row.is_superuser,
+                        can_create_db: row.can_create_db,
+                        can_create_role: row.can_create_role,
+                        can_login: row.can_login,
+                        member_of: memberOfArray
+                    }
+                };
+            });
+        } catch (error) {
+            console.error('Error fetching roles:', error);
+            return [];
+        }
+    }
+
+    private async getTableContainers(database: string, schema: string, tableName: string, itemType: string): Promise<SchemaItem[]> {
+        // Create container nodes for organizing table objects
+        const baseId = `${database}_${schema}_${tableName}`;
+
+        const containers: SchemaItem[] = [
+            {
+                id: `container_columns_${baseId}`,
+                name: 'Columns',
+                type: 'container' as any,
+                metadata: { containerType: 'columns', database, schema, tableName }
+            }
+        ];
+
+        // Only tables have indexes, constraints, and triggers
+        if (itemType === 'table') {
+            containers.push(
+                {
+                    id: `container_indexes_${baseId}`,
+                    name: 'Indexes',
+                    type: 'container' as any,
+                    metadata: { containerType: 'indexes', database, schema, tableName }
+                },
+                {
+                    id: `container_constraints_${baseId}`,
+                    name: 'Constraints',
+                    type: 'container' as any,
+                    metadata: { containerType: 'constraints', database, schema, tableName }
+                },
+                {
+                    id: `container_triggers_${baseId}`,
+                    name: 'Triggers',
+                    type: 'container' as any,
+                    metadata: { containerType: 'triggers', database, schema, tableName }
+                }
+            );
+        }
+
+        return containers;
+    }
+
     private async getTablesAndFunctions(database: string, schema: string): Promise<SchemaItem[]> {
         try {
-            const [tables, functions] = await Promise.all([
+            const [tables, views, functions, sequences] = await Promise.all([
                 this.schemaService.getTables(database, schema),
-                this.schemaService.getFunctions(database, schema)
+                this.schemaService.getViews(database, schema),
+                this.schemaService.getFunctions(database, schema),
+                this.schemaService.getSequences(database, schema)
             ]);
-            return [...tables, ...functions];
+            return [...tables, ...views, ...functions, ...sequences];
         } catch (error) {
-            console.error('Error fetching tables and functions:', error);
+            console.error('Error fetching tables, views, functions, and sequences:', error);
             return [];
         }
     }
 
     private async getTableChildren(database: string, schema: string, table: string): Promise<SchemaItem[]> {
         try {
-            const [columns, indexes, triggers] = await Promise.all([
+            const [columns, indexes, triggers, foreignKeys] = await Promise.all([
                 this.schemaService.getColumns(database, schema, table),
                 this.schemaService.getIndexes(database, schema, table),
-                this.schemaService.getTriggers(database, schema, table)
+                this.schemaService.getTriggers(database, schema, table),
+                this.schemaService.getForeignKeys(database, schema, table)
             ]);
-            return [...columns, ...indexes, ...triggers];
+            return [...columns, ...indexes, ...triggers, ...foreignKeys];
         } catch (error) {
             console.error('Error fetching table children:', error);
             return [];
@@ -419,56 +724,121 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
             // Add a small delay to let the container fully stabilize
             await new Promise(resolve => setTimeout(resolve, 500));
             
-            // Load all databases first with timeout
-            const databases = await Promise.race([
-                this.getDatabases(),
+            // Load connection children (databases container + roles container) first with timeout
+            const connectionChildren = await Promise.race([
+                this.getConnectionChildren(),
                 new Promise<SchemaItem[]>((_, reject) => 
-                    setTimeout(() => reject(new Error('Database loading timeout')), 10000)
+                    setTimeout(() => reject(new Error('Connection loading timeout')), 10000)
                 )
             ]);
             
-            // Don't preload if there are too many databases (performance consideration)
-            if (databases.length > 10) {
-                console.debug(`Schema view: Skipping preload due to large number of databases (${databases.length})`);
-                return;
+            // Cache connection children (includes databases container + roles container)
+            this.schemaCache.set('connection_root', connectionChildren);
+            
+            // Preload roles for the roles container
+            const rolesContainer = connectionChildren.find(item => item.type === 'container' && item.metadata?.containerType === 'roles');
+            if (rolesContainer) {
+                try {
+                    const roles = await this.getRoles();
+                    this.schemaCache.set(rolesContainer.id, roles);
+                    console.debug(`Schema view: Cached ${roles.length} roles`);
+                } catch (error) {
+                    console.error('Error preloading roles:', error);
+                }
             }
             
-            // Cache databases for connection root
-            this.schemaCache.set('connection_root', databases);
-            
-            // For each database, load schemas and their contents
-            for (const database of databases) {
+            // Preload databases for the databases container
+            const databasesContainer = connectionChildren.find(item => item.type === 'container' && item.metadata?.containerType === 'databases');
+            if (databasesContainer) {
                 try {
-                    const schemas = await this.getSchemas(database.name);
+                    const databases = await this.getDatabases();
+                    this.schemaCache.set(databasesContainer.id, databases);
+                    console.debug(`Schema view: Cached ${databases.length} databases`);
                     
-                    // Don't preload if there are too many schemas in this database
-                    if (schemas.length > 20) {
-                        console.debug(`Schema view: Skipping preload for database ${database.name} due to large number of schemas (${schemas.length})`);
-                        continue;
+                    // Don't preload if there are too many databases (performance consideration)
+                    if (databases.length > 10) {
+                        console.debug(`Schema view: Skipping schema preload due to large number of databases (${databases.length})`);
+                        return;
                     }
                     
-                    // Cache schemas
-                    this.schemaCache.set(database.id, schemas);
-                    
-                    // For each schema, load tables and their contents
-                    for (const schema of schemas) {
+                    // For each database, preload the schemas container and its schemas
+                    for (const database of databases) {
                         try {
-                            const parts = schema.id.split('_');
-                            const dbName = parts[1];
-                            const schemaName = parts[2];
+                            // Create schemas container for this database
+                            const schemasContainer: SchemaItem = {
+                                id: `container_schemas_${database.name}`,
+                                name: 'Schemas',
+                                type: 'container' as any,
+                                metadata: { containerType: 'schemas', database: database.name }
+                            };
                             
-                            const tablesAndFunctions = await this.getTablesAndFunctions(dbName, schemaName);
+                            // Cache the schemas container
+                            this.schemaCache.set(database.id, [schemasContainer]);
                             
-                            // Don't preload table details if there are too many tables
-                            if (tablesAndFunctions.length > 50) {
-                                console.debug(`Schema view: Skipping table detail preload for schema ${schemaName} due to large number of tables (${tablesAndFunctions.length})`);
-                                // Still cache the tables/functions list, just not their children
-                                this.schemaCache.set(schema.id, tablesAndFunctions);
+                            // Load schemas for the schemas container
+                            const schemas = await this.getSchemas(database.name);
+                            
+                            // Don't preload if there are too many schemas in this database
+                            if (schemas.length > 20) {
+                                console.debug(`Schema view: Skipping preload for database ${database.name} due to large number of schemas (${schemas.length})`);
                                 continue;
                             }
                             
-                            // Cache tables and functions
-                            this.schemaCache.set(schema.id, tablesAndFunctions);
+                            // Cache schemas under the schemas container ID
+                            this.schemaCache.set(schemasContainer.id, schemas);
+                    
+                    // For each schema, load container structure
+                    for (const schema of schemas) {
+                        try {
+                            const parts = schema.id.split('_');
+                            const dbName = parts[1] === 'v2' ? parts[2] : parts[1];
+                            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+                            
+                            // Cache schema containers (Tables, Views, Functions, Sequences)
+                            const containers = await this.getSchemaContainers(schema);
+                            this.schemaCache.set(schema.id, containers);
+                            
+                            // Now preload the actual tables, views, functions, sequences for each container
+                            for (const container of containers) {
+                                const { containerType, database, schema: schemaName } = container.metadata;
+                                try {
+                                    let containerChildren: SchemaItem[] = [];
+                                    switch (containerType) {
+                                        case 'tables':
+                                            containerChildren = await this.schemaService.getTables(database, schemaName);
+                                            break;
+                                        case 'views':
+                                            containerChildren = await this.schemaService.getViews(database, schemaName);
+                                            break;
+                                        case 'functions':
+                                            containerChildren = await this.schemaService.getFunctions(database, schemaName);
+                                            break;
+                                        case 'sequences':
+                                            containerChildren = await this.schemaService.getSequences(database, schemaName);
+                                            break;
+                                    }
+                                    
+                                    // Don't preload table details if there are too many items
+                                    if (containerChildren.length > 50) {
+                                        console.debug(`Schema view: Skipping ${containerType} detail preload for schema ${schemaName} due to large number (${containerChildren.length})`);
+                                        // Still cache the container's children list
+                                        this.schemaCache.set(container.id, containerChildren);
+                                        continue;
+                                    }
+                                    
+                                    // Cache container children
+                                    this.schemaCache.set(container.id, containerChildren);
+                                } catch (error) {
+                                    console.error(`Error preloading ${containerType} for schema ${schemaName}:`, error);
+                                }
+                            }
+                            
+                            // Get all tables for detailed preload
+                            const tablesAndFunctions = await this.getTablesAndFunctions(dbName, schemaName);
+                            if (tablesAndFunctions.length > 50) {
+                                console.debug(`Schema view: Skipping table detail preload for schema ${schemaName} due to large number of tables (${tablesAndFunctions.length})`);
+                                continue;
+                            }
                             
                             // For each table/view, load columns, indexes, and triggers
                             const tablePromises = tablesAndFunctions
@@ -500,8 +870,12 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                             console.error(`Error preloading schema ${schema.name}:`, error);
                         }
                     }
+                        } catch (error) {
+                            console.error(`Error preloading database ${database.name}:`, error);
+                        }
+                    }
                 } catch (error) {
-                    console.error(`Error preloading database ${database.name}:`, error);
+                    console.error('Error preloading databases container:', error);
                 }
             }
             
@@ -549,6 +923,9 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.showDetails', (item: SchemaItem) => {
                 this.showItemDetails(item);
             }),
+            vscode.commands.registerCommand('neonLocal.schema.showContextMenu', (item: SchemaItem) => {
+                this.showContextMenu(item);
+            }),
 
             vscode.commands.registerCommand('neonLocal.schema.openSqlQuery', () => {
                 this.openSqlQuery();
@@ -570,6 +947,135 @@ export class SchemaViewProvider {
             }),
             vscode.commands.registerCommand('neonLocal.schema.dropTable', (item: SchemaItem) => {
                 this.dropTable(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createTable', (item: SchemaItem) => {
+                this.createTable(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editTable', (item: SchemaItem) => {
+                this.editTable(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createSchema', (item: SchemaItem) => {
+                this.createSchema(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editSchema', (item: SchemaItem) => {
+                this.editSchema(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropSchema', (item: SchemaItem) => {
+                this.dropSchema(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.showSchemaProperties', (item: SchemaItem) => {
+                this.showSchemaProperties(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createIndex', (item: SchemaItem) => {
+                this.createIndex(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.manageIndexes', (item: SchemaItem) => {
+                this.manageIndexes(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createView', (item: SchemaItem) => {
+                this.createView(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editView', (item: SchemaItem) => {
+                this.editView(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.viewProperties', (item: SchemaItem) => {
+                this.viewProperties(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropView', (item: SchemaItem) => {
+                this.dropView(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.refreshMaterializedView', (item: SchemaItem) => {
+                this.refreshMaterializedView(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createDatabase', (item: SchemaItem) => {
+                this.createDatabase(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropDatabase', (item: SchemaItem) => {
+                this.dropDatabase(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.showUsers', (item: SchemaItem) => {
+                this.showUsers(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createUser', (item: SchemaItem) => {
+                this.createUser(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropUser', (item: SchemaItem) => {
+                this.dropUser(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.changePassword', (item: SchemaItem) => {
+                this.changePassword(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.resetRolePassword', (item: SchemaItem) => {
+                this.resetRolePassword(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editRole', (item: SchemaItem) => {
+                this.editRole(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.manageRolePermissions', (item: SchemaItem) => {
+                this.manageRolePermissions(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropRole', (item: SchemaItem) => {
+                this.dropRole(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.managePermissions', (item: SchemaItem) => {
+                this.managePermissions(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.importData', (item: SchemaItem) => {
+                this.importData(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.exportData', (item: SchemaItem) => {
+                this.exportData(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createFunction', (item: SchemaItem) => {
+                this.createFunction(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editFunction', (item: SchemaItem) => {
+                this.editFunction(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.viewFunctionProperties', (item: SchemaItem) => {
+                this.viewFunctionProperties(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropFunction', (item: SchemaItem) => {
+                this.dropFunction(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createSequence', (item: SchemaItem) => {
+                this.createSequence(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.viewSequenceProperties', (item: SchemaItem) => {
+                this.viewSequenceProperties(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.alterSequence', (item: SchemaItem) => {
+                this.alterSequence(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropSequence', (item: SchemaItem) => {
+                this.dropSequence(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createForeignKey', (item: SchemaItem) => {
+                this.createForeignKey(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.viewForeignKeyProperties', (item: SchemaItem) => {
+                this.viewForeignKeyProperties(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropForeignKey', (item: SchemaItem) => {
+                this.dropForeignKey(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createTrigger', (item: SchemaItem) => {
+                this.createTrigger(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.viewTriggerProperties', (item: SchemaItem) => {
+                this.viewTriggerProperties(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.enableTrigger', (item: SchemaItem) => {
+                this.enableTrigger(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.disableTrigger', (item: SchemaItem) => {
+                this.disableTrigger(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropTrigger', (item: SchemaItem) => {
+                this.dropTrigger(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.orm.generateModel', (item: SchemaItem) => {
+                this.generateModel(item);
             })
         );
     }
@@ -838,8 +1344,1224 @@ export class SchemaViewProvider {
         }
     }
 
+    private async createTable(item: SchemaItem): Promise<void> {
+        // Can be called on schema, database, or container items
+        if (item.type !== 'schema' && item.type !== 'database' && item.type !== 'container') {
+            return;
+        }
+
+        try {
+            // Parse the ID to get database and schema
+            let database: string;
+            let schema: string;
+
+            if (item.type === 'container') {
+                // For container (Tables node), get from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+            } else if (item.type === 'schema') {
+                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
+                const parts = item.id.split('_');
+                database = parts[1] === 'v2' ? parts[2] : parts[1];
+                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+            } else {
+                // For database, default to public schema
+                database = item.name;
+                schema = 'public';
+            }
+
+            // Open the create table panel
+            CreateTablePanel.createOrShow(this.context, this.stateService, schema, database);
+            
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open create table dialog: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editTable(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            // Open the edit table panel
+            EditTablePanel.createOrShow(this.context, this.stateService, schema, tableName, database);
+            
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open edit table dialog: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createSchema(item: SchemaItem): Promise<void> {
+        // Can be called on database items
+        if (item.type !== 'database') {
+            return;
+        }
+
+        try {
+            const database = item.name;
+            await SchemaManagementPanel.createSchema(this.context, this.stateService, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create schema: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editSchema(item: SchemaItem): Promise<void> {
+        if (item.type !== 'schema') {
+            return;
+        }
+
+        try {
+            // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
+            const parts = item.id.split('_');
+            const database = parts[1] === 'v2' ? parts[2] : parts[1];
+            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+
+            await SchemaManagementPanel.editSchema(this.context, this.stateService, schemaName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit schema: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropSchema(item: SchemaItem): Promise<void> {
+        if (item.type !== 'schema') {
+            return;
+        }
+
+        try {
+            // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
+            const parts = item.id.split('_');
+            const database = parts[1] === 'v2' ? parts[2] : parts[1];
+            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+
+            await SchemaManagementPanel.dropSchema(this.context, this.stateService, schemaName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop schema: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async showSchemaProperties(item: SchemaItem): Promise<void> {
+        if (item.type !== 'schema') {
+            return;
+        }
+
+        try {
+            // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
+            const parts = item.id.split('_');
+            const database = parts[1] === 'v2' ? parts[2] : parts[1];
+            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+
+            await SchemaManagementPanel.showSchemaProperties(this.context, this.stateService, schemaName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to show schema properties: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createIndex(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            await IndexManagementPanel.createIndex(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create index: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async manageIndexes(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            await IndexManagementPanel.manageIndexes(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to manage indexes: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createView(item: SchemaItem): Promise<void> {
+        if (item.type !== 'schema' && item.type !== 'database' && item.type !== 'container') {
+            return;
+        }
+
+        try {
+            let schema: string;
+            let database: string;
+
+            if (item.type === 'container') {
+                // For container (Views node), get from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+            } else if (item.type === 'schema') {
+                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
+                const parts = item.id.split('_');
+                database = parts[1] === 'v2' ? parts[2] : parts[1];
+                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+            } else {
+                // Database selected, use public schema by default
+                database = item.name;
+                schema = 'public';
+            }
+
+            await ViewManagementPanel.createView(this.context, this.stateService, schema, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create view: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editView(item: SchemaItem): Promise<void> {
+        if (item.type !== 'view') {
+            return;
+        }
+
+        try {
+            // Parse view ID: view_database_schema_viewname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const viewName = parts.slice(3).join('_');
+
+            await ViewManagementPanel.editView(this.context, this.stateService, schema, viewName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit view: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async viewProperties(item: SchemaItem): Promise<void> {
+        if (item.type !== 'view') {
+            return;
+        }
+
+        try {
+            // Parse view ID: view_database_schema_viewname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const viewName = parts.slice(3).join('_');
+
+            await ViewManagementPanel.viewProperties(this.context, this.stateService, schema, viewName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to show view properties: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropView(item: SchemaItem): Promise<void> {
+        if (item.type !== 'view') {
+            return;
+        }
+
+        try {
+            // Parse view ID: view_database_schema_viewname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const viewName = parts.slice(3).join('_');
+
+            // Check if it's a materialized view
+            const isMaterialized = item.metadata?.is_materialized || false;
+            const viewType = isMaterialized ? 'materialized view' : 'view';
+
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop ${viewType} "${viewName}"?`,
+                { modal: true },
+                'Drop (RESTRICT)',
+                'Drop (CASCADE)'
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            const cascade = confirmation.includes('CASCADE');
+            await ViewManagementPanel.dropView(this.context, this.stateService, schema, viewName, isMaterialized, cascade, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop view: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async refreshMaterializedView(item: SchemaItem): Promise<void> {
+        if (item.type !== 'view') {
+            return;
+        }
+
+        try {
+            // Parse view ID: view_database_schema_viewname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const viewName = parts.slice(3).join('_');
+
+            // Check if it's a materialized view
+            if (!item.metadata?.is_materialized) {
+                vscode.window.showWarningMessage('This is not a materialized view. Only materialized views can be refreshed.');
+                return;
+            }
+
+            // Ask about concurrent refresh
+            const concurrent = await vscode.window.showQuickPick(
+                ['Yes - Concurrent (non-blocking)', 'No - Standard (faster)'],
+                {
+                    placeHolder: 'Refresh concurrently? (Requires PostgreSQL 9.4+, allows queries during refresh)'
+                }
+            );
+
+            if (!concurrent) {
+                return;
+            }
+
+            const useConcurrent = concurrent.startsWith('Yes');
+            await ViewManagementPanel.refreshMaterializedView(this.context, this.stateService, schema, viewName, useConcurrent, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to refresh materialized view: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async showUsers(item: SchemaItem): Promise<void> {
+        if (item.type !== 'database') {
+            return;
+        }
+
+        try {
+            const database = item.name;
+            await UserManagementPanel.showUsers(this.context, this.stateService, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to show users: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createUser(item: SchemaItem): Promise<void> {
+        // Accept both database and container (for Roles container)
+        if (item.type !== 'database' && item.type !== 'container') {
+            return;
+        }
+
+        try {
+            // For container type (Roles container), use undefined database
+            // For database type, use the database name
+            const database = item.type === 'database' ? item.name : undefined;
+            await UserManagementPanel.createUser(this.context, this.stateService, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create user: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async importData(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            await DataImportExportPanel.showImport(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to show import interface: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async exportData(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            await DataImportExportPanel.showExport(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to show export interface: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createFunction(item: SchemaItem): Promise<void> {
+        if (item.type !== 'schema' && item.type !== 'container' && item.type !== 'database') {
+            return;
+        }
+
+        try {
+            let database: string;
+            let schema: string;
+
+            if (item.type === 'container') {
+                // For container (Functions node), get from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+            } else if (item.type === 'database') {
+                // For database, default to public schema
+                database = item.name;
+                schema = 'public';
+            } else {
+                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
+                const parts = item.id.split('_');
+                database = parts[1] === 'v2' ? parts[2] : parts[1];
+                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+            }
+
+            await FunctionManagementPanel.createFunction(this.context, this.stateService, schema, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create function: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editFunction(item: SchemaItem): Promise<void> {
+        if (item.type !== 'function') {
+            return;
+        }
+
+        try {
+            // Parse function ID: function_database_schema_functionname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const functionName = parts.slice(3).join('_');
+
+            await FunctionManagementPanel.editFunction(this.context, this.stateService, schema, functionName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit function: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async viewFunctionProperties(item: SchemaItem): Promise<void> {
+        if (item.type !== 'function') {
+            return;
+        }
+
+        try {
+            // Parse function ID: function_database_schema_functionname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const functionName = parts.slice(3).join('_');
+
+            await FunctionManagementPanel.viewFunctionProperties(this.context, this.stateService, schema, functionName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to view function properties: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropFunction(item: SchemaItem): Promise<void> {
+        if (item.type !== 'function') {
+            return;
+        }
+
+        try {
+            // Parse function ID: function_database_schema_functionname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const functionName = parts.slice(3).join('_');
+
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop function "${functionName}"?`,
+                { modal: true },
+                'Drop (RESTRICT)',
+                'Drop (CASCADE)'
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            const cascade = confirmation.includes('CASCADE');
+            await FunctionManagementPanel.dropFunction(this.context, this.stateService, schema, functionName, cascade, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop function: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     getSchemaService(): SchemaService {
         return this.schemaService;
+    }
+
+    private async createDatabase(item: SchemaItem): Promise<void> {
+        try {
+            await DatabaseManagementPanel.createDatabase(this.context, this.stateService);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create database: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropDatabase(item: SchemaItem): Promise<void> {
+        if (item.type !== 'database') {
+            return;
+        }
+
+        try {
+            // Parse database ID: database_databasename
+            const parts = item.id.split('_');
+            const database = parts.slice(1).join('_');
+            await DatabaseManagementPanel.dropDatabase(this.context, this.stateService, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop database: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropUser(item: SchemaItem): Promise<void> {
+        // Get username from quick input
+        const username = await vscode.window.showInputBox({
+            prompt: 'Enter username/role to drop',
+            placeHolder: 'username',
+            validateInput: (value) => {
+                if (!value) {
+                    return 'Username is required';
+                }
+                return null;
+            }
+        });
+
+        if (!username) {
+            return;
+        }
+
+        try {
+            const database = item.type === 'database' ? item.id.split('_').slice(1).join('_') : undefined;
+            
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop user/role "${username}"?`,
+                { modal: true, detail: 'This action cannot be undone.' },
+                'Drop User/Role'
+            );
+
+            if (confirmation !== 'Drop User/Role') {
+                return;
+            }
+
+            await UserManagementPanel.dropUser(this.context, this.stateService, username, database);
+            vscode.window.showInformationMessage(`User/role "${username}" dropped successfully!`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop user: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async changePassword(item: SchemaItem): Promise<void> {
+        if (item.type !== 'role') {
+            return;
+        }
+
+        try {
+            const username = item.name;
+            const database = undefined; // Password changes are cluster-wide, not database-specific
+            await UserManagementPanel.changePassword(this.context, this.stateService, username, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to change password: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async resetRolePassword(item: SchemaItem): Promise<void> {
+        if (item.type !== 'role') {
+            return;
+        }
+
+        const roleName = item.name;
+        
+        // Confirm the action
+        const confirm = await vscode.window.showWarningMessage(
+            `Reset password for role "${roleName}" via Neon API? A new password will be auto-generated.`,
+            { modal: true },
+            'Reset Password'
+        );
+
+        if (confirm !== 'Reset Password') {
+            return;
+        }
+
+        try {
+            // Get project and branch IDs
+            const apiService = new (require('./services/api.service').NeonApiService)(this.context);
+            
+            let projectId = await this.stateService.getCurrentProjectId();
+            let branchId = await this.stateService.getCurrentBranchId();
+            
+            // Fallback to viewData if not found
+            if (!projectId || !branchId) {
+                const viewData = await this.stateService.getViewData();
+                projectId = projectId || viewData.connectedProjectId;
+                branchId = branchId || viewData.currentlyConnectedBranch;
+            }
+            
+            if (!projectId || !branchId) {
+                throw new Error('Unable to determine project or branch. Please ensure you are connected to a Neon database.');
+            }
+            
+            // Reset password via API
+            const response = await apiService.resetRolePassword(projectId, branchId, roleName);
+            const newPassword = response.role.password || '(password not provided)';
+            
+            // Copy to clipboard
+            await vscode.env.clipboard.writeText(newPassword);
+            
+            // Show notification
+            vscode.window.showInformationMessage(
+                `✅ Password reset for "${roleName}"! New password copied to clipboard: ${newPassword}`
+            );
+            
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to reset password: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editRole(item: SchemaItem): Promise<void> {
+        if (item.type !== 'role') {
+            return;
+        }
+
+        try {
+            const roleName = item.name;
+            const database = undefined; // Roles are cluster-wide
+            await UserManagementPanel.editRole(this.context, this.stateService, roleName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit role: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async manageRolePermissions(item: SchemaItem): Promise<void> {
+        if (item.type !== 'role') {
+            return;
+        }
+
+        const roleName = item.name;
+        
+        try {
+            const database = undefined; // Permissions are managed per database
+            await UserManagementPanel.managePermissions(this.context, this.stateService, roleName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to manage permissions: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropRole(item: SchemaItem): Promise<void> {
+        if (item.type !== 'role') {
+            return;
+        }
+
+        const roleName = item.name;
+        const metadata = item.metadata;
+        
+        // Check if this is a neon_superuser member
+        const memberOf = metadata?.member_of || [];
+        const isNeonSuperuser = Array.isArray(memberOf) && memberOf.includes('neon_superuser');
+        
+        // Confirm the action
+        const confirm = await vscode.window.showWarningMessage(
+            `Are you sure you want to drop role "${roleName}"? This action cannot be undone.`,
+            { modal: true },
+            'Drop Role'
+        );
+
+        if (confirm !== 'Drop Role') {
+            return;
+        }
+
+        try {
+            if (isNeonSuperuser) {
+                // Use Neon API for neon_superuser roles
+                const apiService = new (require('./services/api.service').NeonApiService)(this.context);
+                
+                let projectId = await this.stateService.getCurrentProjectId();
+                let branchId = await this.stateService.getCurrentBranchId();
+                
+                // Fallback to viewData if not found
+                if (!projectId || !branchId) {
+                    const viewData = await this.stateService.getViewData();
+                    projectId = projectId || viewData.connectedProjectId;
+                    branchId = branchId || viewData.currentlyConnectedBranch;
+                }
+                
+                if (!projectId || !branchId) {
+                    throw new Error('Unable to determine project or branch. Please ensure you are connected to a Neon database.');
+                }
+                
+                // Drop role via API
+                await apiService.deleteRole(projectId, branchId, roleName);
+            } else {
+                // Use SQL for non-neon_superuser roles
+                const sqlService = new (require('./services/sqlQuery.service').SqlQueryService)(this.stateService, this.context);
+                const database = 'postgres'; // Roles are cluster-wide, use any database
+                
+                // Properly quote the role name to handle special characters and reserved words
+                await sqlService.executeQuery(`DROP ROLE IF EXISTS "${roleName}"`, database);
+            }
+            
+            vscode.window.showInformationMessage(`Role "${roleName}" dropped successfully!`);
+            
+            // Refresh the tree
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+        } catch (error) {
+            let errorMessage = 'Unknown error';
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                const pgError = error as any;
+                errorMessage = pgError.message || JSON.stringify(error, Object.getOwnPropertyNames(error));
+            } else {
+                errorMessage = String(error);
+            }
+            vscode.window.showErrorMessage(`Failed to drop role: ${errorMessage}`);
+        }
+    }
+
+    private async managePermissions(item: SchemaItem): Promise<void> {
+        // Get username from quick input
+        const username = await vscode.window.showInputBox({
+            prompt: 'Enter username to manage permissions for',
+            placeHolder: 'username'
+        });
+
+        if (!username) {
+            return;
+        }
+
+        try {
+            const database = item.type === 'database' ? item.id.split('_').slice(1).join('_') : undefined;
+            await UserManagementPanel.managePermissions(this.context, this.stateService, username, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to manage permissions: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createSequence(item: SchemaItem): Promise<void> {
+        if (item.type !== 'schema' && item.type !== 'container' && item.type !== 'database') {
+            return;
+        }
+
+        try {
+            let database: string;
+            let schema: string;
+
+            if (item.type === 'container') {
+                // For container (Sequences node), get from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+            } else if (item.type === 'database') {
+                // For database, default to public schema
+                database = item.name;
+                schema = 'public';
+            } else {
+                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
+                const parts = item.id.split('_');
+                database = parts[1] === 'v2' ? parts[2] : parts[1];
+                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+            }
+
+            await SequenceManagementPanel.createSequence(this.context, this.stateService, schema, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create sequence: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async viewSequenceProperties(item: SchemaItem): Promise<void> {
+        if (item.type !== 'sequence') {
+            return;
+        }
+
+        try {
+            // Parse parent schema ID to get database and schema
+            const parentParts = item.parent?.split('_') || [];
+            const database = parentParts[2]; // schema_v2_database_schema...
+            const schema = parentParts.slice(3).join('_');
+            const sequenceName = item.name;
+
+            await SequenceManagementPanel.viewSequenceProperties(this.context, this.stateService, schema, sequenceName, database);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            vscode.window.showErrorMessage(`Failed to view sequence properties: ${errorMessage}`);
+        }
+    }
+
+    private async alterSequence(item: SchemaItem): Promise<void> {
+        if (item.type !== 'sequence') {
+            return;
+        }
+
+        try {
+            // Parse parent schema ID to get database and schema
+            const parentParts = item.parent?.split('_') || [];
+            const database = parentParts[2]; // schema_v2_database_schema...
+            const schema = parentParts.slice(3).join('_');
+            const sequenceName = item.name;
+
+            await SequenceManagementPanel.alterSequence(this.context, this.stateService, schema, sequenceName, database);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            vscode.window.showErrorMessage(`Failed to alter sequence: ${errorMessage}`);
+        }
+    }
+
+    private async dropSequence(item: SchemaItem): Promise<void> {
+        if (item.type !== 'sequence') {
+            return;
+        }
+
+        try {
+            // Parse parent schema ID to get database and schema
+            const parentParts = item.parent?.split('_') || [];
+            const database = parentParts[2]; // schema_v2_database_schema...
+            const schema = parentParts.slice(3).join('_');
+            const sequenceName = item.name;
+
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop sequence "${schema}.${sequenceName}"?`,
+                { modal: true },
+                'Drop (RESTRICT)',
+                'Drop (CASCADE)'
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            const cascade = confirmation.includes('CASCADE');
+            await SequenceManagementPanel.dropSequence(this.context, this.stateService, schema, sequenceName, cascade, database);
+            
+            // Refresh the schema view after successful drop
+            this.clearCache();
+            this._onDidChangeTreeData.fire();
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            vscode.window.showErrorMessage(`Failed to drop sequence: ${errorMessage}`);
+        }
+    }
+
+    private async createForeignKey(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            await ForeignKeyManagementPanel.createForeignKey(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create foreign key: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async viewForeignKeyProperties(item: SchemaItem): Promise<void> {
+        if (item.type !== 'foreignkey') {
+            return;
+        }
+
+        try {
+            // Parse foreign key ID: foreignkey_database_schema_tablename_fkname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const fkName = parts.slice(4).join('_');
+
+            await ForeignKeyManagementPanel.viewForeignKeyProperties(this.context, this.stateService, schema, tableName, fkName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to view foreign key properties: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropForeignKey(item: SchemaItem): Promise<void> {
+        if (item.type !== 'foreignkey') {
+            return;
+        }
+
+        try {
+            // Parse foreign key ID: foreignkey_database_schema_tablename_fkname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const fkName = parts.slice(4).join('_');
+
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop foreign key "${fkName}" from table "${schema}.${tableName}"?`,
+                { modal: true },
+                'Drop Foreign Key'
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            await ForeignKeyManagementPanel.dropForeignKey(this.context, this.stateService, schema, tableName, fkName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop foreign key: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createTrigger(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            await TriggerManagementPanel.createTrigger(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create trigger: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async viewTriggerProperties(item: SchemaItem): Promise<void> {
+        if (item.type !== 'trigger') {
+            return;
+        }
+
+        try {
+            // Parse trigger ID: trigger_database_schema_tablename_triggername
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const triggerName = parts.slice(4).join('_');
+
+            await TriggerManagementPanel.viewTriggerProperties(this.context, this.stateService, schema, tableName, triggerName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to view trigger properties: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async enableTrigger(item: SchemaItem): Promise<void> {
+        if (item.type !== 'trigger') {
+            return;
+        }
+
+        try {
+            // Parse trigger ID: trigger_database_schema_tablename_triggername
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const triggerName = parts.slice(4).join('_');
+
+            await TriggerManagementPanel.toggleTrigger(this.context, this.stateService, schema, tableName, triggerName, true, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to enable trigger: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async disableTrigger(item: SchemaItem): Promise<void> {
+        if (item.type !== 'trigger') {
+            return;
+        }
+
+        try {
+            // Parse trigger ID: trigger_database_schema_tablename_triggername
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const triggerName = parts.slice(4).join('_');
+
+            await TriggerManagementPanel.toggleTrigger(this.context, this.stateService, schema, tableName, triggerName, false, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to disable trigger: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropTrigger(item: SchemaItem): Promise<void> {
+        if (item.type !== 'trigger') {
+            return;
+        }
+
+        try {
+            // Parse trigger ID: trigger_database_schema_tablename_triggername
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const triggerName = parts.slice(4).join('_');
+
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop trigger "${triggerName}" from table "${schema}.${tableName}"?`,
+                { modal: true },
+                'Drop (RESTRICT)',
+                'Drop (CASCADE)'
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            const cascade = confirmation.includes('CASCADE');
+            await TriggerManagementPanel.dropTrigger(this.context, this.stateService, schema, tableName, triggerName, cascade, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop trigger: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async generateModel(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table') {
+            return;
+        }
+
+        try {
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts.slice(3).join('_');
+
+            await ModelGeneratorPanel.generateModelFromTable(
+                this.context,
+                this.stateService,
+                this.schemaService,
+                schema,
+                tableName,
+                database
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to generate model: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async showContextMenu(item: SchemaItem): Promise<void> {
+        const actions = this.getActionsForItem(item);
+        
+        if (actions.length === 0) {
+            return;
+        }
+
+        const selected = await vscode.window.showQuickPick(actions, {
+            placeHolder: `Actions for ${item.name}`,
+            title: `${item.type}: ${item.name}`
+        });
+
+        if (selected && selected.command) {
+            await vscode.commands.executeCommand(selected.command, item);
+        }
+    }
+
+    private getActionsForItem(item: SchemaItem): Array<{label: string; command: string; description?: string}> {
+        const actions: Array<{label: string; command: string; description?: string}> = [];
+
+        switch (item.type) {
+            case 'connection':
+                actions.push(
+                    { label: '$(database) Create Database', command: 'neonLocal.schema.createDatabase' },
+                    { label: '$(refresh) Reset branch to parent', command: 'neonLocal.schema.resetFromParent' }
+                );
+                break;
+
+            case 'database':
+                actions.push(
+                    { label: '$(add) Create Schema', command: 'neonLocal.schema.createSchema', description: 'Create a new schema' },
+                    { label: '$(table) Create Table', command: 'neonLocal.schema.createTable', description: 'Create a new table' },
+                    { label: '$(symbol-method) Create Function', command: 'neonLocal.schema.createFunction', description: 'Create a new function' },
+                    { label: '$(eye) Create View', command: 'neonLocal.schema.createView', description: 'Create a new view' },
+                    { label: '$(symbol-numeric) Create Sequence', command: 'neonLocal.schema.createSequence', description: 'Create a new sequence' },
+                    { label: '$(account) Show Users & Roles', command: 'neonLocal.schema.showUsers', description: 'Manage users and roles' },
+                    { label: '$(person-add) Create User', command: 'neonLocal.schema.createUser', description: 'Create a new user' },
+                    { label: '$(terminal) Launch psql', command: 'neonLocal.schema.launchPsql', description: 'Open psql terminal' },
+                    { label: '$(trash) Drop Database', command: 'neonLocal.schema.dropDatabase', description: 'Delete this database' }
+                );
+                break;
+
+            case 'schema':
+                actions.push(
+                    { label: '$(info) Show Properties', command: 'neonLocal.schema.showSchemaProperties' },
+                    { label: '$(table) Create Table', command: 'neonLocal.schema.createTable' },
+                    { label: '$(symbol-method) Create Function', command: 'neonLocal.schema.createFunction' },
+                    { label: '$(eye) Create View', command: 'neonLocal.schema.createView' },
+                    { label: '$(symbol-numeric) Create Sequence', command: 'neonLocal.schema.createSequence' },
+                    { label: '$(edit) Edit Schema', command: 'neonLocal.schema.editSchema' },
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(trash) Drop Schema', command: 'neonLocal.schema.dropSchema' }
+                );
+                break;
+
+            case 'table':
+                actions.push(
+                    { label: '$(table) View Data', command: 'neonLocal.schema.viewTableData', description: 'Browse table data' },
+                    { label: '$(play) Query Table', command: 'neonLocal.schema.queryTable', description: 'Run SELECT query' },
+                    { label: '$(edit) Edit Table', command: 'neonLocal.schema.editTable', description: 'Modify table structure' },
+                    { label: '$(symbol-key) Create Index', command: 'neonLocal.schema.createIndex', description: 'Add an index' },
+                    { label: '$(gear) Manage Indexes', command: 'neonLocal.schema.manageIndexes', description: 'View and manage indexes' },
+                    { label: '$(link) Create Foreign Key', command: 'neonLocal.schema.createForeignKey', description: 'Add foreign key constraint' },
+                    { label: '$(zap) Create Trigger', command: 'neonLocal.schema.createTrigger', description: 'Add trigger' },
+                    { label: '$(file-code) Generate Model', command: 'neonLocal.orm.generateModel', description: 'Generate ORM model code' },
+                    { label: '$(export) Import Data', command: 'neonLocal.schema.importData', description: 'Import CSV/JSON' },
+                    { label: '$(import) Export Data', command: 'neonLocal.schema.exportData', description: 'Export to CSV/JSON/SQL' },
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(clear-all) Truncate Table', command: 'neonLocal.schema.truncateTable', description: 'Delete all rows' },
+                    { label: '$(trash) Drop Table', command: 'neonLocal.schema.dropTable', description: 'Delete table' }
+                );
+                break;
+
+            case 'view':
+                actions.push(
+                    { label: '$(table) View Data', command: 'neonLocal.schema.viewTableData', description: 'Browse view data' },
+                    { label: '$(play) Query View', command: 'neonLocal.schema.queryTable', description: 'Run SELECT query' },
+                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewProperties', description: 'Show view details' },
+                    { label: '$(edit) Edit View', command: 'neonLocal.schema.editView', description: 'Modify view definition' },
+                    { label: '$(refresh) Refresh Materialized View', command: 'neonLocal.schema.refreshMaterializedView', description: 'Refresh data' },
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(trash) Drop View', command: 'neonLocal.schema.dropView', description: 'Delete view' }
+                );
+                break;
+
+            case 'function':
+                actions.push(
+                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewFunctionProperties', description: 'Show function details' },
+                    { label: '$(edit) Edit Function', command: 'neonLocal.schema.editFunction', description: 'Modify function code' },
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(trash) Drop Function', command: 'neonLocal.schema.dropFunction', description: 'Delete function' }
+                );
+                break;
+
+            case 'sequence':
+                actions.push(
+                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewSequenceProperties', description: 'Show sequence details' },
+                    { label: '$(edit) Edit Sequence', command: 'neonLocal.schema.alterSequence', description: 'Modify sequence settings' },
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(trash) Drop Sequence', command: 'neonLocal.schema.dropSequence', description: 'Delete sequence' }
+                );
+                break;
+
+            case 'foreignkey':
+                actions.push(
+                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewForeignKeyProperties', description: 'Show constraint details' },
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(trash) Drop Foreign Key', command: 'neonLocal.schema.dropForeignKey', description: 'Remove constraint' }
+                );
+                break;
+
+            case 'trigger':
+                actions.push(
+                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewTriggerProperties', description: 'Show trigger details' },
+                    { label: '$(check) Enable Trigger', command: 'neonLocal.schema.enableTrigger', description: 'Enable trigger' },
+                    { label: '$(circle-slash) Disable Trigger', command: 'neonLocal.schema.disableTrigger', description: 'Disable trigger' },
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(trash) Drop Trigger', command: 'neonLocal.schema.dropTrigger', description: 'Delete trigger' }
+                );
+                break;
+
+            case 'role':
+                // Check if role is a neon_superuser member
+                const roleMetadata = item.metadata;
+                const memberOf = roleMetadata?.member_of || [];
+                const isNeonSuperuser = Array.isArray(memberOf) && memberOf.includes('neon_superuser');
+                
+                console.log(`Role ${item.name}: memberOf =`, memberOf, 'isNeonSuperuser =', isNeonSuperuser);
+                
+                // Only show Edit Role and Manage Permissions for non-neon_superuser roles
+                if (!isNeonSuperuser) {
+                    actions.push(
+                        { label: '$(edit) Edit Role', command: 'neonLocal.schema.editRole', description: 'Modify role settings' }
+                    );
+                }
+                
+                if (isNeonSuperuser) {
+                    actions.push(
+                        { label: '$(sync) Reset Password', command: 'neonLocal.schema.resetRolePassword', description: 'Reset password via Neon API' }
+                    );
+                } else {
+                    actions.push(
+                        { label: '$(key) Change Password', command: 'neonLocal.schema.changePassword', description: 'Update role password' }
+                    );
+                }
+                
+                // Only show Manage Permissions for non-neon_superuser roles
+                if (!isNeonSuperuser) {
+                    actions.push(
+                        { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageRolePermissions', description: 'Grant/revoke permissions' }
+                    );
+                }
+                
+                // Show different drop option for neon_superuser roles
+                if (isNeonSuperuser) {
+                    actions.push(
+                        { label: '$(trash) Drop Role', command: 'neonLocal.schema.dropRole', description: 'Delete role using Neon API' }
+                    );
+                } else {
+                    actions.push(
+                        { label: '$(trash) Drop Role', command: 'neonLocal.schema.dropRole', description: 'Delete role' }
+                    );
+                }
+                break;
+
+            case 'container':
+                // Handle container-specific actions
+                const containerType = item.metadata?.containerType;
+                if (containerType === 'databases') {
+                    actions.push(
+                        { label: '$(add) Create Database', command: 'neonLocal.schema.createDatabase', description: 'Create a new database' }
+                    );
+                } else if (containerType === 'schemas') {
+                    actions.push(
+                        { label: '$(add) Create Schema', command: 'neonLocal.schema.createSchema', description: 'Create a new schema' }
+                    );
+                } else if (containerType === 'roles') {
+                    actions.push(
+                        { label: '$(person-add) Create Role', command: 'neonLocal.schema.createUser', description: 'Create a new role' }
+                    );
+                } else if (containerType === 'tables') {
+                    actions.push(
+                        { label: '$(table) Create Table', command: 'neonLocal.schema.createTable', description: 'Create a new table' }
+                    );
+                } else if (containerType === 'views') {
+                    actions.push(
+                        { label: '$(eye) Create View', command: 'neonLocal.schema.createView', description: 'Create a new view' }
+                    );
+                } else if (containerType === 'functions') {
+                    actions.push(
+                        { label: '$(symbol-method) Create Function', command: 'neonLocal.schema.createFunction', description: 'Create a new function' }
+                    );
+                } else if (containerType === 'sequences') {
+                    actions.push(
+                        { label: '$(symbol-numeric) Create Sequence', command: 'neonLocal.schema.createSequence', description: 'Create a new sequence' }
+                    );
+                }
+                break;
+
+            default:
+                // For columns and other items
+                actions.push(
+                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery', description: 'Open SQL editor' }
+                );
+                break;
+        }
+
+        return actions;
     }
 
     dispose(): void {

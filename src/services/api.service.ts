@@ -451,4 +451,51 @@ export class NeonApiService {
             throw new Error(`Failed to create branch: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
+
+    public async createRole(projectId: string, branchId: string, roleName: string): Promise<any> {
+        try {
+            const payload = {
+                role: {
+                    name: roleName
+                }
+            };
+
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/roles`, 
+                'POST', 
+                payload
+            );
+            return response;
+        } catch (error: unknown) {
+            console.error('Error creating role:', error);
+            throw new Error(`Failed to create role: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    public async resetRolePassword(projectId: string, branchId: string, roleName: string): Promise<any> {
+        try {
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/roles/${roleName}/reset_password`, 
+                'POST',
+                {}
+            );
+            return response;
+        } catch (error: unknown) {
+            console.error('Error resetting role password:', error);
+            throw new Error(`Failed to reset role password: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    public async deleteRole(projectId: string, branchId: string, roleName: string): Promise<any> {
+        try {
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/roles/${roleName}`, 
+                'DELETE'
+            );
+            return response;
+        } catch (error: unknown) {
+            console.error('Error deleting role:', error);
+            throw new Error(`Failed to delete role: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
 }

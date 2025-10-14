@@ -6,7 +6,7 @@ import { ConnectionPoolService, ManagedClient } from './connectionPool.service';
 export interface SchemaItem {
     id: string;
     name: string;
-    type: 'connection' | 'database' | 'schema' | 'table' | 'view' | 'column' | 'index' | 'function' | 'trigger';
+    type: 'connection' | 'database' | 'schema' | 'table' | 'view' | 'column' | 'index' | 'function' | 'trigger' | 'sequence' | 'foreignkey' | 'role' | 'container';
     parent?: string;
     children?: SchemaItem[];
     metadata?: any;
@@ -101,7 +101,7 @@ export class SchemaService {
             `, [], database);
 
             return result.rows.map((row) => ({
-                id: `schema_${database}_${row.name}`,
+                id: `schema_v2_${database}_${row.name}`,  // v2: container structure
                 name: row.name,
                 type: 'schema' as const,
                 parent: `db_${database}`,
@@ -115,27 +115,159 @@ export class SchemaService {
 
     async getTables(database: string, schema: string): Promise<SchemaItem[]> {
         try {
+            console.log(`[SCHEMA SERVICE] Fetching tables for ${database}.${schema}`);
             const result = await this.connectionPool.executeQuery(`
                 SELECT 
                     table_name as name,
                     table_type
                 FROM information_schema.tables 
                 WHERE table_schema = $1
-                    AND table_type IN ('BASE TABLE', 'VIEW', 'MATERIALIZED VIEW')
+                    AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            `, [schema], database);
+
+            console.log(`[SCHEMA SERVICE] Query returned ${result.rows.length} tables:`, result.rows.map(r => r.name));
+            
+            const tables = result.rows.map((row) => ({
+                id: `table_${database}_${schema}_${row.name}`,
+                name: row.name,
+                type: 'table' as const,
+                parent: `schema_v2_${database}_${schema}`,
+                metadata: {
+                    table_type: row.table_type,
+                    is_materialized: false
+                }
+            }));
+            
+            console.log(`[SCHEMA SERVICE] Mapped to ${tables.length} SchemaItems with parent IDs:`, tables.map(t => ({ name: t.name, parent: t.parent })));
+            return tables;
+        } catch (error) {
+            console.error('Error fetching tables:', error);
+            throw error;
+        }
+    }
+
+    async getViews(database: string, schema: string): Promise<SchemaItem[]> {
+        try {
+            console.log(`[SCHEMA SERVICE] Fetching views for ${database}.${schema}`);
+            const result = await this.connectionPool.executeQuery(`
+                SELECT 
+                    table_name as name,
+                    table_type
+                FROM information_schema.tables 
+                WHERE table_schema = $1
+                    AND table_type IN ('VIEW', 'MATERIALIZED VIEW')
                 ORDER BY table_type, table_name
             `, [schema], database);
 
-            return result.rows.map((row) => ({
-                id: `table_${database}_${schema}_${row.name}`,
+            console.log(`[SCHEMA SERVICE] Query returned ${result.rows.length} views:`, result.rows.map(r => r.name));
+            
+            const views = result.rows.map((row) => ({
+                id: `view_${database}_${schema}_${row.name}`,
                 name: row.name,
-                type: row.table_type === 'VIEW' || row.table_type === 'MATERIALIZED VIEW' ? 'view' : 'table' as const,
-                parent: `schema_${database}_${schema}`,
+                type: 'view' as const,
+                parent: `schema_v2_${database}_${schema}`,
                 metadata: {
-                    table_type: row.table_type
+                    table_type: row.table_type,
+                    is_materialized: row.table_type === 'MATERIALIZED VIEW'
+                }
+            }));
+            
+            console.log(`[SCHEMA SERVICE] Mapped to ${views.length} view SchemaItems with parent IDs:`, views.map(v => ({ name: v.name, parent: v.parent })));
+            return views;
+        } catch (error) {
+            console.error('Error fetching views:', error);
+            throw error;
+        }
+    }
+
+    async getSequences(database: string, schema: string): Promise<SchemaItem[]> {
+        try {
+            const result = await this.connectionPool.executeQuery(`
+                SELECT 
+                    sequence_name as name,
+                    data_type,
+                    start_value,
+                    increment,
+                    maximum_value,
+                    minimum_value,
+                    cycle_option
+                FROM information_schema.sequences
+                WHERE sequence_schema = $1
+                ORDER BY sequence_name
+            `, [schema], database);
+
+            return result.rows.map((row) => ({
+                id: `sequence_${database}_${schema}_${row.name}`,
+                name: row.name,
+                type: 'sequence' as const,
+                parent: `schema_v2_${database}_${schema}`,
+                metadata: {
+                    data_type: row.data_type,
+                    start_value: row.start_value,
+                    increment: row.increment,
+                    maximum_value: row.maximum_value,
+                    minimum_value: row.minimum_value,
+                    cycle_option: row.cycle_option
                 }
             }));
         } catch (error) {
-            console.error('Error fetching tables:', error);
+            console.error('Error fetching sequences:', error);
+            throw error;
+        }
+    }
+
+    async getForeignKeys(database: string, schema: string, tableName: string): Promise<SchemaItem[]> {
+        try {
+            const result = await this.connectionPool.executeQuery(`
+                SELECT DISTINCT
+                    tc.constraint_name as name,
+                    tc.table_name,
+                    string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) as columns,
+                    ccu.table_schema AS foreign_table_schema,
+                    ccu.table_name AS foreign_table_name,
+                    string_agg(ccu.column_name, ', ' ORDER BY kcu.ordinal_position) as foreign_columns,
+                    rc.update_rule,
+                    rc.delete_rule
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                    ON ccu.constraint_name = tc.constraint_name
+                    AND ccu.table_schema = tc.table_schema
+                JOIN information_schema.referential_constraints AS rc
+                    ON rc.constraint_name = tc.constraint_name
+                    AND rc.constraint_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                    AND tc.table_schema = $1
+                    AND tc.table_name = $2
+                GROUP BY 
+                    tc.constraint_name, 
+                    tc.table_name,
+                    ccu.table_schema,
+                    ccu.table_name,
+                    rc.update_rule,
+                    rc.delete_rule
+                ORDER BY tc.constraint_name
+            `, [schema, tableName], database);
+
+            return result.rows.map((row) => ({
+                id: `foreignkey_${database}_${schema}_${tableName}_${row.name}`,
+                name: row.name,
+                type: 'foreignkey' as const,
+                parent: `table_${database}_${schema}_${tableName}`,
+                metadata: {
+                    columns: row.columns,
+                    foreign_table_schema: row.foreign_table_schema,
+                    foreign_table_name: row.foreign_table_name,
+                    foreign_columns: row.foreign_columns,
+                    update_rule: row.update_rule,
+                    delete_rule: row.delete_rule
+                }
+            }));
+        } catch (error) {
+            console.error('Error fetching foreign keys:', error);
             throw error;
         }
     }
@@ -229,7 +361,7 @@ export class SchemaService {
                     id: tableId,
                     name: row.table_name,
                     type: row.table_type as 'table' | 'view',
-                    parent: `schema_${database}_${row.schema_name}`,
+                    parent: `schema_v2_${database}_${row.schema_name}`,
                     metadata: {
                         table_type: row.table_type,
                         schema_name: row.schema_name
@@ -301,7 +433,7 @@ export class SchemaService {
                 id: `function_${database}_${schema}_${row.name}`,
                 name: row.name,
                 type: 'function' as const,
-                parent: `schema_${database}_${schema}`,
+                parent: `schema_v2_${database}_${schema}`,
                 metadata: {
                     return_type: row.return_type || 'unknown'
                 }
@@ -317,12 +449,36 @@ export class SchemaService {
         try {
             const result = await this.connectionPool.executeQuery(`
                 SELECT 
-                    trigger_name as name,
-                    event_manipulation,
-                    action_timing
-                FROM information_schema.triggers 
-                WHERE event_object_schema = $1 AND event_object_table = $2
-                ORDER BY trigger_name
+                    t.tgname as name,
+                    t.tgenabled as is_enabled,
+                    CASE t.tgtype::int & 66
+                        WHEN 2 THEN 'BEFORE'
+                        WHEN 64 THEN 'INSTEAD OF'
+                        ELSE 'AFTER'
+                    END as timing,
+                    ARRAY(
+                        SELECT CASE 
+                            WHEN t.tgtype::int & 4 != 0 THEN 'INSERT'
+                            WHEN t.tgtype::int & 8 != 0 THEN 'DELETE'
+                            WHEN t.tgtype::int & 16 != 0 THEN 'UPDATE'
+                            WHEN t.tgtype::int & 32 != 0 THEN 'TRUNCATE'
+                        END
+                    ) as events,
+                    CASE t.tgtype::int & 1
+                        WHEN 1 THEN 'ROW'
+                        ELSE 'STATEMENT'
+                    END as level,
+                    p.proname as function_name,
+                    n.nspname as function_schema
+                FROM pg_trigger t
+                JOIN pg_class c ON t.tgrelid = c.oid
+                JOIN pg_namespace ns ON c.relnamespace = ns.oid
+                JOIN pg_proc p ON t.tgfoid = p.oid
+                JOIN pg_namespace n ON p.pronamespace = n.oid
+                WHERE ns.nspname = $1
+                    AND c.relname = $2
+                    AND NOT t.tgisinternal
+                ORDER BY t.tgname
             `, [schema, table], database);
 
             return result.rows.map((row) => ({
@@ -331,8 +487,12 @@ export class SchemaService {
                 type: 'trigger' as const,
                 parent: `table_${database}_${schema}_${table}`,
                 metadata: {
-                    event: row.event_manipulation,
-                    timing: row.action_timing
+                    timing: row.timing,
+                    events: row.events,
+                    level: row.level,
+                    is_enabled: row.is_enabled === 'O' || row.is_enabled === 't',
+                    function_name: row.function_name,
+                    function_schema: row.function_schema
                 }
             }));
         } catch (error) {

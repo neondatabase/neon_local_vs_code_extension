@@ -5,6 +5,8 @@ import { ConnectViewProvider } from './connectView';
 import { DatabaseViewProvider } from './databaseView';
 import { ActionsViewProvider } from './actionsView';
 import { SchemaViewProvider } from './schemaView';
+import { MigrationsViewProvider } from './migrationsView';
+import { ORMViewProvider } from './ormView';
 import { DockerService } from './services/docker.service';
 import { ViewData } from './types';
 import { NeonApiService } from './services/api.service';
@@ -169,6 +171,15 @@ export async function activate(context: vscode.ExtensionContext) {
     stateService,
     authManager,
     dockerService
+  );
+  const migrationsViewProvider = new MigrationsViewProvider(
+    context,
+    stateService
+  );
+  const ormViewProvider = new ORMViewProvider(
+    context,
+    stateService,
+    schemaViewProvider.getSchemaService()
   );
 
 
