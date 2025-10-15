@@ -237,54 +237,121 @@ export class SequenceManagementPanel {
     /**
      * Restart sequence
      */
-    private static async restartSequence(
+    public static async restartSequence(
         context: vscode.ExtensionContext,
         stateService: StateService,
         schema: string,
         sequenceName: string,
-        value?: number,
         database?: string
     ): Promise<void> {
+        // Prompt user for optional restart value
+        const value = await vscode.window.showInputBox({
+            prompt: 'Enter restart value (leave empty to restart at start value)',
+            placeHolder: 'Optional: e.g., 1000',
+            validateInput: (input) => {
+                if (input && !/^\d+$/.test(input)) {
+                    return 'Please enter a valid number';
+                }
+                return null;
+            }
+        });
+
+        if (value === undefined) {
+            return; // User cancelled
+        }
+
+        const restartValue = value ? parseInt(value) : undefined;
         try {
-            const sql = value !== undefined
-                ? `ALTER SEQUENCE ${schema}.${sequenceName} RESTART WITH ${value};`
+            const sql = restartValue !== undefined
+                ? `ALTER SEQUENCE ${schema}.${sequenceName} RESTART WITH ${restartValue};`
                 : `ALTER SEQUENCE ${schema}.${sequenceName} RESTART;`;
             
             const sqlService = new SqlQueryService(stateService, context);
             await sqlService.executeQuery(sql, database);
 
-            vscode.window.showInformationMessage(`Sequence "${schema}.${sequenceName}" restarted!`);
+            const message = restartValue !== undefined
+                ? `Sequence "${schema}.${sequenceName}" restarted at ${restartValue}!`
+                : `Sequence "${schema}.${sequenceName}" restarted at start value!`;
+            vscode.window.showInformationMessage(message);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
             vscode.window.showErrorMessage(`Failed to restart sequence: ${errorMessage}`);
-            throw error;
         }
     }
 
     /**
      * Set next value
      */
-    private static async setNextValue(
+    public static async setNextValue(
         context: vscode.ExtensionContext,
         stateService: StateService,
         schema: string,
         sequenceName: string,
-        value: number,
         database?: string
     ): Promise<void> {
+        // Prompt user for the value
+        const valueStr = await vscode.window.showInputBox({
+            prompt: `Set the current value for sequence ${schema}.${sequenceName}`,
+            placeHolder: 'e.g., 1000',
+            validateInput: (input) => {
+                if (!input) {
+                    return 'Value is required';
+                }
+                if (!/^\d+$/.test(input)) {
+                    return 'Please enter a valid number';
+                }
+                return null;
+            }
+        });
+
+        if (!valueStr) {
+            return; // User cancelled
+        }
+
+        const value = parseInt(valueStr);
+
         try {
             const sql = `SELECT setval('${schema}.${sequenceName}', ${value});`;
             
             const sqlService = new SqlQueryService(stateService, context);
             await sqlService.executeQuery(sql, database);
 
-            vscode.window.showInformationMessage(`Sequence "${schema}.${sequenceName}" next value set to ${value}!`);
+            vscode.window.showInformationMessage(`Sequence "${schema}.${sequenceName}" current value set to ${value}!`);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
             vscode.window.showErrorMessage(`Failed to set sequence value: ${errorMessage}`);
-            throw error;
         }
     }
 

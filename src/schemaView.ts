@@ -9,6 +9,8 @@ import { CreateTablePanel } from './createTablePanel';
 import { EditTablePanel } from './editTablePanel';
 import { SchemaManagementPanel } from './schemaManagementPanel';
 import { IndexManagementPanel } from './indexManagementPanel';
+import { ConstraintManagementPanel } from './constraintManagementPanel';
+import { PolicyManagementPanel } from './policyManagementPanel';
 import { ViewManagementPanel } from './viewManagementPanel';
 import { UserManagementPanel } from './userManagementPanel';
 import { DataImportExportPanel } from './dataImportExportPanel';
@@ -18,6 +20,7 @@ import { SequenceManagementPanel } from './sequenceManagementPanel';
 import { ForeignKeyManagementPanel } from './foreignKeyManagementPanel';
 import { TriggerManagementPanel } from './triggerManagementPanel';
 import { ModelGeneratorPanel } from './modelGeneratorPanel';
+import { ColumnManagementPanel } from './columnManagementPanel';
 
 export class SchemaTreeItem extends vscode.TreeItem {
     constructor(
@@ -47,6 +50,16 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 this.contextValue = 'functionsContainer';
             } else if (containerType === 'sequences') {
                 this.contextValue = 'sequencesContainer';
+            } else if (containerType === 'columns') {
+                this.contextValue = 'columnsContainer';
+            } else if (containerType === 'indexes') {
+                this.contextValue = 'indexesContainer';
+            } else if (containerType === 'constraints') {
+                this.contextValue = 'constraintsContainer';
+            } else if (containerType === 'triggers') {
+                this.contextValue = 'triggersContainer';
+            } else if (containerType === 'policies') {
+                this.contextValue = 'policiesContainer';
             } else {
                 this.contextValue = 'container';
             }
@@ -101,12 +114,33 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 const events = Array.isArray(trigger?.events) ? trigger.events.filter(Boolean).join(', ') : (trigger?.event || 'Unknown');
                 const status = trigger?.is_enabled ? '✓ Enabled' : '✗ Disabled';
                 return `Trigger: ${item.name}\n${trigger?.timing || 'Unknown'} ${events}\nLevel: FOR EACH ${trigger?.level || 'Unknown'}\nFunction: ${trigger?.function_schema}.${trigger?.function_name}()\nStatus: ${status}`;
+            case 'policy':
+                const policy = item.metadata;
+                let policyTooltip = `RLS Policy: ${item.name}\nType: ${policy?.type_label || 'Unknown'}\nCommand: ${policy?.command_label || 'Unknown'}`;
+                if (policy?.roles && policy.roles.length > 0) {
+                    policyTooltip += `\nRoles: ${policy.roles.join(', ')}`;
+                }
+                if (policy?.using_expression) {
+                    policyTooltip += `\nUSING: ${policy.using_expression}`;
+                }
+                return policyTooltip;
             case 'sequence':
                 const seq = item.metadata;
                 return `Sequence: ${item.name}\nStart: ${seq?.start_value || 'N/A'}, Increment: ${seq?.increment || 'N/A'}`;
             case 'foreignkey':
                 const fk = item.metadata;
                 return `Foreign Key: ${item.name}\nColumns: ${fk?.columns || 'N/A'}\nReferences: ${fk?.foreign_table_schema}.${fk?.foreign_table_name}(${fk?.foreign_columns})`;
+            case 'constraint':
+                const constraint = item.metadata;
+                let constraintTooltip = `${constraint?.constraint_type_label || 'Constraint'}: ${item.name}`;
+                if (constraint?.definition) {
+                    constraintTooltip += `\nDefinition: ${constraint.definition}`;
+                }
+                if (constraint?.is_deferrable) {
+                    constraintTooltip += '\nDeferrable: Yes';
+                    constraintTooltip += constraint.is_deferred ? ' (Initially Deferred)' : ' (Initially Immediate)';
+                }
+                return constraintTooltip;
             case 'role':
                 const role = item.metadata;
                 let roleTooltip = `Role: ${item.name}`;
@@ -145,6 +179,10 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 if (item.metadata?.is_primary) return 'PRIMARY';
                 if (item.metadata?.is_unique) return 'UNIQUE';
                 break;
+            case 'constraint':
+                return item.metadata?.constraint_type_label;
+            case 'policy':
+                return item.metadata?.command_label;
         }
         return undefined;
     }
@@ -176,10 +214,14 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 return new vscode.ThemeIcon('symbol-function');
             case 'trigger':
                 return new vscode.ThemeIcon('play');
+            case 'policy':
+                return new vscode.ThemeIcon('shield-check');
             case 'sequence':
                 return new vscode.ThemeIcon('symbol-numeric');
             case 'foreignkey':
                 return new vscode.ThemeIcon('link');
+            case 'constraint':
+                return new vscode.ThemeIcon('shield');
             case 'role':
                 return new vscode.ThemeIcon('account');
             case 'container':
@@ -213,6 +255,8 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 return new vscode.ThemeIcon('shield');
             case 'triggers':
                 return new vscode.ThemeIcon('flash');
+            case 'policies':
+                return new vscode.ThemeIcon('lock');
             default:
                 return new vscode.ThemeIcon('folder');
         }
@@ -569,10 +613,16 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     result = await this.schemaService.getIndexes(database, schema, containerItem.metadata.tableName);
                     break;
                 case 'constraints':
-                    result = await this.schemaService.getForeignKeys(database, schema, containerItem.metadata.tableName);
+                    // Fetch both foreign keys and other constraints (CHECK, UNIQUE, EXCLUSION)
+                    const foreignKeys = await this.schemaService.getForeignKeys(database, schema, containerItem.metadata.tableName);
+                    const constraints = await this.schemaService.getConstraints(database, schema, containerItem.metadata.tableName);
+                    result = [...foreignKeys, ...constraints];
                     break;
                 case 'triggers':
                     result = await this.schemaService.getTriggers(database, schema, containerItem.metadata.tableName);
+                    break;
+                case 'policies':
+                    result = await this.schemaService.getPolicies(database, schema, containerItem.metadata.tableName);
                     break;
                 default:
                     result = [];
@@ -681,6 +731,12 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     name: 'Triggers',
                     type: 'container' as any,
                     metadata: { containerType: 'triggers', database, schema, tableName }
+                },
+                {
+                    id: `container_policies_${baseId}`,
+                    name: 'Policies',
+                    type: 'container' as any,
+                    metadata: { containerType: 'policies', database, schema, tableName }
                 }
             );
         }
@@ -699,21 +755,6 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
             return [...tables, ...views, ...functions, ...sequences];
         } catch (error) {
             console.error('Error fetching tables, views, functions, and sequences:', error);
-            return [];
-        }
-    }
-
-    private async getTableChildren(database: string, schema: string, table: string): Promise<SchemaItem[]> {
-        try {
-            const [columns, indexes, triggers, foreignKeys] = await Promise.all([
-                this.schemaService.getColumns(database, schema, table),
-                this.schemaService.getIndexes(database, schema, table),
-                this.schemaService.getTriggers(database, schema, table),
-                this.schemaService.getForeignKeys(database, schema, table)
-            ]);
-            return [...columns, ...indexes, ...triggers, ...foreignKeys];
-        } catch (error) {
-            console.error('Error fetching table children:', error);
             return [];
         }
     }
@@ -848,7 +889,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                                 continue;
                             }
                             
-                            // For each table/view, load columns, indexes, and triggers
+                            // For each table/view, load container nodes (Columns, Indexes, Constraints, Triggers)
                             const tablePromises = tablesAndFunctions
                                 .filter(item => item.type === 'table' || item.type === 'view')
                                 .map(async (tableItem) => {
@@ -858,12 +899,13 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                                         const tableSchema = tableParts[2];
                                         const tableName = tableParts.slice(3).join('_');
                                         
-                                        const tableChildren = await this.getTableChildren(tableDatabase, tableSchema, tableName);
+                                        // Use getTableContainers to get the new container structure
+                                        const tableContainers = await this.getTableContainers(tableDatabase, tableSchema, tableName, tableItem.type);
                                         
-                                        // Cache table children
-                                        this.schemaCache.set(tableItem.id, tableChildren);
+                                        // Cache table containers
+                                        this.schemaCache.set(tableItem.id, tableContainers);
                                     } catch (error) {
-                                        console.error(`Error preloading table children for ${tableItem.name}:`, error);
+                                        console.error(`Error preloading table containers for ${tableItem.name}:`, error);
                                     }
                                 });
                             
@@ -980,6 +1022,12 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.manageIndexes', (item: SchemaItem) => {
                 this.manageIndexes(item);
             }),
+            vscode.commands.registerCommand('neonLocal.schema.dropIndex', (item: SchemaItem) => {
+                this.dropIndex(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.reindexIndex', (item: SchemaItem) => {
+                this.reindexIndex(item);
+            }),
             vscode.commands.registerCommand('neonLocal.schema.createView', (item: SchemaItem) => {
                 this.createView(item);
             }),
@@ -1049,6 +1097,12 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.dropSequence', (item: SchemaItem) => {
                 this.dropSequence(item);
             }),
+            vscode.commands.registerCommand('neonLocal.schema.restartSequence', (item: SchemaItem) => {
+                this.restartSequence(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.setSequenceValue', (item: SchemaItem) => {
+                this.setSequenceValue(item);
+            }),
             vscode.commands.registerCommand('neonLocal.schema.createForeignKey', (item: SchemaItem) => {
                 this.createForeignKey(item);
             }),
@@ -1058,11 +1112,23 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.dropForeignKey', (item: SchemaItem) => {
                 this.dropForeignKey(item);
             }),
+            vscode.commands.registerCommand('neonLocal.schema.createConstraint', (item: SchemaItem) => {
+                this.createConstraint(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropConstraint', (item: SchemaItem) => {
+                this.dropConstraint(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editConstraint', (item: SchemaItem) => {
+                this.editConstraint(item);
+            }),
             vscode.commands.registerCommand('neonLocal.schema.createTrigger', (item: SchemaItem) => {
                 this.createTrigger(item);
             }),
             vscode.commands.registerCommand('neonLocal.schema.viewTriggerProperties', (item: SchemaItem) => {
                 this.viewTriggerProperties(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editTrigger', (item: SchemaItem) => {
+                this.editTrigger(item);
             }),
             vscode.commands.registerCommand('neonLocal.schema.enableTrigger', (item: SchemaItem) => {
                 this.enableTrigger(item);
@@ -1072,6 +1138,24 @@ export class SchemaViewProvider {
             }),
             vscode.commands.registerCommand('neonLocal.schema.dropTrigger', (item: SchemaItem) => {
                 this.dropTrigger(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createPolicy', (item: SchemaItem) => {
+                this.createPolicy(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editPolicy', (item: SchemaItem) => {
+                this.editPolicy(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropPolicy', (item: SchemaItem) => {
+                this.dropPolicy(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.createColumn', (item: SchemaItem) => {
+                this.createColumn(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.editColumn', (item: SchemaItem) => {
+                this.editColumn(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropColumn', (item: SchemaItem) => {
+                this.dropColumn(item);
             }),
             vscode.commands.registerCommand('neonLocal.orm.generateModel', (item: SchemaItem) => {
                 this.generateModel(item);
@@ -1471,16 +1555,28 @@ export class SchemaViewProvider {
     }
 
     private async createIndex(item: SchemaItem): Promise<void> {
-        if (item.type !== 'table') {
+        if (item.type !== 'table' && item.type !== 'container') {
             return;
         }
 
         try {
-            // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            let database: string;
+            let schema: string;
+            let tableName: string;
+
+            if (item.type === 'container') {
+                // Called from indexes container
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.metadata?.tableName || '';
+            } else {
+                // Called from table
+                // Parse table ID: table_database_schema_tablename
+                const parts = item.id.split('_');
+                database = parts[1];
+                schema = parts[2];
+                tableName = parts.slice(3).join('_');
+            }
 
             await IndexManagementPanel.createIndex(this.context, this.stateService, schema, tableName, database);
         } catch (error) {
@@ -1505,6 +1601,61 @@ export class SchemaViewProvider {
             vscode.window.showErrorMessage(`Failed to manage indexes: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
+
+    private dropIndex = async (item: SchemaItem): Promise<void> => {
+        if (item.type !== 'index') {
+            return;
+        }
+
+        // Don't allow dropping primary key indexes
+        if (item.metadata?.is_primary) {
+            vscode.window.showErrorMessage('Cannot drop primary key indexes. Drop the primary key constraint from the table instead.');
+            return;
+        }
+
+        try {
+            // Parse index ID: index_database_schema_tablename_indexname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            // Find where index name starts - everything after schema
+            const idWithoutPrefix = item.id.substring(`index_${database}_${schema}_`.length);
+            const indexName = item.name; // Use the name directly as it's the index name
+
+            // Confirm before dropping
+            const confirm = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop index "${indexName}"?`,
+                { modal: true },
+                'Drop Index'
+            );
+
+            if (confirm !== 'Drop Index') {
+                return;
+            }
+
+            await IndexManagementPanel.dropIndex(this.context, this.stateService, schema, indexName, false, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop index: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    private reindexIndex = async (item: SchemaItem): Promise<void> => {
+        if (item.type !== 'index') {
+            return;
+        }
+
+        try {
+            // Parse index ID: index_database_schema_tablename_indexname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const indexName = item.name; // Use the name directly as it's the index name
+
+            await IndexManagementPanel.reindexIndex(this.context, this.stateService, schema, indexName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to rebuild index: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
 
     private async createView(item: SchemaItem): Promise<void> {
         if (item.type !== 'schema' && item.type !== 'database' && item.type !== 'container') {
@@ -2094,6 +2245,44 @@ export class SchemaViewProvider {
         }
     };
 
+    private async restartSequence(item: SchemaItem): Promise<void> {
+        if (item.type !== 'sequence') {
+            return;
+        }
+
+        try {
+            // Parse parent schema ID to get database and schema
+            const parentParts = item.parent?.split('_') || [];
+            const database = parentParts[2]; // schema_v2_database_schema...
+            const schema = parentParts.slice(3).join('_');
+            const sequenceName = item.name;
+
+            await SequenceManagementPanel.restartSequence(this.context, this.stateService, schema, sequenceName, database);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            vscode.window.showErrorMessage(`Failed to restart sequence: ${errorMessage}`);
+        }
+    }
+
+    private async setSequenceValue(item: SchemaItem): Promise<void> {
+        if (item.type !== 'sequence') {
+            return;
+        }
+
+        try {
+            // Parse parent schema ID to get database and schema
+            const parentParts = item.parent?.split('_') || [];
+            const database = parentParts[2]; // schema_v2_database_schema...
+            const schema = parentParts.slice(3).join('_');
+            const sequenceName = item.name;
+
+            await SequenceManagementPanel.setNextValue(this.context, this.stateService, schema, sequenceName, database);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            vscode.window.showErrorMessage(`Failed to set sequence value: ${errorMessage}`);
+        }
+    }
+
     private async createForeignKey(item: SchemaItem): Promise<void> {
         if (item.type !== 'table') {
             return;
@@ -2161,6 +2350,86 @@ export class SchemaViewProvider {
         }
     };
 
+    private async createConstraint(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table' && item.type !== 'container') {
+            return;
+        }
+
+        try {
+            let database: string;
+            let schema: string;
+            let tableName: string;
+
+            if (item.type === 'container') {
+                // Called from constraints container
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.metadata?.tableName || '';
+            } else {
+                // Called from table
+                const parts = item.id.split('_');
+                database = parts[1];
+                schema = parts[2];
+                tableName = parts.slice(3).join('_');
+            }
+
+            await ConstraintManagementPanel.createConstraint(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create constraint: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private dropConstraint = async (item: SchemaItem): Promise<void> => {
+        if (item.type !== 'constraint') {
+            return;
+        }
+
+        try {
+            // Parse constraint ID: constraint_database_schema_tablename_constraintname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const constraintName = parts.slice(4).join('_');
+
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop constraint "${constraintName}" from table "${schema}.${tableName}"?`,
+                { modal: true },
+                'Drop Constraint',
+                'Drop with CASCADE'
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            const cascade = confirmation === 'Drop with CASCADE';
+            await ConstraintManagementPanel.dropConstraint(this.context, this.stateService, schema, tableName, constraintName, cascade, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop constraint: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    private async editConstraint(item: SchemaItem): Promise<void> {
+        if (item.type !== 'constraint') {
+            return;
+        }
+
+        try {
+            // Parse constraint ID: constraint_database_schema_tablename_constraintname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const constraintName = parts.slice(4).join('_');
+
+            await ConstraintManagementPanel.editConstraint(this.context, this.stateService, schema, tableName, constraintName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit constraint: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     private async createTrigger(item: SchemaItem): Promise<void> {
         if (item.type !== 'table') {
             return;
@@ -2195,6 +2464,25 @@ export class SchemaViewProvider {
             await TriggerManagementPanel.viewTriggerProperties(this.context, this.stateService, schema, tableName, triggerName, database);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to view trigger properties: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editTrigger(item: SchemaItem): Promise<void> {
+        if (item.type !== 'trigger') {
+            return;
+        }
+
+        try {
+            // Parse trigger ID: trigger_database_schema_tablename_triggername
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const triggerName = parts.slice(4).join('_');
+
+            await TriggerManagementPanel.editTrigger(this.context, this.stateService, schema, tableName, triggerName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit trigger: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -2265,6 +2553,152 @@ export class SchemaViewProvider {
             await TriggerManagementPanel.dropTrigger(this.context, this.stateService, schema, tableName, triggerName, cascade, database);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to drop trigger: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    private async createPolicy(item: SchemaItem): Promise<void> {
+        if (item.type !== 'table' && item.type !== 'container') {
+            return;
+        }
+
+        try {
+            let database: string;
+            let schema: string;
+            let tableName: string;
+
+            if (item.type === 'container') {
+                // Called from policies container
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.metadata?.tableName || '';
+            } else {
+                // Called from table
+                const parts = item.id.split('_');
+                database = parts[1];
+                schema = parts[2];
+                tableName = parts.slice(3).join('_');
+            }
+
+            await PolicyManagementPanel.createPolicy(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create policy: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editPolicy(item: SchemaItem): Promise<void> {
+        if (item.type !== 'policy') {
+            return;
+        }
+
+        try {
+            // Parse policy ID: policy_database_schema_tablename_policyname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const policyName = parts.slice(4).join('_');
+
+            await PolicyManagementPanel.editPolicy(this.context, this.stateService, schema, tableName, policyName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit policy: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private dropPolicy = async (item: SchemaItem): Promise<void> => {
+        if (item.type !== 'policy') {
+            return;
+        }
+
+        try {
+            // Parse policy ID: policy_database_schema_tablename_policyname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const policyName = parts.slice(4).join('_');
+
+            // Confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                `Are you sure you want to drop RLS policy "${policyName}" from table "${schema}.${tableName}"?`,
+                { modal: true },
+                'Drop Policy'
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            await PolicyManagementPanel.dropPolicy(this.context, this.stateService, schema, tableName, policyName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop policy: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    private async createColumn(item: SchemaItem): Promise<void> {
+        // Can be called from table, view, or columnsContainer
+        if (item.type !== 'table' && item.type !== 'view' && item.type !== 'container') {
+            return;
+        }
+
+        try {
+            let database: string;
+            let schema: string;
+            let tableName: string;
+
+            if (item.type === 'container') {
+                // Extract from container metadata
+                database = item.metadata?.database;
+                schema = item.metadata?.schema;
+                tableName = item.metadata?.tableName;
+            } else {
+                // Parse table/view ID: table_database_schema_tablename
+                const parts = item.id.split('_');
+                database = parts[1];
+                schema = parts[2];
+                tableName = parts.slice(3).join('_');
+            }
+
+            await ColumnManagementPanel.createColumn(this.context, this.stateService, schema, tableName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create column: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async editColumn(item: SchemaItem): Promise<void> {
+        if (item.type !== 'column') {
+            return;
+        }
+
+        try {
+            // Parse column ID: column_database_schema_tablename_columnname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const columnName = parts.slice(4).join('_');
+
+            await ColumnManagementPanel.editColumn(this.context, this.stateService, schema, tableName, columnName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit column: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private dropColumn = async (item: SchemaItem): Promise<void> => {
+        if (item.type !== 'column') {
+            return;
+        }
+
+        try {
+            // Parse column ID: column_database_schema_tablename_columnname
+            const parts = item.id.split('_');
+            const database = parts[1];
+            const schema = parts[2];
+            const tableName = parts[3];
+            const columnName = parts.slice(4).join('_');
+
+            await ColumnManagementPanel.dropColumn(this.context, this.stateService, schema, tableName, columnName, database);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop column: ${error instanceof Error ? error.message : String(error)}`);
         }
     };
 
@@ -2341,6 +2775,7 @@ export class SchemaViewProvider {
                     { label: '$(symbol-key) Create Index', command: 'neonLocal.schema.createIndex', description: 'Add an index' },
                     { label: '$(gear) Manage Indexes', command: 'neonLocal.schema.manageIndexes', description: 'View and manage indexes' },
                     { label: '$(link) Create Foreign Key', command: 'neonLocal.schema.createForeignKey', description: 'Add foreign key constraint' },
+                    { label: '$(shield) Create Constraint', command: 'neonLocal.schema.createConstraint', description: 'Add CHECK, UNIQUE, or EXCLUSION constraint' },
                     { label: '$(zap) Create Trigger', command: 'neonLocal.schema.createTrigger', description: 'Add trigger' },
                     { label: '$(file-code) Generate Model', command: 'neonLocal.orm.generateModel', description: 'Generate ORM model code' },
                     { label: '$(export) Import Data', command: 'neonLocal.schema.importData', description: 'Import CSV/JSON' },
@@ -2373,8 +2808,24 @@ export class SchemaViewProvider {
             case 'sequence':
                 actions.push(
                     { label: '$(edit) Edit Sequence', command: 'neonLocal.schema.alterSequence', description: 'Modify sequence settings' },
+                    { label: '$(debug-restart) Restart Sequence', command: 'neonLocal.schema.restartSequence', description: 'Reset to start value or specified value' },
+                    { label: '$(symbol-numeric) Set Current Value', command: 'neonLocal.schema.setSequenceValue', description: 'Set the current sequence value' },
                     { label: '$(trash) Drop Sequence', command: 'neonLocal.schema.dropSequence', description: 'Delete sequence' }
                 );
+                break;
+
+            case 'index':
+                // Primary key indexes can only be rebuilt, not dropped
+                if (item.metadata?.is_primary) {
+                    actions.push(
+                        { label: '$(sync) Rebuild Index', command: 'neonLocal.schema.reindexIndex', description: 'Rebuild this index' }
+                    );
+                } else {
+                    actions.push(
+                        { label: '$(sync) Rebuild Index', command: 'neonLocal.schema.reindexIndex', description: 'Rebuild this index' },
+                        { label: '$(trash) Drop Index', command: 'neonLocal.schema.dropIndex', description: 'Delete index' }
+                    );
+                }
                 break;
 
             case 'foreignkey':
@@ -2385,13 +2836,28 @@ export class SchemaViewProvider {
                 );
                 break;
 
+            case 'constraint':
+                actions.push(
+                    { label: '$(edit) Edit Constraint', command: 'neonLocal.schema.editConstraint', description: 'Modify constraint definition' },
+                    { label: '$(trash) Drop Constraint', command: 'neonLocal.schema.dropConstraint', description: 'Remove constraint' }
+                );
+                break;
+
             case 'trigger':
                 actions.push(
                     { label: '$(info) View Properties', command: 'neonLocal.schema.viewTriggerProperties', description: 'Show trigger details' },
+                    { label: '$(edit) Edit Trigger', command: 'neonLocal.schema.editTrigger', description: 'Modify trigger definition' },
                     { label: '$(check) Enable Trigger', command: 'neonLocal.schema.enableTrigger', description: 'Enable trigger' },
                     { label: '$(circle-slash) Disable Trigger', command: 'neonLocal.schema.disableTrigger', description: 'Disable trigger' },
                     { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
                     { label: '$(trash) Drop Trigger', command: 'neonLocal.schema.dropTrigger', description: 'Delete trigger' }
+                );
+                break;
+
+            case 'policy':
+                actions.push(
+                    { label: '$(edit) Edit Policy', command: 'neonLocal.schema.editPolicy', description: 'Modify RLS policy definition' },
+                    { label: '$(trash) Drop Policy', command: 'neonLocal.schema.dropPolicy', description: 'Remove RLS policy' }
                 );
                 break;
 
@@ -2470,11 +2936,30 @@ export class SchemaViewProvider {
                     actions.push(
                         { label: '$(add) Create Sequence', command: 'neonLocal.schema.createSequence', description: 'Create a new sequence' }
                     );
+                } else if (containerType === 'columns') {
+                    actions.push(
+                        { label: '$(add) Add Column', command: 'neonLocal.schema.createColumn', description: 'Add a new column' }
+                    );
+                } else if (containerType === 'constraints') {
+                    actions.push(
+                        { label: '$(add) Create Constraint', command: 'neonLocal.schema.createConstraint', description: 'Create a new constraint' }
+                    );
+                } else if (containerType === 'policies') {
+                    actions.push(
+                        { label: '$(add) Create Policy', command: 'neonLocal.schema.createPolicy', description: 'Create a new RLS policy' }
+                    );
                 }
                 break;
 
+            case 'column':
+                actions.push(
+                    { label: '$(edit) Edit Column', command: 'neonLocal.schema.editColumn', description: 'Modify column definition' },
+                    { label: '$(trash) Drop Column', command: 'neonLocal.schema.dropColumn', description: 'Delete column' }
+                );
+                break;
+
             default:
-                // For columns and other items
+                // For other items
                 actions.push(
                     { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery', description: 'Open SQL editor' }
                 );

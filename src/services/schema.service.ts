@@ -450,6 +450,111 @@ export class SchemaService {
         }
     }
 
+    async getConstraints(database: string, schema: string, tableName: string): Promise<SchemaItem[]> {
+        try {
+            const result = await this.connectionPool.executeQuery(`
+                SELECT 
+                    con.conname as name,
+                    con.contype as constraint_type,
+                    pg_get_constraintdef(con.oid) as definition,
+                    con.condeferrable as is_deferrable,
+                    con.condeferred as is_deferred
+                FROM pg_constraint con
+                JOIN pg_class rel ON rel.oid = con.conrelid
+                JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+                WHERE rel.relname = $1
+                    AND nsp.nspname = $2
+                    AND con.contype IN ('c', 'u', 'x')
+                ORDER BY con.conname
+            `, [tableName, schema], database);
+
+            return result.rows.map((row) => {
+                let constraintTypeLabel = '';
+                switch (row.constraint_type) {
+                    case 'c':
+                        constraintTypeLabel = 'CHECK';
+                        break;
+                    case 'u':
+                        constraintTypeLabel = 'UNIQUE';
+                        break;
+                    case 'x':
+                        constraintTypeLabel = 'EXCLUSION';
+                        break;
+                }
+
+                return {
+                    id: `constraint_${database}_${schema}_${tableName}_${row.name}`,
+                    name: row.name,
+                    type: 'constraint' as const,
+                    parent: `table_${database}_${schema}_${tableName}`,
+                    metadata: {
+                        constraint_type: row.constraint_type,
+                        constraint_type_label: constraintTypeLabel,
+                        definition: row.definition,
+                        is_deferrable: row.is_deferrable,
+                        is_deferred: row.is_deferred
+                    }
+                };
+            });
+        } catch (error) {
+            console.error('Error fetching constraints:', error);
+            throw error;
+        }
+    }
+
+    async getPolicies(database: string, schema: string, tableName: string): Promise<SchemaItem[]> {
+        try {
+            const result = await this.connectionPool.executeQuery(`
+                SELECT 
+                    pol.polname as name,
+                    pol.polpermissive as is_permissive,
+                    pol.polcmd as command,
+                    ARRAY(SELECT rolname FROM pg_roles WHERE oid = ANY(pol.polroles)) as roles,
+                    pg_get_expr(pol.polqual, pol.polrelid) as using_expression,
+                    pg_get_expr(pol.polwithcheck, pol.polrelid) as with_check_expression
+                FROM pg_policy pol
+                JOIN pg_class c ON pol.polrelid = c.oid
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                WHERE c.relname = $1
+                    AND n.nspname = $2
+                ORDER BY pol.polname
+            `, [tableName, schema], database);
+
+            return result.rows.map((row) => {
+                let commandLabel = '';
+                switch (row.command) {
+                    case '*': commandLabel = 'ALL'; break;
+                    case 'r': commandLabel = 'SELECT'; break;
+                    case 'a': commandLabel = 'INSERT'; break;
+                    case 'w': commandLabel = 'UPDATE'; break;
+                    case 'd': commandLabel = 'DELETE'; break;
+                    default: commandLabel = 'UNKNOWN'; break;
+                }
+
+                const typeLabel = row.is_permissive ? 'PERMISSIVE' : 'RESTRICTIVE';
+
+                return {
+                    id: `policy_${database}_${schema}_${tableName}_${row.name}`,
+                    name: row.name,
+                    type: 'policy' as const,
+                    parent: `table_${database}_${schema}_${tableName}`,
+                    metadata: {
+                        is_permissive: row.is_permissive,
+                        type_label: typeLabel,
+                        command: row.command,
+                        command_label: commandLabel,
+                        roles: row.roles,
+                        using_expression: row.using_expression,
+                        with_check_expression: row.with_check_expression
+                    }
+                };
+            });
+        } catch (error) {
+            console.error('Error fetching policies:', error);
+            throw error;
+        }
+    }
+
     async getTriggers(database: string, schema: string, table: string): Promise<SchemaItem[]> {
         try {
             const result = await this.connectionPool.executeQuery(`

@@ -141,6 +141,16 @@
         "icon": "$(list-flat)"
       },
       {
+        "command": "neonLocal.schema.dropIndex",
+        "title": "Drop Index",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "neonLocal.schema.reindexIndex",
+        "title": "Rebuild Index",
+        "icon": "$(sync)"
+      },
+      {
         "command": "neonLocal.schema.createView",
         "title": "Create View",
         "icon": "$(add)"
@@ -256,6 +266,16 @@
         "icon": "$(trash)"
       },
       {
+        "command": "neonLocal.schema.restartSequence",
+        "title": "Restart Sequence",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "neonLocal.schema.setSequenceValue",
+        "title": "Set Current Value",
+        "icon": "$(symbol-numeric)"
+      },
+      {
         "command": "neonLocal.schema.createForeignKey",
         "title": "Create Foreign Key",
         "icon": "$(link)"
@@ -271,9 +291,29 @@
         "icon": "$(trash)"
       },
       {
+        "command": "neonLocal.schema.createConstraint",
+        "title": "Create Constraint",
+        "icon": "$(add)"
+      },
+      {
+        "command": "neonLocal.schema.dropConstraint",
+        "title": "Drop Constraint",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "neonLocal.schema.editConstraint",
+        "title": "Edit Constraint",
+        "icon": "$(edit)"
+      },
+      {
         "command": "neonLocal.schema.createTrigger",
         "title": "Create Trigger",
-        "icon": "$(debug-start)"
+        "icon": "$(add)"
+      },
+      {
+        "command": "neonLocal.schema.editTrigger",
+        "title": "Edit Trigger",
+        "icon": "$(edit)"
       },
       {
         "command": "neonLocal.schema.viewTriggerProperties",
@@ -293,6 +333,36 @@
       {
         "command": "neonLocal.schema.dropTrigger",
         "title": "Drop Trigger",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "neonLocal.schema.createPolicy",
+        "title": "Create Policy",
+        "icon": "$(add)"
+      },
+      {
+        "command": "neonLocal.schema.editPolicy",
+        "title": "Edit Policy",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "neonLocal.schema.dropPolicy",
+        "title": "Drop Policy",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "neonLocal.schema.createColumn",
+        "title": "Add Column",
+        "icon": "$(add)"
+      },
+      {
+        "command": "neonLocal.schema.editColumn",
+        "title": "Edit Column",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "neonLocal.schema.dropColumn",
+        "title": "Drop Column",
         "icon": "$(trash)"
       },
       {
@@ -534,7 +604,7 @@
       "view/item/context": [
         {
           "command": "neonLocal.schema.showContextMenu",
-          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == view || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == trigger || viewItem == role || viewItem == container)",
+          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == view || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == trigger || viewItem == role || viewItem == container || viewItem == column || viewItem == index || viewItem == constraint || viewItem == policy)",
           "group": "inline"
         },
         {
@@ -555,6 +625,11 @@
         {
           "command": "neonLocal.schema.createTable",
           "when": "view == neonLocalSchema && viewItem == tablesContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createIndex",
+          "when": "view == neonLocalSchema && viewItem == indexesContainer",
           "group": "inline"
         },
         {
@@ -713,6 +788,16 @@
           "group": "2_sequence_modify"
         },
         {
+          "command": "neonLocal.schema.restartSequence",
+          "when": "view == neonLocalSchema && viewItem == sequence",
+          "group": "3_sequence_operations"
+        },
+        {
+          "command": "neonLocal.schema.setSequenceValue",
+          "when": "view == neonLocalSchema && viewItem == sequence",
+          "group": "3_sequence_operations"
+        },
+        {
           "command": "neonLocal.schema.dropSequence",
           "when": "view == neonLocalSchema && viewItem == sequence",
           "group": "9_sequence_delete"
@@ -748,6 +833,11 @@
           "group": "1_trigger_info"
         },
         {
+          "command": "neonLocal.schema.editTrigger",
+          "when": "view == neonLocalSchema && viewItem == trigger",
+          "group": "1_trigger_edit"
+        },
+        {
           "command": "neonLocal.schema.enableTrigger",
           "when": "view == neonLocalSchema && viewItem == trigger",
           "group": "2_trigger_toggle"
@@ -761,6 +851,66 @@
           "command": "neonLocal.schema.dropTrigger",
           "when": "view == neonLocalSchema && viewItem == trigger",
           "group": "9_trigger_delete"
+        },
+        {
+          "command": "neonLocal.schema.createColumn",
+          "when": "view == neonLocalSchema && viewItem == columnsContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createConstraint",
+          "when": "view == neonLocalSchema && viewItem == constraintsContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createTrigger",
+          "when": "view == neonLocalSchema && viewItem == triggersContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createPolicy",
+          "when": "view == neonLocalSchema && viewItem == policiesContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.editColumn",
+          "when": "view == neonLocalSchema && viewItem == column",
+          "group": "1_column_edit"
+        },
+        {
+          "command": "neonLocal.schema.dropColumn",
+          "when": "view == neonLocalSchema && viewItem == column",
+          "group": "9_column_delete"
+        },
+        {
+          "command": "neonLocal.schema.editPolicy",
+          "when": "view == neonLocalSchema && viewItem == policy",
+          "group": "1_policy_edit"
+        },
+        {
+          "command": "neonLocal.schema.dropPolicy",
+          "when": "view == neonLocalSchema && viewItem == policy",
+          "group": "9_policy_delete"
+        },
+        {
+          "command": "neonLocal.schema.editConstraint",
+          "when": "view == neonLocalSchema && viewItem == constraint",
+          "group": "1_constraint_edit"
+        },
+        {
+          "command": "neonLocal.schema.dropConstraint",
+          "when": "view == neonLocalSchema && viewItem == constraint",
+          "group": "9_constraint_delete"
+        },
+        {
+          "command": "neonLocal.schema.reindexIndex",
+          "when": "view == neonLocalSchema && viewItem == index",
+          "group": "1_index_operations"
+        },
+        {
+          "command": "neonLocal.schema.dropIndex",
+          "when": "view == neonLocalSchema && viewItem == index",
+          "group": "9_index_delete"
         },
         {
           "command": "neonLocal.schema.createDatabase",

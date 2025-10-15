@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { SqlQueryService } from './services/sqlQuery.service';
 import { StateService } from './services/state.service';
 import { SchemaService } from './services/schema.service';
+import { getStyles } from './templates/styles';
 
 export interface IndexDefinition {
     indexName: string;
@@ -37,7 +38,7 @@ export class IndexManagementPanel {
 
         const panel = vscode.window.createWebviewPanel(
             'createIndex',
-            `Create Index: ${schema}.${tableName}`,
+            `Create Index on ${schema}.${tableName}`,
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
@@ -77,12 +78,178 @@ export class IndexManagementPanel {
                         const sql = IndexManagementPanel.generateCreateIndexSql(message.indexDef);
                         panel.webview.postMessage({ command: 'sqlPreview', sql });
                         break;
+                    case 'cancel':
+                        panel.dispose();
+                        break;
                 }
             });
 
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load table columns: ${error}`);
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            vscode.window.showErrorMessage(`Failed to load table columns: ${errorMessage}`);
             panel.dispose();
+        }
+    }
+
+    /**
+     * Edit an existing index
+     */
+    public static async editIndex(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        indexName: string,
+        database?: string
+    ): Promise<void> {
+        try {
+            // Fetch current index details
+            const sqlService = new SqlQueryService(stateService, context);
+            const result = await sqlService.executeQuery(`
+                SELECT
+                    i.indexname as index_name,
+                    i.tablename as table_name,
+                    idx.indisunique as is_unique,
+                    pg_get_indexdef(idx.indexrelid) as index_definition
+                FROM pg_indexes i
+                JOIN pg_class c ON c.relname = i.indexname
+                JOIN pg_index idx ON idx.indexrelid = c.oid
+                WHERE i.schemaname = $1 AND i.indexname = $2
+            `, [schema, indexName], database);
+
+            if (result.rows.length === 0) {
+                vscode.window.showErrorMessage(`Index "${indexName}" not found`);
+                return;
+            }
+
+            const indexInfo = result.rows[0];
+            
+            vscode.window.showInformationMessage(
+                `Index editing requires dropping and recreating the index. Would you like to view the index definition?`,
+                'View Definition',
+                'Drop & Recreate',
+                'Cancel'
+            ).then(async (choice) => {
+                if (choice === 'View Definition') {
+                    const doc = await vscode.workspace.openTextDocument({
+                        content: indexInfo.index_definition,
+                        language: 'sql'
+                    });
+                    await vscode.window.showTextDocument(doc);
+                } else if (choice === 'Drop & Recreate') {
+                    // Guide user to drop and recreate
+                    const shouldDrop = await vscode.window.showWarningMessage(
+                        `To modify an index, you must drop and recreate it. Drop "${indexName}" now?`,
+                        { modal: true },
+                        'Drop Index'
+                    );
+                    
+                    if (shouldDrop) {
+                        await IndexManagementPanel.dropIndex(context, stateService, schema, indexName, false, database);
+                        // Open create index panel
+                        await IndexManagementPanel.createIndex(context, stateService, schema, indexInfo.table_name, database);
+                    }
+                }
+            });
+
+        } catch (error) {
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            vscode.window.showErrorMessage(`Failed to load index details: ${errorMessage}`);
+        }
+    }
+
+    /**
+     * Drop an index
+     */
+    public static async dropIndex(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        indexName: string,
+        concurrent: boolean = false,
+        database?: string
+    ): Promise<void> {
+        try {
+            const concurrentStr = concurrent ? 'CONCURRENTLY ' : '';
+            const sql = `DROP INDEX ${concurrentStr}"${schema}"."${indexName}";`;
+            
+            const sqlService = new SqlQueryService(stateService, context);
+            await sqlService.executeQuery(sql, database);
+
+            vscode.window.showInformationMessage(`Index "${indexName}" dropped successfully!`);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+            
+        } catch (error) {
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            vscode.window.showErrorMessage(`Failed to drop index: ${errorMessage}`);
+        }
+    }
+
+    /**
+     * Reindex a single index
+     */
+    public static async reindexIndex(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        indexName: string,
+        database?: string
+    ): Promise<void> {
+        try {
+            const sql = `REINDEX INDEX "${schema}"."${indexName}";`;
+            
+            const sqlService = new SqlQueryService(stateService, context);
+            await sqlService.executeQuery(sql, database);
+
+            vscode.window.showInformationMessage(`Index "${indexName}" rebuilt successfully!`);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+            
+        } catch (error) {
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            vscode.window.showErrorMessage(`Failed to rebuild index: ${errorMessage}`);
         }
     }
 
@@ -167,36 +334,20 @@ export class IndexManagementPanel {
             });
 
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load indexes: ${error}`);
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            vscode.window.showErrorMessage(`Failed to load indexes: ${errorMessage}`);
             panel.dispose();
-        }
-    }
-
-    /**
-     * Drop an index
-     */
-    public static async dropIndex(
-        context: vscode.ExtensionContext,
-        stateService: StateService,
-        schema: string,
-        indexName: string,
-        concurrent: boolean = false,
-        database?: string
-    ): Promise<void> {
-        try {
-            const concurrentStr = concurrent ? 'CONCURRENTLY ' : '';
-            const sql = `DROP INDEX ${concurrentStr}${schema}.${indexName};`;
-            
-            const sqlService = new SqlQueryService(stateService, context);
-            await sqlService.executeQuery(sql, database);
-
-            vscode.window.showInformationMessage(`Index "${indexName}" dropped successfully!`);
-            await vscode.commands.executeCommand('neonLocal.schema.refresh');
-            
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`Failed to drop index: ${errorMessage}`);
-            throw error;
         }
     }
 
@@ -213,7 +364,7 @@ export class IndexManagementPanel {
     ): Promise<void> {
         try {
             const concurrentStr = concurrent ? 'CONCURRENTLY ' : '';
-            const sql = `REINDEX ${concurrentStr}TABLE ${schema}.${tableName};`;
+            const sql = `REINDEX ${concurrentStr}TABLE "${schema}"."${tableName}";`;
             
             const sqlService = new SqlQueryService(stateService, context);
             await sqlService.executeQuery(sql, database);
@@ -221,7 +372,18 @@ export class IndexManagementPanel {
             vscode.window.showInformationMessage(`Table "${schema}.${tableName}" reindexed successfully!`);
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
             vscode.window.showErrorMessage(`Failed to reindex table: ${errorMessage}`);
         }
     }
@@ -246,7 +408,19 @@ export class IndexManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
             panel.webview.postMessage({
                 command: 'error',
                 error: errorMessage
@@ -281,14 +455,14 @@ export class IndexManagementPanel {
             sql += ' CONCURRENTLY';
         }
         
-        sql += ` ${indexName}`;
-        sql += ` ON ${schema}.${tableName}`;
+        sql += ` "${indexName}"`;
+        sql += ` ON "${schema}"."${tableName}"`;
         
         if (indexType && indexType !== 'btree') {
             sql += ` USING ${indexType}`;
         }
         
-        sql += ` (${columns.join(', ')})`;
+        sql += ` (${columns.map(col => `"${col}"`).join(', ')})`;
         
         if (whereClause && whereClause.trim()) {
             sql += ` WHERE ${whereClause}`;
@@ -315,68 +489,15 @@ export class IndexManagementPanel {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Index</title>
+    ${getStyles()}
     <style>
-        body {
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            background-color: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-            padding: 20px;
-            margin: 0;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
-        .section {
-            margin-bottom: 20px;
-            background-color: var(--vscode-input-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 16px;
-        }
-        .section-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-        .form-group {
-            margin-bottom: 16px;
-        }
-        label {
-            display: block;
-            margin-bottom: 4px;
-            font-weight: 500;
-        }
-        input[type="text"],
-        select {
-            width: 100%;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
-            padding: 6px 8px;
-            font-size: 13px;
-        }
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-        .checkbox-group input[type="checkbox"] {
-            cursor: pointer;
-        }
         .column-selector {
             border: 1px solid var(--vscode-input-border);
             border-radius: 3px;
             padding: 8px;
             max-height: 200px;
             overflow-y: auto;
+            background-color: var(--vscode-input-background);
         }
         .column-item {
             display: flex;
@@ -404,69 +525,17 @@ export class IndexManagementPanel {
             border-radius: 12px;
             font-size: 12px;
         }
-        .btn {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 8px 16px;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 13px;
-            margin-right: 8px;
-        }
-        .btn:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-        .btn-secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        .btn-secondary:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-        .sql-preview {
-            background-color: var(--vscode-textCodeBlock-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 12px;
-            font-family: monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-            margin-top: 12px;
-        }
-        .info-text {
-            color: var(--vscode-descriptionForeground);
-            font-size: 12px;
-            margin-top: 4px;
-        }
-        .error {
-            color: var(--vscode-errorForeground);
-            background-color: var(--vscode-inputValidation-errorBackground);
-            border: 1px solid var(--vscode-inputValidation-errorBorder);
-            padding: 12px;
-            border-radius: 3px;
-            margin-bottom: 16px;
-        }
-        .actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 20px;
-            padding-top: 16px;
-            border-top: 1px solid var(--vscode-panel-border);
-        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Create Index</h1>
+        <h1>Create Index on ${schema}.${tableName}</h1>
         
         <div id="errorContainer"></div>
 
-        <div class="section">
-            <div class="section-title">Table: ${schema}.${tableName}</div>
-            
+        <div class="section-box">
             <div class="form-group">
-                <label>Index Name <span style="color: var(--vscode-errorForeground);">*</span></label>
+                <label>Index Name <span class="required">*</span></label>
                 <input type="text" id="indexName" placeholder="idx_tablename_column" />
                 <div class="info-text">Naming convention: idx_tablename_columnname</div>
             </div>
@@ -484,25 +553,21 @@ export class IndexManagementPanel {
                 <div class="info-text">B-tree is suitable for most use cases</div>
             </div>
 
-            <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="uniqueIndex" />
-                    <label for="uniqueIndex" style="margin: 0;">Unique Index</label>
-                </div>
-                <div class="info-text">Ensures all values in the indexed columns are unique</div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="uniqueIndex" />
+                <label for="uniqueIndex" style="margin: 0;">Unique Index</label>
             </div>
+            <div class="info-text">Ensures all values in the indexed columns are unique</div>
 
-            <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="concurrentIndex" />
-                    <label for="concurrentIndex" style="margin: 0;">Create Concurrently</label>
-                </div>
-                <div class="info-text">Allows reads/writes during index creation (slower but non-blocking)</div>
+            <div class="checkbox-group" style="margin-top: 16px;">
+                <input type="checkbox" id="concurrentIndex" />
+                <label for="concurrentIndex" style="margin: 0;">Create Concurrently</label>
             </div>
+            <div class="info-text">Allows reads/writes during index creation (slower but non-blocking)</div>
         </div>
 
-        <div class="section">
-            <div class="section-title">Select Columns <span style="color: var(--vscode-errorForeground);">*</span></div>
+        <div class="section-box">
+            <label>Select Columns <span class="required">*</span></label>
             <div class="info-text" style="margin-bottom: 8px;">Select columns in the order they should appear in the index</div>
             
             <div class="column-selector" id="columnSelector">
@@ -514,19 +579,28 @@ export class IndexManagementPanel {
             </div>
         </div>
 
-        <div class="section">
-            <div class="section-title">Partial Index (Optional)</div>
-            <div class="form-group">
-                <label>WHERE Clause</label>
-                <input type="text" id="whereClause" placeholder="e.g., status = 'active'" />
-                <div class="info-text">Index only rows that match this condition (smaller, faster index)</div>
+        <div class="section-box collapsible">
+            <div class="collapsible-header" onclick="toggleSection('optionsSection')">
+                <span class="toggle-icon" id="optionsIcon">▶</span>
+                Advanced Options
+            </div>
+            <div class="collapsible-content" id="optionsSection">
+                <div class="form-group">
+                    <label>WHERE Clause (Partial Index)</label>
+                    <input type="text" id="whereClause" placeholder="e.g., status = 'active'" />
+                    <div class="info-text">Index only rows that match this condition (smaller, faster index)</div>
+                </div>
             </div>
         </div>
 
-        <div class="section">
-            <div class="section-title">SQL Preview</div>
-            <button class="btn btn-secondary" id="previewBtn">Generate SQL Preview</button>
-            <div class="sql-preview" id="sqlPreview">-- Click "Generate SQL Preview" to see the CREATE INDEX statement</div>
+        <div class="section-box collapsible">
+            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
+                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
+                SQL Preview
+            </div>
+            <div class="collapsible-content" id="sqlPreviewSection">
+                <div class="sql-preview" id="sqlPreview">-- SQL will be generated automatically as you make changes</div>
+            </div>
         </div>
 
         <div class="actions">
@@ -540,6 +614,16 @@ export class IndexManagementPanel {
         const columns = ${columnsJson};
         let selectedColumns = [];
 
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
+            const isExpanded = section.style.display === 'block';
+            section.style.display = isExpanded ? 'none' : 'block';
+            icon.classList.toggle('expanded', !isExpanded);
+        }
+
+        window.toggleSection = toggleSection;
+
         const indexNameInput = document.getElementById('indexName');
         const indexTypeSelect = document.getElementById('indexType');
         const uniqueCheckbox = document.getElementById('uniqueIndex');
@@ -547,8 +631,6 @@ export class IndexManagementPanel {
         const whereClauseInput = document.getElementById('whereClause');
         const columnSelector = document.getElementById('columnSelector');
         const selectedColumnsDiv = document.getElementById('selectedColumns');
-        const previewBtn = document.getElementById('previewBtn');
-        const sqlPreview = document.getElementById('sqlPreview');
         const createBtn = document.getElementById('createBtn');
         const cancelBtn = document.getElementById('cancelBtn');
         const errorContainer = document.getElementById('errorContainer');
@@ -565,9 +647,10 @@ export class IndexManagementPanel {
                 if (e.target.tagName !== 'INPUT') {
                     const checkbox = div.querySelector('input');
                     checkbox.checked = !checkbox.checked;
+                    checkbox.dispatchEvent(new Event('change'));
                 }
-                updateSelectedColumns();
             });
+            div.querySelector('input').addEventListener('change', updateSelectedColumns);
             columnSelector.appendChild(div);
         });
 
@@ -582,6 +665,7 @@ export class IndexManagementPanel {
                     .map((col, i) => \`<span class="selected-column-chip">\${i + 1}. \${col}</span>\`)
                     .join('');
             }
+            updatePreview();
         }
 
         function getIndexDefinition() {
@@ -597,37 +681,56 @@ export class IndexManagementPanel {
             };
         }
 
-        function validateIndex() {
-            clearError();
+        function validateIndex(showErrors = true) {
+            if (showErrors) {
+                clearError();
+            }
             
             if (!indexNameInput.value.trim()) {
-                showError('Index name is required');
+                if (showErrors) {
+                    showError('Index name is required');
+                }
                 return false;
             }
             
             if (selectedColumns.length === 0) {
-                showError('At least one column must be selected');
+                if (showErrors) {
+                    showError('At least one column must be selected');
+                }
                 return false;
             }
             
             if (!/^[a-z_][a-z0-9_]*$/i.test(indexNameInput.value.trim())) {
-                showError('Index name must start with a letter and contain only letters, numbers, and underscores');
+                if (showErrors) {
+                    showError('Index name must start with a letter and contain only letters, numbers, and underscores');
+                }
                 return false;
             }
             
             return true;
         }
 
-        previewBtn.addEventListener('click', () => {
-            if (!validateIndex()) return;
+        function updatePreview() {
+            // Only update preview if validation passes (without showing errors)
+            if (!validateIndex(false)) {
+                document.getElementById('sqlPreview').textContent = '-- Fill in required fields to generate SQL preview';
+                return;
+            }
             vscode.postMessage({
                 command: 'previewSql',
                 indexDef: getIndexDefinition()
             });
-        });
+        }
+
+        // Auto-update preview on input changes
+        indexNameInput.addEventListener('input', updatePreview);
+        indexTypeSelect.addEventListener('change', updatePreview);
+        uniqueCheckbox.addEventListener('change', updatePreview);
+        concurrentCheckbox.addEventListener('change', updatePreview);
+        whereClauseInput.addEventListener('input', updatePreview);
 
         createBtn.addEventListener('click', () => {
-            if (!validateIndex()) return;
+            if (!validateIndex(true)) return;
             vscode.postMessage({
                 command: 'createIndex',
                 indexDef: getIndexDefinition()
@@ -635,14 +738,14 @@ export class IndexManagementPanel {
         });
 
         cancelBtn.addEventListener('click', () => {
-            window.close();
+            vscode.postMessage({ command: 'cancel' });
         });
 
         window.addEventListener('message', (event) => {
             const message = event.data;
             switch (message.command) {
                 case 'sqlPreview':
-                    sqlPreview.textContent = message.sql;
+                    document.getElementById('sqlPreview').textContent = message.sql;
                     break;
                 case 'error':
                     showError(message.error);
@@ -657,6 +760,9 @@ export class IndexManagementPanel {
         function clearError() {
             errorContainer.innerHTML = '';
         }
+
+        // Initialize preview (silent validation)
+        updatePreview();
     </script>
 </body>
 </html>`;
@@ -678,46 +784,15 @@ export class IndexManagementPanel {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Indexes</title>
+    ${getStyles()}
     <style>
-        body {
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            background-color: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-            padding: 20px;
-            margin: 0;
-        }
         .container {
             max-width: 1200px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
         }
         .toolbar {
             display: flex;
             gap: 8px;
             margin-bottom: 16px;
-        }
-        .btn {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 8px 16px;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 13px;
-        }
-        .btn:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-        .btn-secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        .btn-secondary:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
         }
         .btn-danger {
             background-color: var(--vscode-errorForeground);
@@ -766,11 +841,6 @@ export class IndexManagementPanel {
             padding: 40px;
             color: var(--vscode-descriptionForeground);
         }
-        .info-text {
-            color: var(--vscode-descriptionForeground);
-            font-size: 12px;
-            margin-bottom: 16px;
-        }
         code {
             background-color: var(--vscode-textCodeBlock-background);
             padding: 2px 6px;
@@ -784,7 +854,7 @@ export class IndexManagementPanel {
     <div class="container">
         <h1>Manage Indexes: ${schema}.${tableName}</h1>
         
-        <div class="info-text">
+        <div class="info-text" style="margin-bottom: 16px;">
             Indexes improve query performance but require storage space and slow down writes. 
             Drop unused indexes to improve write performance.
         </div>
@@ -850,15 +920,11 @@ export class IndexManagementPanel {
         }
 
         window.dropIndex = async function(indexName) {
-            const confirmed = confirm(\`Are you sure you want to drop index "\${indexName}"?\`);
-            if (!confirmed) return;
-
-            const concurrent = confirm('Drop concurrently? (Recommended for production, allows reads/writes during drop)');
-            
+            // Note: Actual confirmation will be handled by VS Code API
             vscode.postMessage({
                 command: 'dropIndex',
                 indexName: indexName,
-                concurrent: concurrent
+                concurrent: false
             });
         };
 
@@ -867,14 +933,9 @@ export class IndexManagementPanel {
         });
 
         document.getElementById('reindexBtn').addEventListener('click', () => {
-            const confirmed = confirm('Reindex all indexes on this table? This can take time for large tables.');
-            if (!confirmed) return;
-
-            const concurrent = confirm('Reindex concurrently? (Recommended for production, PostgreSQL 12+)');
-            
             vscode.postMessage({
                 command: 'reindex',
-                concurrent: concurrent
+                concurrent: false
             });
         });
 
@@ -896,5 +957,3 @@ export class IndexManagementPanel {
 </html>`;
     }
 }
-
-
