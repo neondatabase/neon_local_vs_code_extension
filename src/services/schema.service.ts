@@ -152,15 +152,20 @@ export class SchemaService {
             console.log(`[SCHEMA SERVICE] Fetching views for ${database}.${schema}`);
             const result = await this.connectionPool.executeQuery(`
                 SELECT 
-                    table_name as name,
-                    table_type
-                FROM information_schema.tables 
-                WHERE table_schema = $1
-                    AND table_type IN ('VIEW', 'MATERIALIZED VIEW')
-                ORDER BY table_type, table_name
+                    viewname as name,
+                    'VIEW' as table_type
+                FROM pg_views
+                WHERE schemaname = $1
+                UNION ALL
+                SELECT 
+                    matviewname as name,
+                    'MATERIALIZED VIEW' as table_type
+                FROM pg_matviews
+                WHERE schemaname = $1
+                ORDER BY table_type, name
             `, [schema], database);
 
-            console.log(`[SCHEMA SERVICE] Query returned ${result.rows.length} views:`, result.rows.map(r => r.name));
+            console.log(`[SCHEMA SERVICE] Query returned ${result.rows.length} views:`, result.rows.map(r => `${r.name} (${r.table_type})`));
             
             const views = result.rows.map((row) => ({
                 id: `view_${database}_${schema}_${row.name}`,

@@ -140,13 +140,27 @@ export class FunctionManagementPanel {
 
             const funcData = result.rows[0];
             
+            // Debug: Log retrieved function data
+            console.log('[Edit Function] Retrieved function data:', {
+                schema,
+                functionName,
+                returnType: funcData.return_type,
+                language: funcData.language,
+                definitionLength: funcData.definition?.length || 0,
+                argumentsLength: funcData.arguments?.length || 0,
+                volatility: funcData.volatility,
+                securityDefiner: funcData.security_definer
+            });
+            
             panel.webview.html = FunctionManagementPanel.getEditFunctionHtml(
                 schema,
                 functionName,
                 funcData.definition,
                 funcData.arguments,
                 funcData.return_type,
-                funcData.language
+                funcData.language,
+                funcData.volatility,
+                funcData.security_definer
             );
 
             panel.webview.onDidReceiveMessage(async (message) => {
@@ -172,90 +186,6 @@ export class FunctionManagementPanel {
 
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to load function: ${error}`);
-            panel.dispose();
-        }
-    }
-
-    /**
-     * View function properties
-     */
-    public static async viewFunctionProperties(
-        context: vscode.ExtensionContext,
-        stateService: StateService,
-        schema: string,
-        functionName: string,
-        database?: string
-    ): Promise<void> {
-        const key = `props_func_${database || 'default'}.${schema}.${functionName}`;
-        
-        if (FunctionManagementPanel.currentPanels.has(key)) {
-            FunctionManagementPanel.currentPanels.get(key)!.reveal();
-            return;
-        }
-
-        const panel = vscode.window.createWebviewPanel(
-            'functionProperties',
-            `Function Properties: ${schema}.${functionName}`,
-            vscode.ViewColumn.One,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true
-            }
-        );
-
-        FunctionManagementPanel.currentPanels.set(key, panel);
-
-        panel.onDidDispose(() => {
-            FunctionManagementPanel.currentPanels.delete(key);
-        });
-
-        try {
-            const sqlService = new SqlQueryService(stateService, context);
-            
-            // Get function details
-            const result = await sqlService.executeQuery(`
-                SELECT 
-                    p.proname as name,
-                    pg_get_functiondef(p.oid) as definition,
-                    pg_get_function_arguments(p.oid) as arguments,
-                    pg_get_function_result(p.oid) as return_type,
-                    pg_get_function_identity_arguments(p.oid) as identity_arguments,
-                    l.lanname as language,
-                    CASE p.provolatile
-                        WHEN 'i' THEN 'IMMUTABLE'
-                        WHEN 's' THEN 'STABLE'
-                        WHEN 'v' THEN 'VOLATILE'
-                    END as volatility,
-                    p.prosecdef as security_definer,
-                    p.proisstrict as strict,
-                    p.procost as cost,
-                    p.prorows as estimated_rows,
-                    obj_description(p.oid, 'pg_proc') as description
-                FROM pg_proc p
-                JOIN pg_namespace n ON p.pronamespace = n.oid
-                JOIN pg_language l ON p.prolang = l.oid
-                WHERE n.nspname = $1 AND p.proname = $2
-                LIMIT 1
-            `, [schema, functionName], database);
-
-            if (result.rows.length === 0) {
-                throw new Error('Function not found');
-            }
-
-            panel.webview.html = FunctionManagementPanel.getFunctionPropertiesHtml(
-                schema,
-                functionName,
-                result.rows[0]
-            );
-
-            panel.webview.onDidReceiveMessage(async (message) => {
-                if (message.command === 'cancel') {
-                    panel.dispose();
-                }
-            });
-
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load function properties: ${error}`);
             panel.dispose();
         }
     }
@@ -308,7 +238,21 @@ export class FunctionManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
             panel.webview.postMessage({
                 command: 'error',
                 error: errorMessage
@@ -370,10 +314,13 @@ export class FunctionManagementPanel {
         }
         
         sql += 'AS $$\n';
-        sql += body;
+        // Wrap body in BEGIN...END block
+        sql += 'BEGIN\n';
+        sql += body.trim();
         if (!body.trim().endsWith(';')) {
             sql += '\n';
         }
+        sql += '\nEND;\n';
         sql += '$$;';
         
         return sql;
@@ -440,6 +387,40 @@ export class FunctionManagementPanel {
         }
         select.param-type {
             cursor: pointer;
+        }
+        .function-body-editor {
+            display: flex;
+            flex-direction: column;
+            background-color: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+        }
+        .function-body-editor .code-line {
+            padding: 8px 12px;
+            color: var(--vscode-input-foreground);
+            background-color: var(--vscode-input-background);
+        }
+        .function-body-editor .readonly {
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            opacity: 0.7;
+            user-select: none;
+        }
+        .function-body-editor textarea {
+            border: none;
+            border-top: 1px solid var(--vscode-input-border);
+            border-bottom: 1px solid var(--vscode-input-border);
+            border-radius: 0;
+            min-height: 200px;
+            resize: vertical;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            padding: 8px 12px;
+            line-height: 1.5;
+        }
+        .function-body-editor textarea:focus {
+            outline: none;
         }
     </style>
 </head>
@@ -518,16 +499,20 @@ export class FunctionManagementPanel {
 
         <div class="section-box">
             <div style="margin-bottom: 8px; font-weight: 500;">Function Body <span class="required">*</span></div>
-            <div class="info-text" style="margin-bottom: 8px;">Write your function code (do not include CREATE FUNCTION or $$)</div>
+            <div class="info-text" style="margin-bottom: 8px;">Write your function code between BEGIN and END</div>
             
-            <textarea id="functionBody" placeholder="BEGIN&#10;    -- Your code here&#10;    RETURN result;&#10;END;"></textarea>
+            <div class="function-body-editor">
+                <div class="code-line readonly">BEGIN</div>
+                <textarea id="functionBody" placeholder="    -- Your code here&#10;    RETURN result;"></textarea>
+                <div class="code-line readonly">END;</div>
+            </div>
 
             <div class="helper-section">
                 <div class="helper-title">Common Patterns:</div>
                 <div class="info-text">
-                    • PL/pgSQL: BEGIN...END; with RETURN<br>
-                    • SQL: Direct SELECT statement<br>
-                    • Use $1, $2 for parameter references in SQL functions
+                    • Use RETURN to return a value<br>
+                    • Declare variables: my_var INTEGER := 0;<br>
+                    • Use $1, $2 to reference parameters
                 </div>
             </div>
         </div>
@@ -774,11 +759,73 @@ export class FunctionManagementPanel {
         definition: string,
         args: string,
         returnType: string,
-        language: string
+        language: string,
+        volatility: string,
+        securityDefiner: boolean
     ): string {
         // Extract function body from definition
-        const bodyMatch = definition.match(/AS\s+\$\$\s*([\s\S]*?)\s*\$\$/i);
-        const body = bodyMatch ? bodyMatch[1].trim() : '';
+        // PostgreSQL functions can use various dollar-quote delimiters: $$, $function$, $body$, etc.
+        // Pattern: AS <whitespace> $<optional_tag>$ <body> $<same_tag>$
+        const dollarQuoteMatch = definition.match(/AS\s+\$([a-zA-Z0-9_]*)\$([\s\S]*?)\$\1\$/i);
+        let body = dollarQuoteMatch ? dollarQuoteMatch[2].trim() : '';
+        
+        // Strip BEGIN...END wrapper from body to show only inner content
+        const beginEndMatch = body.match(/^\s*BEGIN\s+([\s\S]*?)\s+END;\s*$/i);
+        if (beginEndMatch) {
+            body = beginEndMatch[1].trim();
+        }
+        
+        // Use JSON.stringify to safely encode the body for JavaScript
+        const bodyJson = JSON.stringify(body);
+        
+        // Debug logging
+        console.log('[getEditFunctionHtml] Processing:', {
+            definitionPreview: definition.substring(0, 200),
+            definitionLength: definition.length,
+            dollarQuoteMatchFound: !!dollarQuoteMatch,
+            bodyLength: body.length,
+            bodyPreview: body.substring(0, 100),
+            returnType: returnType,
+            language: language
+        });
+        
+        // Normalize return type to uppercase for matching with dropdown options
+        const normalizedReturnType = returnType.toUpperCase().trim();
+        
+        // Parse parameters from args string
+        // Format: "param1 type1, param2 type2" or "IN param1 type1, OUT param2 type2"
+        const parseParameters = (argsStr: string) => {
+            if (!argsStr || argsStr.trim() === '') { return []; }
+            
+            const params: any[] = [];
+            const paramParts = argsStr.split(',').map(p => p.trim());
+            
+            paramParts.forEach(param => {
+                const parts = param.split(/\s+/);
+                let mode = 'IN';
+                let name = '';
+                let type = '';
+                
+                if (parts[0] && ['IN', 'OUT', 'INOUT'].includes(parts[0].toUpperCase())) {
+                    mode = parts[0].toUpperCase();
+                    name = parts[1] || '';
+                    type = parts.slice(2).join(' ');
+                } else {
+                    name = parts[0] || '';
+                    type = parts.slice(1).join(' ');
+                }
+                
+                if (name && type) {
+                    params.push({ mode, name, type, defaultValue: '' });
+                }
+            });
+            
+            return params;
+        };
+        
+        const parsedParams = parseParameters(args);
+        const paramsJson = JSON.stringify(parsedParams);
+        const isVolatile = volatility === 'v';
         
         return `<!DOCTYPE html>
 <html lang="en">
@@ -787,32 +834,218 @@ export class FunctionManagementPanel {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Function</title>
     ${getStyles()}
+    <style>
+        /* Function-specific styles */
+        .helper-section {
+            margin-top: 12px;
+            padding: 12px;
+            background-color: var(--vscode-textCodeBlock-background);
+            border-radius: 3px;
+        }
+        .helper-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        .parameter-item {
+            display: grid;
+            grid-template-columns: 80px 1fr 1fr 1fr 40px;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+        .param-mode, .param-name, .param-type, .param-default {
+            padding: 6px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 3px;
+            font-size: 12px;
+            height: 32px;
+            box-sizing: border-box;
+        }
+        .btn-remove {
+            background-color: var(--vscode-errorForeground);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 0;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            height: 32px;
+            width: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-remove:hover {
+            opacity: 0.8;
+        }
+        select.param-type {
+            cursor: pointer;
+        }
+        .function-body-editor {
+            display: flex;
+            flex-direction: column;
+            background-color: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+        }
+        .function-body-editor .code-line {
+            padding: 8px 12px;
+            color: var(--vscode-input-foreground);
+            background-color: var(--vscode-input-background);
+        }
+        .function-body-editor .readonly {
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            opacity: 0.7;
+            user-select: none;
+        }
+        .function-body-editor textarea {
+            border: none;
+            border-top: 1px solid var(--vscode-input-border);
+            border-bottom: 1px solid var(--vscode-input-border);
+            border-radius: 0;
+            min-height: 200px;
+            resize: vertical;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            padding: 8px 12px;
+            line-height: 1.5;
+        }
+        .function-body-editor textarea:focus {
+            outline: none;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <h1>Edit Function: ${functionName}</h1>
+        <h1>Edit Function</h1>
         
         <div id="errorContainer"></div>
 
         <div class="section-box">
-            <div style="margin-bottom: 8px; font-weight: 500;">Function: ${schema}.${functionName}</div>
-            <div class="info-text">Arguments: ${args || 'none'}</div>
-            <div class="info-text">Returns: ${returnType}</div>
-            <div class="info-text">Language: ${language}</div>
+            <div class="form-group">
+                <label>Schema</label>
+                <input type="text" id="schemaInput" value="${schema}" readonly />
+            </div>
+
+            <div class="form-group">
+                <label>Function Name <span class="required">*</span></label>
+                <input type="text" id="functionName" value="${functionName}" placeholder="my_function" />
+                <div class="info-text">Naming convention: lowercase with underscores. Changing the name will create a new function.</div>
+            </div>
+
+            <div class="form-group">
+                <label>Return Type <span class="required">*</span></label>
+                <select id="returnType">
+                    <option value="">-- Select Return Type --</option>
+                    <optgroup label="Common Types">
+                        <option value="VOID">VOID (No return value)</option>
+                        <option value="INTEGER">INTEGER</option>
+                        <option value="BIGINT">BIGINT</option>
+                        <option value="NUMERIC">NUMERIC</option>
+                        <option value="REAL">REAL</option>
+                        <option value="DOUBLE PRECISION">DOUBLE PRECISION</option>
+                        <option value="TEXT">TEXT</option>
+                        <option value="VARCHAR">VARCHAR</option>
+                        <option value="CHAR">CHAR</option>
+                        <option value="BOOLEAN">BOOLEAN</option>
+                        <option value="DATE">DATE</option>
+                        <option value="TIME">TIME</option>
+                        <option value="TIMESTAMP">TIMESTAMP</option>
+                        <option value="TIMESTAMPTZ">TIMESTAMPTZ</option>
+                        <option value="UUID">UUID</option>
+                        <option value="JSON">JSON</option>
+                        <option value="JSONB">JSONB</option>
+                    </optgroup>
+                    <optgroup label="Array Types">
+                        <option value="INTEGER[]">INTEGER[]</option>
+                        <option value="TEXT[]">TEXT[]</option>
+                        <option value="JSONB[]">JSONB[]</option>
+                    </optgroup>
+                    <optgroup label="Special">
+                        <option value="RECORD">RECORD</option>
+                        <option value="SETOF RECORD">SETOF RECORD</option>
+                        <option value="TABLE">TABLE</option>
+                    </optgroup>
+                </select>
+                <div class="info-text">Use VOID for procedures that don't return values</div>
+            </div>
+
+            <div class="form-group">
+                <label>Language</label>
+                <select id="language">
+                    <option value="plpgsql">PL/pgSQL (Procedural)</option>
+                    <option value="sql">SQL</option>
+                </select>
+                <div class="info-text">PL/pgSQL is recommended for complex functions with variables and control structures. SQL is for simple functions.</div>
+            </div>
+
+            <div class="checkbox-group">
+                <input type="checkbox" id="replaceIfExists" checked />
+                <label for="replaceIfExists" style="margin: 0;">CREATE OR REPLACE</label>
+            </div>
         </div>
 
         <div class="section-box">
-            <div style="margin-bottom: 8px; font-weight: 500;">Function Body</div>
-            <textarea id="functionBody">${body}</textarea>
+            <div style="margin-bottom: 12px; font-weight: 500;">Parameters (optional)</div>
+            <div class="info-text" style="margin-bottom: 12px;">Add input/output parameters for your function</div>
+            
+            <div id="parametersList"></div>
+            <button class="btn btn-secondary" id="addParamBtn" style="margin-top: 12px;">+ Add Parameter</button>
+        </div>
+
+        <div class="section-box">
+            <div style="margin-bottom: 8px; font-weight: 500;">Function Body <span class="required">*</span></div>
+            <div class="info-text" style="margin-bottom: 8px;">Write your function code between BEGIN and END</div>
+            
+            <div class="function-body-editor">
+                <div class="code-line readonly">BEGIN</div>
+                <textarea id="functionBody" placeholder="    -- Your code here&#10;    RETURN result;"></textarea>
+                <div class="code-line readonly">END;</div>
+            </div>
+
+            <div class="helper-section">
+                <div class="helper-title">Common Patterns:</div>
+                <div class="info-text">
+                    • Use RETURN to return a value<br>
+                    • Declare variables: my_var INTEGER := 0;<br>
+                    • Use $1, $2 to reference parameters
+                </div>
+            </div>
         </div>
 
         <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('definitionSection')">
-                <span class="toggle-icon" id="definitionIcon">▶</span>
-                Current Definition
+            <div class="collapsible-header" onclick="toggleSection('optionsSection')">
+                <span class="toggle-icon" id="optionsIcon">▶</span>
+                Advanced Options
             </div>
-            <div class="collapsible-content" id="definitionSection">
-                <div class="sql-preview">${definition}</div>
+            <div class="collapsible-content" id="optionsSection">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="isVolatile" ${isVolatile ? 'checked' : ''} />
+                    <label for="isVolatile" style="margin: 0;">VOLATILE</label>
+                </div>
+                <div class="info-text">Uncheck for STABLE functions (deterministic, no database modifications)</div>
+
+                <div class="checkbox-group" style="margin-top: 12px;">
+                    <input type="checkbox" id="securityDefiner" ${securityDefiner ? 'checked' : ''} />
+                    <label for="securityDefiner" style="margin: 0;">SECURITY DEFINER</label>
+                </div>
+                <div class="info-text">Execute with privileges of function owner (use with caution)</div>
+            </div>
+        </div>
+
+        <div class="section-box collapsible">
+            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
+                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
+                SQL Preview
+            </div>
+            <div class="collapsible-content" id="sqlPreviewSection">
+                <div class="sql-preview" id="sqlPreview">-- SQL will be generated automatically as you fill in the form</div>
             </div>
         </div>
 
@@ -824,6 +1057,7 @@ export class FunctionManagementPanel {
 
     <script>
         const vscode = acquireVsCodeApi();
+        let parameters = ${paramsJson};
 
         function toggleSection(sectionId) {
             const section = document.getElementById(sectionId);
@@ -835,155 +1069,235 @@ export class FunctionManagementPanel {
 
         window.toggleSection = toggleSection;
 
-        document.getElementById('updateBtn').addEventListener('click', () => {
-            const body = document.getElementById('functionBody').value.trim();
-            if (!body) {
+        function addParameter() {
+            const id = Date.now();
+            parameters.push({ id, name: '', type: '', mode: 'IN', defaultValue: '' });
+            renderParameters();
+            updatePreview();
+        }
+
+        function removeParameter(id) {
+            parameters = parameters.filter(p => p.id !== id);
+            renderParameters();
+            updatePreview();
+        }
+
+        function renderParameters() {
+            const container = document.getElementById('parametersList');
+            if (parameters.length === 0) {
+                container.innerHTML = '<div class="info-text">No parameters defined</div>';
+                return;
+            }
+
+            container.innerHTML = parameters.map(param => \`
+                <div class="parameter-item">
+                    <select class="param-mode" data-id="\${param.id}">
+                        <option value="IN" \${param.mode === 'IN' ? 'selected' : ''}>IN</option>
+                        <option value="OUT" \${param.mode === 'OUT' ? 'selected' : ''}>OUT</option>
+                        <option value="INOUT" \${param.mode === 'INOUT' ? 'selected' : ''}>INOUT</option>
+                    </select>
+                    <input type="text" class="param-name" placeholder="param_name" data-id="\${param.id}" value="\${param.name}" />
+                    <select class="param-type" data-id="\${param.id}">
+                        <option value="">-- Select Type --</option>
+                        <optgroup label="Numeric">
+                            <option value="INTEGER" \${param.type === 'INTEGER' ? 'selected' : ''}>INTEGER</option>
+                            <option value="BIGINT" \${param.type === 'BIGINT' ? 'selected' : ''}>BIGINT</option>
+                            <option value="NUMERIC" \${param.type === 'NUMERIC' ? 'selected' : ''}>NUMERIC</option>
+                            <option value="REAL" \${param.type === 'REAL' ? 'selected' : ''}>REAL</option>
+                            <option value="DOUBLE PRECISION" \${param.type === 'DOUBLE PRECISION' ? 'selected' : ''}>DOUBLE PRECISION</option>
+                        </optgroup>
+                        <optgroup label="Text">
+                            <option value="TEXT" \${param.type === 'TEXT' ? 'selected' : ''}>TEXT</option>
+                            <option value="VARCHAR" \${param.type === 'VARCHAR' ? 'selected' : ''}>VARCHAR</option>
+                            <option value="CHAR" \${param.type === 'CHAR' ? 'selected' : ''}>CHAR</option>
+                        </optgroup>
+                        <optgroup label="Other">
+                            <option value="BOOLEAN" \${param.type === 'BOOLEAN' ? 'selected' : ''}>BOOLEAN</option>
+                            <option value="DATE" \${param.type === 'DATE' ? 'selected' : ''}>DATE</option>
+                            <option value="TIMESTAMP" \${param.type === 'TIMESTAMP' ? 'selected' : ''}>TIMESTAMP</option>
+                            <option value="TIMESTAMPTZ" \${param.type === 'TIMESTAMPTZ' ? 'selected' : ''}>TIMESTAMPTZ</option>
+                            <option value="UUID" \${param.type === 'UUID' ? 'selected' : ''}>UUID</option>
+                            <option value="JSON" \${param.type === 'JSON' ? 'selected' : ''}>JSON</option>
+                            <option value="JSONB" \${param.type === 'JSONB' ? 'selected' : ''}>JSONB</option>
+                        </optgroup>
+                        <optgroup label="Arrays">
+                            <option value="INTEGER[]" \${param.type === 'INTEGER[]' ? 'selected' : ''}>INTEGER[]</option>
+                            <option value="TEXT[]" \${param.type === 'TEXT[]' ? 'selected' : ''}>TEXT[]</option>
+                            <option value="JSONB[]" \${param.type === 'JSONB[]' ? 'selected' : ''}>JSONB[]</option>
+                        </optgroup>
+                    </select>
+                    <input type="text" class="param-default" placeholder="default" data-id="\${param.id}" value="\${param.defaultValue || ''}" />
+                    <button class="btn-remove" onclick="removeParameter(\${param.id})">×</button>
+                </div>
+            \`).join('');
+
+            // Add event listeners
+            container.querySelectorAll('.param-mode').forEach(el => {
+                el.addEventListener('change', (e) => {
+                    const id = parseInt(e.target.dataset.id);
+                    const param = parameters.find(p => p.id === id);
+                    if (param) {
+                        param.mode = e.target.value;
+                        updatePreview();
+                    }
+                });
+            });
+
+            container.querySelectorAll('.param-name').forEach(el => {
+                el.addEventListener('input', (e) => {
+                    const id = parseInt(e.target.dataset.id);
+                    const param = parameters.find(p => p.id === id);
+                    if (param) {
+                        param.name = e.target.value;
+                        updatePreview();
+                    }
+                });
+            });
+
+            container.querySelectorAll('.param-type').forEach(el => {
+                el.addEventListener('change', (e) => {
+                    const id = parseInt(e.target.dataset.id);
+                    const param = parameters.find(p => p.id === id);
+                    if (param) {
+                        param.type = e.target.value;
+                        updatePreview();
+                    }
+                });
+            });
+
+            container.querySelectorAll('.param-default').forEach(el => {
+                el.addEventListener('input', (e) => {
+                    const id = parseInt(e.target.dataset.id);
+                    const param = parameters.find(p => p.id === id);
+                    if (param) {
+                        param.defaultValue = e.target.value;
+                        updatePreview();
+                    }
+                });
+            });
+        }
+
+        window.removeParameter = removeParameter;
+
+        function getFunctionDefinition() {
+            return {
+                schema: document.getElementById('schemaInput').value.trim(),
+                functionName: document.getElementById('functionName').value.trim(),
+                parameters: parameters.map(p => ({
+                    mode: p.mode,
+                    name: p.name,
+                    type: p.type,
+                    defaultValue: p.defaultValue
+                })),
+                returnType: document.getElementById('returnType').value,
+                language: document.getElementById('language').value,
+                body: document.getElementById('functionBody').value.trim(),
+                isVolatile: document.getElementById('isVolatile').checked,
+                securityDefiner: document.getElementById('securityDefiner').checked,
+                replaceIfExists: document.getElementById('replaceIfExists').checked
+            };
+        }
+
+        function updatePreview() {
+            const funcDef = getFunctionDefinition();
+            vscode.postMessage({ command: 'previewSql', funcDef });
+        }
+
+        // Elements
+        const functionNameInput = document.getElementById('functionName');
+        const returnTypeInput = document.getElementById('returnType');
+        const languageInput = document.getElementById('language');
+        const functionBodyInput = document.getElementById('functionBody');
+        const isVolatileCheckbox = document.getElementById('isVolatile');
+        const securityDefinerCheckbox = document.getElementById('securityDefiner');
+        const replaceIfExistsCheckbox = document.getElementById('replaceIfExists');
+        const addParamBtn = document.getElementById('addParamBtn');
+        const updateBtn = document.getElementById('updateBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+
+        // Event listeners
+        functionNameInput.addEventListener('input', updatePreview);
+        returnTypeInput.addEventListener('change', updatePreview);
+        languageInput.addEventListener('change', updatePreview);
+        functionBodyInput.addEventListener('input', updatePreview);
+        isVolatileCheckbox.addEventListener('change', updatePreview);
+        securityDefinerCheckbox.addEventListener('change', updatePreview);
+        replaceIfExistsCheckbox.addEventListener('change', updatePreview);
+        addParamBtn.addEventListener('click', addParameter);
+
+        updateBtn.addEventListener('click', () => {
+            const funcDef = getFunctionDefinition();
+            
+            if (!funcDef.functionName) {
+                showError('Function name is required');
+                return;
+            }
+            if (!funcDef.returnType) {
+                showError('Return type is required');
+                return;
+            }
+            if (!funcDef.body) {
                 showError('Function body cannot be empty');
                 return;
             }
 
+            updateBtn.disabled = true;
+            updateBtn.textContent = 'Updating...';
+
             vscode.postMessage({
                 command: 'updateFunction',
-                funcDef: {
-                    schema: '${schema}',
-                    functionName: '${functionName}',
-                    parameters: [],
-                    returnType: '${returnType}',
-                    language: '${language}',
-                    body: body,
-                    isVolatile: true,
-                    securityDefiner: false,
-                    replaceIfExists: true
-                }
+                funcDef: funcDef
             });
         });
 
-        document.getElementById('cancelBtn').addEventListener('click', () => {
+        cancelBtn.addEventListener('click', () => {
             vscode.postMessage({ command: 'cancel' });
         });
 
         window.addEventListener('message', (event) => {
             const message = event.data;
-            if (message.command === 'error') {
-                showError(message.error);
+            switch (message.command) {
+                case 'error':
+                    showError(message.error);
+                    updateBtn.disabled = false;
+                    updateBtn.textContent = 'Update Function';
+                    break;
+                case 'sqlPreview':
+                    document.getElementById('sqlPreview').textContent = message.sql;
+                    break;
             }
         });
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
         }
-    </script>
-</body>
-</html>`;
-    }
 
-    /**
-     * Get HTML for function properties panel
-     */
-    private static getFunctionPropertiesHtml(
-        schema: string,
-        functionName: string,
-        funcData: any
-    ): string {
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Function Properties</title>
-    ${getStyles()}
-    <style>
-        .property-grid {
-            display: grid;
-            grid-template-columns: 200px 1fr;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .property-label {
-            font-weight: 600;
-            color: var(--vscode-descriptionForeground);
-        }
-        .property-value {
-            font-family: monospace;
-            font-size: 13px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Function Properties: ${functionName}</h1>
-        
-        <div class="section-box">
-            <div style="margin-bottom: 12px; font-weight: 500;">General Information</div>
-            <div class="property-grid">
-                <div class="property-label">Schema:</div>
-                <div class="property-value">${schema}</div>
-                
-                <div class="property-label">Function Name:</div>
-                <div class="property-value">${functionName}</div>
-                
-                <div class="property-label">Arguments:</div>
-                <div class="property-value">${funcData.arguments || 'none'}</div>
-                
-                <div class="property-label">Return Type:</div>
-                <div class="property-value">${funcData.return_type}</div>
-                
-                <div class="property-label">Language:</div>
-                <div class="property-value">${funcData.language}</div>
-                
-                <div class="property-label">Volatility:</div>
-                <div class="property-value">${funcData.volatility}</div>
-                
-                <div class="property-label">Security:</div>
-                <div class="property-value">${funcData.security_definer ? 'DEFINER' : 'INVOKER'}</div>
-                
-                <div class="property-label">Strict:</div>
-                <div class="property-value">${funcData.strict ? 'Yes' : 'No'}</div>
-                
-                <div class="property-label">Cost:</div>
-                <div class="property-value">${funcData.cost}</div>
-                
-                <div class="property-label">Description:</div>
-                <div class="property-value">${funcData.description || 'No description'}</div>
-            </div>
-        </div>
+        // Set initial function body from JSON-encoded value
+        const initialBody = ${bodyJson};
+        document.getElementById('functionBody').value = initialBody;
 
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('definitionSection')">
-                <span class="toggle-icon" id="definitionIcon">▶</span>
-                Function Definition
-            </div>
-            <div class="collapsible-content" id="definitionSection">
-                <div class="sql-preview">${funcData.definition}</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn btn-secondary" id="closeBtn">Close</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        document.getElementById('closeBtn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
+        // Debug: Log initial values
+        console.log('[Edit Function] Initial values:', {
+            returnType: '${normalizedReturnType}',
+            language: '${language}',
+            bodyLength: initialBody.length,
+            bodyPreview: initialBody.substring(0, 100),
+            parameters: parameters
         });
+
+        // Set initial return type (normalized to uppercase)
+        const returnTypeSelect = document.getElementById('returnType');
+        returnTypeSelect.value = '${normalizedReturnType}';
+        console.log('[Edit Function] Return type set to:', returnTypeSelect.value, 'Selected:', returnTypeSelect.value === '${normalizedReturnType}');
+        
+        // Set initial language
+        document.getElementById('language').value = '${language}';
+
+        // Initial render
+        renderParameters();
+        updatePreview();
     </script>
 </body>
 </html>`;
     }
-
 }
-
-

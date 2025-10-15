@@ -88,8 +88,35 @@ export class EditTablePanel {
         try {
             this.sendMessage({ command: 'loading', loading: true });
             
+            const sqlService = new SqlQueryService(this.stateService, this.context);
             const schemaService = new SchemaService(this.stateService, this.context);
+            
+            // Get columns
             const columns = await schemaService.getColumns(this.database || 'postgres', this.schema, this.tableName);
+            
+            // Get current table owner
+            const ownerQuery = `
+                SELECT tableowner as owner
+                FROM pg_tables
+                WHERE schemaname = $1 AND tablename = $2;
+            `;
+            const ownerResult = await sqlService.executeQuery(ownerQuery, [this.schema, this.tableName], this.database);
+            const currentOwner = ownerResult.rows[0]?.owner || '';
+            
+            // Get roles from database (excluding system roles and neon-specific roles)
+            const rolesQuery = `
+                SELECT rolname 
+                FROM pg_catalog.pg_roles 
+                WHERE rolname NOT LIKE 'pg_%' 
+                  AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                ORDER BY rolname;
+            `;
+            const rolesResult = await sqlService.executeQuery(rolesQuery, this.database);
+            const existingRoles = rolesResult.rows.map((row: any) => row.rolname);
+            
+            // Get current user
+            const currentUserResult = await sqlService.executeQuery('SELECT current_user', this.database);
+            const currentUser = currentUserResult.rows[0]?.current_user || '';
             
             // Transform columns to the format expected by the UI
             const columnData = columns.map(col => ({
@@ -108,7 +135,10 @@ export class EditTablePanel {
                 schema: this.schema,
                 tableName: this.tableName,
                 columns: columnData,
-                database: this.database
+                database: this.database,
+                currentOwner,
+                existingRoles,
+                currentUser
             });
             
         } catch (error) {
@@ -126,11 +156,11 @@ export class EditTablePanel {
     private async handleMessage(message: any) {
         switch (message.command) {
             case 'applyChanges':
-                await this.applyChanges(message.changes);
+                await this.applyChanges(message.changes, message.newTableName, message.newOwner);
                 break;
 
             case 'previewSql':
-                const sql = this.generateAlterTableSql(message.changes);
+                const sql = this.generateAlterTableSql(message.changes, message.newTableName, message.newOwner);
                 this.sendMessage({
                     command: 'sqlPreview',
                     sql
@@ -143,8 +173,8 @@ export class EditTablePanel {
         }
     }
 
-    private generateAlterTableSql(changes: ColumnChange[]): string {
-        if (!changes || changes.length === 0) {
+    private generateAlterTableSql(changes: ColumnChange[], newTableName?: string, newOwner?: string): string {
+        if ((!changes || changes.length === 0) && !newTableName && !newOwner) {
             return '-- No changes to apply';
         }
 
@@ -229,19 +259,30 @@ export class EditTablePanel {
             }
         });
 
+        // Handle table rename
+        if (newTableName && newTableName !== this.tableName) {
+            sqlStatements.push(`ALTER TABLE ${fullTableName}\n  RENAME TO ${newTableName};`);
+        }
+
+        // Handle owner change
+        if (newOwner) {
+            const targetTableName = newTableName || this.tableName;
+            sqlStatements.push(`ALTER TABLE ${this.schema}.${targetTableName}\n  OWNER TO "${newOwner}";`);
+        }
+
         return sqlStatements.join('\n\n');
     }
 
-    private async applyChanges(changes: ColumnChange[]) {
+    private async applyChanges(changes: ColumnChange[], newTableName?: string, newOwner?: string) {
         try {
             this.sendMessage({ command: 'loading', loading: true });
             
-            if (!changes || changes.length === 0) {
+            if ((!changes || changes.length === 0) && !newTableName && !newOwner) {
                 vscode.window.showInformationMessage('No changes to apply.');
                 return;
             }
 
-            const sql = this.generateAlterTableSql(changes);
+            const sql = this.generateAlterTableSql(changes, newTableName, newOwner);
             const sqlService = new SqlQueryService(this.stateService, this.context);
             
             // Execute all ALTER statements
@@ -287,27 +328,13 @@ export class EditTablePanel {
     <style>
         /* Table-specific styles */
         .container {
-            max-width: 1400px;
-        }
-
-        .section {
-            margin-bottom: 20px;
-        }
-
-        .info-text {
-            margin-bottom: 12px;
+            max-width: 1200px;
         }
 
         .columns-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 12px;
-            overflow-x: auto;
-            display: block;
-        }
-
-        .columns-table table {
-            width: 100%;
         }
 
         .columns-table th,
@@ -416,6 +443,10 @@ export class EditTablePanel {
             padding: 40px;
             color: var(--vscode-descriptionForeground);
         }
+
+        .toggle-icon.expanded {
+            transform: rotate(90deg);
+        }
     </style>
 </head>
 <body>
@@ -426,42 +457,61 @@ export class EditTablePanel {
         <div id="loadingContainer" class="loading" style="display: none;">Loading table structure...</div>
 
         <div id="mainContent" style="display: none;">
-            <div class="section">
-                <div class="section-title">Table: <span id="tableNameDisplay"></span></div>
-                <div class="info-text">Modify existing columns, add new ones, or mark columns for deletion. Changes will be applied as ALTER TABLE statements.</div>
+            <div class="section-box">
+                <div class="form-group">
+                    <label>Schema</label>
+                    <input type="text" id="schemaInput" readonly />
+                    <div class="info-text">The schema containing this table</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Table Name</label>
+                    <input type="text" id="tableNameInput" />
+                    <div class="info-text">Renaming the table will be included in the ALTER TABLE statements</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Owner</label>
+                    <select id="ownerInput">
+                        <option value="">Loading...</option>
+                    </select>
+                    <div class="info-text">The role that owns this table</div>
+                </div>
             </div>
 
-            <div class="section">
-                <div class="section-title">Columns</div>
+            <div class="section-box">
+                <div style="margin-bottom: 12px; font-weight: 500;">Columns</div>
                 
-                <div class="columns-table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width: 8%;">Status</th>
-                                <th style="width: 18%;">Column Name</th>
-                                <th style="width: 15%;">Data Type</th>
-                                <th style="width: 10%;">Length</th>
-                                <th style="width: 8%;">Nullable</th>
-                                <th style="width: 8%;">PK</th>
-                                <th style="width: 8%;">Unique</th>
-                                <th style="width: 15%;">Default</th>
-                                <th style="width: 10%;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="columnsTableBody">
-                            <!-- Columns will be added dynamically -->
-                        </tbody>
-                    </table>
-                </div>
+                <table class="columns-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 8%;">Status</th>
+                            <th style="width: 18%;">Column Name</th>
+                            <th style="width: 15%;">Data Type</th>
+                            <th style="width: 10%;">Length</th>
+                            <th style="width: 8%;">Nullable</th>
+                            <th style="width: 8%;">PK</th>
+                            <th style="width: 8%;">Unique</th>
+                            <th style="width: 15%;">Default</th>
+                            <th style="width: 10%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="columnsTableBody">
+                        <!-- Columns will be added dynamically -->
+                    </tbody>
+                </table>
 
                 <button class="btn btn-secondary" id="addColumnBtn" style="margin-top: 12px;">+ Add New Column</button>
             </div>
 
-            <div class="section">
-                <div class="section-title">SQL Preview</div>
-                <button class="btn btn-secondary" id="previewSqlBtn">Generate SQL Preview</button>
-                <div class="sql-preview" id="sqlPreview">-- Click "Generate SQL Preview" to see the ALTER TABLE statements</div>
+            <div class="section-box collapsible">
+                <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
+                    <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
+                    SQL Preview
+                </div>
+                <div class="collapsible-content" id="sqlPreviewSection">
+                    <pre class="sql-preview" id="sqlPreview">-- Make changes to see the ALTER TABLE statements</pre>
+                </div>
             </div>
 
             <div class="actions">
@@ -497,19 +547,40 @@ export class EditTablePanel {
         const errorContainer = document.getElementById('errorContainer');
         const loadingContainer = document.getElementById('loadingContainer');
         const mainContent = document.getElementById('mainContent');
-        const tableNameDisplay = document.getElementById('tableNameDisplay');
+        const schemaInput = document.getElementById('schemaInput');
+        const tableNameInput = document.getElementById('tableNameInput');
+        const ownerInput = document.getElementById('ownerInput');
         const columnsTableBody = document.getElementById('columnsTableBody');
         const addColumnBtn = document.getElementById('addColumnBtn');
-        const previewSqlBtn = document.getElementById('previewSqlBtn');
         const sqlPreview = document.getElementById('sqlPreview');
         const applyBtn = document.getElementById('applyBtn');
         const cancelBtn = document.getElementById('cancelBtn');
 
+        let originalTableName = '';
+        let originalOwner = '';
+
         // Event listeners
         addColumnBtn.addEventListener('click', addNewColumn);
-        previewSqlBtn.addEventListener('click', previewSql);
         applyBtn.addEventListener('click', applyChanges);
         cancelBtn.addEventListener('click', cancel);
+        tableNameInput.addEventListener('input', updatePreview);
+        ownerInput.addEventListener('change', updatePreview);
+
+        // Toggle section functionality
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
+            if (section.style.display === 'none' || section.style.display === '') {
+                section.style.display = 'block';
+                icon.classList.add('expanded');
+            } else {
+                section.style.display = 'none';
+                icon.classList.remove('expanded');
+            }
+        }
+        
+        // Make toggleSection available globally
+        window.toggleSection = toggleSection;
 
         // Message handling
         window.addEventListener('message', (event) => {
@@ -517,7 +588,26 @@ export class EditTablePanel {
             
             switch (message.command) {
                 case 'initialize':
-                    tableNameDisplay.textContent = \`\${message.schema}.\${message.tableName}\`;
+                    schemaInput.value = message.schema || 'public';
+                    tableNameInput.value = message.tableName || '';
+                    originalTableName = message.tableName || '';
+                    originalOwner = message.currentOwner || '';
+                    
+                    // Populate owner dropdown
+                    ownerInput.innerHTML = '';
+                    if (message.existingRoles && message.existingRoles.length > 0) {
+                        message.existingRoles.forEach(role => {
+                            const option = document.createElement('option');
+                            option.value = role;
+                            option.textContent = role;
+                            // Select the current owner by default
+                            if (role === message.currentOwner) {
+                                option.selected = true;
+                            }
+                            ownerInput.appendChild(option);
+                        });
+                    }
+                    
                     originalColumns = JSON.parse(JSON.stringify(message.columns));
                     columns = message.columns.map((col, index) => ({
                         ...col,
@@ -527,6 +617,7 @@ export class EditTablePanel {
                         isDeleted: false
                     }));
                     renderColumns();
+                    updatePreview();
                     loadingContainer.style.display = 'none';
                     mainContent.style.display = 'block';
                     break;
@@ -537,7 +628,6 @@ export class EditTablePanel {
                     
                 case 'loading':
                     applyBtn.disabled = message.loading;
-                    previewSqlBtn.disabled = message.loading;
                     addColumnBtn.disabled = message.loading;
                     if (message.loading) {
                         loadingContainer.style.display = 'block';
@@ -570,6 +660,7 @@ export class EditTablePanel {
             
             columns.push(column);
             renderColumns();
+            updatePreview();
         }
 
         function markColumnAsDeleted(columnId) {
@@ -577,12 +668,14 @@ export class EditTablePanel {
             if (column && column.status === 'existing') {
                 column.isDeleted = !column.isDeleted;
                 renderColumns();
+                updatePreview();
             }
         }
 
         function removeNewColumn(columnId) {
             columns = columns.filter(col => col.id !== columnId);
             renderColumns();
+            updatePreview();
         }
 
         function renderColumns() {
@@ -627,7 +720,7 @@ export class EditTablePanel {
                 nameInput.disabled = col.isDeleted;
                 nameInput.addEventListener('input', (e) => {
                     col.name = e.target.value;
-                    renderColumns();
+                    updatePreview();
                 });
                 nameCell.appendChild(nameInput);
                 row.appendChild(nameCell);
@@ -647,7 +740,8 @@ export class EditTablePanel {
                 });
                 typeSelect.addEventListener('change', (e) => {
                     col.dataType = e.target.value;
-                    renderColumns();
+                    updateStatusBadge(row, col);
+                    updatePreview();
                 });
                 typeCell.appendChild(typeSelect);
                 row.appendChild(typeCell);
@@ -662,7 +756,7 @@ export class EditTablePanel {
                 lengthInput.disabled = col.isDeleted;
                 lengthInput.addEventListener('input', (e) => {
                     col.length = e.target.value ? parseInt(e.target.value) : undefined;
-                    renderColumns();
+                    updatePreview();
                 });
                 lengthCell.appendChild(lengthInput);
                 row.appendChild(lengthCell);
@@ -676,7 +770,8 @@ export class EditTablePanel {
                 nullableCheckbox.disabled = col.isDeleted;
                 nullableCheckbox.addEventListener('change', (e) => {
                     col.nullable = e.target.checked;
-                    renderColumns();
+                    updateStatusBadge(row, col);
+                    updatePreview();
                 });
                 nullableCell.appendChild(nullableCheckbox);
                 row.appendChild(nullableCell);
@@ -692,8 +787,14 @@ export class EditTablePanel {
                     col.isPrimaryKey = e.target.checked;
                     if (e.target.checked) {
                         col.nullable = false;
+                        // Update the nullable checkbox in the UI
+                        const nullableCheckbox = row.querySelector('td:nth-child(5) input[type="checkbox"]');
+                        if (nullableCheckbox) {
+                            nullableCheckbox.checked = false;
+                        }
                     }
-                    renderColumns();
+                    updateStatusBadge(row, col);
+                    updatePreview();
                 });
                 pkCell.appendChild(pkCheckbox);
                 row.appendChild(pkCell);
@@ -707,7 +808,8 @@ export class EditTablePanel {
                 uniqueCheckbox.disabled = col.isDeleted;
                 uniqueCheckbox.addEventListener('change', (e) => {
                     col.isUnique = e.target.checked;
-                    renderColumns();
+                    updateStatusBadge(row, col);
+                    updatePreview();
                 });
                 uniqueCell.appendChild(uniqueCheckbox);
                 row.appendChild(uniqueCell);
@@ -721,7 +823,7 @@ export class EditTablePanel {
                 defaultInput.disabled = col.isDeleted;
                 defaultInput.addEventListener('input', (e) => {
                     col.defaultValue = e.target.value;
-                    renderColumns();
+                    updatePreview();
                 });
                 defaultCell.appendChild(defaultInput);
                 row.appendChild(defaultCell);
@@ -765,6 +867,32 @@ export class EditTablePanel {
                    col.length !== original.length ||
                    col.nullable !== original.nullable ||
                    col.defaultValue !== (original.defaultValue || '');
+        }
+
+        function updateStatusBadge(row, col) {
+            // Update row classes
+            row.className = 'column-row';
+            if (col.status === 'new') {
+                row.classList.add('new');
+            } else if (col.isDeleted) {
+                row.classList.add('deleted');
+            } else if (hasColumnChanged(col)) {
+                row.classList.add('modified');
+            }
+
+            // Update status badge
+            const statusCell = row.querySelector('td:first-child');
+            if (statusCell) {
+                let statusBadge = '';
+                if (col.status === 'new') {
+                    statusBadge = '<span class="status-badge new">NEW</span>';
+                } else if (col.isDeleted) {
+                    statusBadge = '<span class="status-badge deleted">DELETE</span>';
+                } else if (hasColumnChanged(col)) {
+                    statusBadge = '<span class="status-badge modified">MODIFIED</span>';
+                }
+                statusCell.innerHTML = statusBadge;
+            }
         }
 
         function getChanges() {
@@ -811,24 +939,34 @@ export class EditTablePanel {
             return changes;
         }
 
-        function previewSql() {
+        function updatePreview() {
             const changes = getChanges();
+            const newTableName = tableNameInput.value.trim();
+            const newOwner = ownerInput.value;
+            const tableRenamed = newTableName !== originalTableName;
+            const ownerChanged = newOwner !== originalOwner;
             
-            if (changes.length === 0) {
+            if (changes.length === 0 && !tableRenamed && !ownerChanged) {
                 sqlPreview.textContent = '-- No changes to apply';
                 return;
             }
 
             vscode.postMessage({
                 command: 'previewSql',
-                changes: changes
+                changes: changes,
+                newTableName: tableRenamed ? newTableName : undefined,
+                newOwner: ownerChanged ? newOwner : undefined
             });
         }
 
         function applyChanges() {
             const changes = getChanges();
+            const newTableName = tableNameInput.value.trim();
+            const newOwner = ownerInput.value;
+            const tableRenamed = newTableName !== originalTableName;
+            const ownerChanged = newOwner !== originalOwner;
             
-            if (changes.length === 0) {
+            if (changes.length === 0 && !tableRenamed && !ownerChanged) {
                 showError('No changes to apply');
                 return;
             }
@@ -848,7 +986,9 @@ export class EditTablePanel {
 
             vscode.postMessage({
                 command: 'applyChanges',
-                changes: changes
+                changes: changes,
+                newTableName: tableRenamed ? newTableName : undefined,
+                newOwner: ownerChanged ? newOwner : undefined
             });
         }
 

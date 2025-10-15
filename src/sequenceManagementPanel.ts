@@ -95,124 +95,6 @@ export class SequenceManagementPanel {
     }
 
     /**
-     * View sequence properties
-     */
-    public static async viewSequenceProperties(
-        context: vscode.ExtensionContext,
-        stateService: StateService,
-        schema: string,
-        sequenceName: string,
-        database?: string
-    ): Promise<void> {
-        const key = `props_${database || 'default'}.${schema}.${sequenceName}`;
-        
-        if (SequenceManagementPanel.currentPanels.has(key)) {
-            SequenceManagementPanel.currentPanels.get(key)!.reveal();
-            return;
-        }
-
-        const panel = vscode.window.createWebviewPanel(
-            'sequenceProperties',
-            `Sequence: ${schema}.${sequenceName}`,
-            vscode.ViewColumn.One,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true
-            }
-        );
-
-        SequenceManagementPanel.currentPanels.set(key, panel);
-
-        panel.onDidDispose(() => {
-            SequenceManagementPanel.currentPanels.delete(key);
-        });
-
-        try {
-            const sqlService = new SqlQueryService(stateService, context);
-            
-            // Get sequence properties
-            const propsResult = await sqlService.executeQuery(`
-                SELECT 
-                    s.sequence_name,
-                    s.sequence_schema,
-                    s.data_type,
-                    s.start_value,
-                    s.minimum_value,
-                    s.maximum_value,
-                    s.increment,
-                    s.cycle_option,
-                    pg_sequence_last_value(c.oid::regclass) as last_value,
-                    c.relowner::regrole::text as owner
-                FROM information_schema.sequences s
-                JOIN pg_class c ON c.relname = s.sequence_name
-                JOIN pg_namespace n ON n.nspname = s.sequence_schema AND n.oid = c.relnamespace
-                WHERE s.sequence_schema = $1 AND s.sequence_name = $2
-            `, [schema, sequenceName], database);
-
-            if (propsResult.rows.length === 0) {
-                vscode.window.showErrorMessage(`Sequence "${schema}.${sequenceName}" not found`);
-                panel.dispose();
-                return;
-            }
-
-            const props: SequenceProperties = {
-                name: propsResult.rows[0].sequence_name,
-                schema: propsResult.rows[0].sequence_schema,
-                dataType: propsResult.rows[0].data_type,
-                startValue: propsResult.rows[0].start_value,
-                minValue: propsResult.rows[0].minimum_value,
-                maxValue: propsResult.rows[0].maximum_value,
-                incrementBy: propsResult.rows[0].increment,
-                cache: '1', // Default, can be enhanced
-                cycle: propsResult.rows[0].cycle_option === 'YES',
-                lastValue: propsResult.rows[0].last_value || 'Not used yet',
-                owner: propsResult.rows[0].owner
-            };
-
-            panel.webview.html = SequenceManagementPanel.getPropertiesHtml(props);
-
-            panel.webview.onDidReceiveMessage(async (message) => {
-                switch (message.command) {
-                    case 'restart':
-                        await SequenceManagementPanel.restartSequence(
-                            context,
-                            stateService,
-                            schema,
-                            sequenceName,
-                            message.value,
-                            database
-                        );
-                        // Refresh properties
-                        panel.dispose();
-                        setTimeout(() => {
-                            SequenceManagementPanel.viewSequenceProperties(context, stateService, schema, sequenceName, database);
-                        }, 100);
-                        break;
-                    case 'setNextVal':
-                        await SequenceManagementPanel.setNextValue(
-                            context,
-                            stateService,
-                            schema,
-                            sequenceName,
-                            message.value,
-                            database
-                        );
-                        // Refresh properties
-                        panel.dispose();
-                        setTimeout(() => {
-                            SequenceManagementPanel.viewSequenceProperties(context, stateService, schema, sequenceName, database);
-                        }, 100);
-                        break;
-                }
-            });
-
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to view sequence properties: ${error}`);
-            panel.dispose();
-        }
-    }
-
-    /**
      * Alter sequence
      */
     public static async alterSequence(
@@ -332,9 +214,23 @@ export class SequenceManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
             vscode.window.showErrorMessage(`Failed to drop sequence: ${errorMessage}`);
-            throw error;
+            // Note: Don't throw the error - it's already been displayed to the user
         }
     }
 
@@ -412,7 +308,21 @@ export class SequenceManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
             panel.webview.postMessage({
                 command: 'error',
                 error: errorMessage
@@ -442,7 +352,21 @@ export class SequenceManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
             panel.webview.postMessage({
                 command: 'error',
                 error: errorMessage
@@ -516,6 +440,7 @@ export class SequenceManagementPanel {
         sequenceName: string,
         changes: any
     ): string {
+        const statements: string[] = [];
         const options: string[] = [];
         
         if (changes.incrementBy !== undefined && changes.incrementBy !== '') {
@@ -546,15 +471,19 @@ export class SequenceManagementPanel {
             options.push(changes.cycle ? 'CYCLE' : 'NO CYCLE');
         }
         
-        let sql = `ALTER SEQUENCE ${schema}.${sequenceName}`;
-        
         if (options.length > 0) {
+            let sql = `ALTER SEQUENCE ${schema}.${sequenceName}`;
             sql += '\n  ' + options.join('\n  ');
+            sql += ';';
+            statements.push(sql);
         }
         
-        sql += ';';
+        // Handle sequence rename if needed
+        if (changes.newSequenceName && changes.newSequenceName !== sequenceName) {
+            statements.push(`\nALTER SEQUENCE ${schema}.${sequenceName} RENAME TO ${changes.newSequenceName};`);
+        }
         
-        return sql;
+        return statements.length > 0 ? statements.join('\n') : '-- No changes to apply';
     }
 
     /**
@@ -758,144 +687,6 @@ export class SequenceManagementPanel {
     }
 
     /**
-     * Get HTML for sequence properties panel
-     */
-    private static getPropertiesHtml(props: SequenceProperties): string {
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sequence Properties</title>
-    ${getStyles()}
-    <style>
-        .props-grid {
-            display: grid;
-            grid-template-columns: 200px 1fr;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .props-label {
-            font-weight: 600;
-            color: var(--vscode-descriptionForeground);
-        }
-        .props-value {
-            color: var(--vscode-editor-foreground);
-            font-family: monospace;
-        }
-        .action-buttons {
-            display: flex;
-            gap: 8px;
-            margin-top: 16px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Sequence: ${props.schema}.${props.name}</h1>
-
-        <div class="section">
-            <div class="section-title">General Information</div>
-            <div class="props-grid">
-                <div class="props-label">Schema:</div>
-                <div class="props-value">${props.schema}</div>
-                
-                <div class="props-label">Name:</div>
-                <div class="props-value">${props.name}</div>
-                
-                <div class="props-label">Data Type:</div>
-                <div class="props-value">${props.dataType}</div>
-                
-                <div class="props-label">Owner:</div>
-                <div class="props-value">${props.owner}</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <div class="section-title">Current Values</div>
-            <div class="props-grid">
-                <div class="props-label">Last Value:</div>
-                <div class="props-value">${props.lastValue}</div>
-                
-                <div class="props-label">Start Value:</div>
-                <div class="props-value">${props.startValue}</div>
-                
-                <div class="props-label">Increment By:</div>
-                <div class="props-value">${props.incrementBy}</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <div class="section-title">Limits</div>
-            <div class="props-grid">
-                <div class="props-label">Minimum Value:</div>
-                <div class="props-value">${props.minValue}</div>
-                
-                <div class="props-label">Maximum Value:</div>
-                <div class="props-value">${props.maxValue}</div>
-                
-                <div class="props-label">Cycle:</div>
-                <div class="props-value">${props.cycle ? 'Yes' : 'No'}</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <div class="section-title">Quick Actions</div>
-            
-            <div class="action-buttons">
-                <button class="btn btn-secondary" id="restartBtn">Restart to Start Value</button>
-                <button class="btn btn-secondary" id="restartCustomBtn">Restart to Custom Value</button>
-                <button class="btn btn-secondary" id="setNextBtn">Set Next Value</button>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn btn-secondary" id="closeBtn">Close</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-
-        document.getElementById('restartBtn').addEventListener('click', () => {
-            if (confirm('Restart sequence to its start value?')) {
-                vscode.postMessage({ command: 'restart' });
-            }
-        });
-
-        document.getElementById('restartCustomBtn').addEventListener('click', () => {
-            const value = prompt('Enter value to restart to:');
-            if (value !== null) {
-                const numValue = parseInt(value);
-                if (!isNaN(numValue)) {
-                    vscode.postMessage({ command: 'restart', value: numValue });
-                } else {
-                    alert('Invalid number');
-                }
-            }
-        });
-
-        document.getElementById('setNextBtn').addEventListener('click', () => {
-            const value = prompt('Enter next value for sequence:');
-            if (value !== null) {
-                const numValue = parseInt(value);
-                if (!isNaN(numValue)) {
-                    vscode.postMessage({ command: 'setNextVal', value: numValue });
-                } else {
-                    alert('Invalid number');
-                }
-            }
-        });
-
-        document.getElementById('closeBtn').addEventListener('click', () => {
-            window.close();
-        });
-    </script>
-</body>
-</html>`;
-    }
-
-    /**
      * Get HTML for alter sequence panel
      */
     private static getAlterSequenceHtml(
@@ -913,40 +704,59 @@ export class SequenceManagementPanel {
 </head>
 <body>
     <div class="container">
-        <h1>Edit Sequence: ${schema}.${sequenceName}</h1>
+        <h1>Edit Sequence</h1>
         
         <div id="errorContainer"></div>
 
         <div class="section-box">
             <div class="form-group">
-                <label>Increment By</label>
-                <input type="number" id="incrementBy" value="${currentProps.increment}" />
-                <div class="info-text">Value to add to current sequence value (can be negative)</div>
+                <label>Schema</label>
+                <input type="text" id="schemaInput" value="${schema}" readonly />
             </div>
 
             <div class="form-group">
-                <label>Minimum Value</label>
-                <input type="text" id="minValue" value="${currentProps.minimum_value}" />
-                <div class="info-text">Minimum value of the sequence</div>
+                <label>Sequence Name <span class="required">*</span></label>
+                <input type="text" id="sequenceName" value="${sequenceName}" />
+                <div class="info-text">Changing the name will rename the sequence</div>
             </div>
+        </div>
 
-            <div class="form-group">
-                <label>Maximum Value</label>
-                <input type="text" id="maxValue" value="${currentProps.maximum_value}" />
-                <div class="info-text">Maximum value of the sequence</div>
+        <div class="section-box collapsible">
+            <div class="collapsible-header" onclick="toggleSection('optionsSection')">
+                <span class="toggle-icon expanded" id="optionsIcon">▶</span>
+                Sequence Options
             </div>
+            <div class="collapsible-content" id="optionsSection" style="display: block;">
+                <div class="form-group">
+                    <label>Increment By</label>
+                    <input type="number" id="incrementBy" value="${currentProps.increment}" />
+                    <div class="info-text">Value to add to current sequence value (can be negative)</div>
+                </div>
 
-            <div class="form-group">
-                <label>Cache Size</label>
-                <input type="number" id="cache" value="${currentProps.cache || 1}" min="1" />
-                <div class="info-text">Number of sequence values to pre-allocate (improves performance)</div>
-            </div>
+                <div class="form-group">
+                    <label>Minimum Value</label>
+                    <input type="text" id="minValue" value="${currentProps.minimum_value}" />
+                    <div class="info-text">Minimum value of the sequence</div>
+                </div>
 
-            <div class="checkbox-group">
-                <input type="checkbox" id="cycle" ${currentProps.cycle_option === 'YES' ? 'checked' : ''} />
-                <label for="cycle" style="margin: 0;">Cycle</label>
+                <div class="form-group">
+                    <label>Maximum Value</label>
+                    <input type="text" id="maxValue" value="${currentProps.maximum_value}" />
+                    <div class="info-text">Maximum value of the sequence</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Cache Size</label>
+                    <input type="number" id="cache" value="${currentProps.cache || 1}" min="1" />
+                    <div class="info-text">Number of sequence values to pre-allocate (improves performance)</div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="cycle" ${currentProps.cycle_option === 'YES' ? 'checked' : ''} />
+                    <label for="cycle" style="margin: 0;">Cycle</label>
+                </div>
+                <div class="info-text">Allow sequence to wrap around when reaching max/min value</div>
             </div>
-            <div class="info-text">Allow sequence to wrap around when reaching max/min value</div>
         </div>
 
         <div class="section-box collapsible">
@@ -955,7 +765,7 @@ export class SequenceManagementPanel {
                 SQL Preview
             </div>
             <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- Make changes to see the SQL preview</div>
+                <div class="sql-preview" id="sqlPreview">-- SQL will be generated automatically as you make changes</div>
             </div>
         </div>
 
@@ -967,6 +777,7 @@ export class SequenceManagementPanel {
 
     <script>
         const vscode = acquireVsCodeApi();
+        const originalSequenceName = '${sequenceName}';
 
         function toggleSection(sectionId) {
             const section = document.getElementById(sectionId);
@@ -980,6 +791,11 @@ export class SequenceManagementPanel {
 
         function getChanges() {
             const changes = {};
+            
+            const newSequenceName = document.getElementById('sequenceName').value.trim();
+            if (newSequenceName && newSequenceName !== originalSequenceName) {
+                changes.newSequenceName = newSequenceName;
+            }
             
             const incrementBy = document.getElementById('incrementBy').value;
             if (incrementBy) changes.incrementBy = parseInt(incrementBy);
@@ -1007,7 +823,7 @@ export class SequenceManagementPanel {
         }
 
         // Auto-update preview on input changes
-        ['incrementBy', 'minValue', 'maxValue', 'cache', 'cycle'].forEach(id => {
+        ['sequenceName', 'incrementBy', 'minValue', 'maxValue', 'cache', 'cycle'].forEach(id => {
             const element = document.getElementById(id);
             element.addEventListener('input', updatePreview);
             element.addEventListener('change', updatePreview);

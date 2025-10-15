@@ -17,6 +17,7 @@ export interface ColumnDefinition {
 export interface TableDefinition {
     schema: string;
     tableName: string;
+    owner?: string;
     columns: ColumnDefinition[];
 }
 
@@ -72,14 +73,46 @@ export class CreateTablePanel {
             this.disposables
         );
 
-        // Send initial data
-        setTimeout(() => {
+        // Load initial data
+        this.loadInitialData();
+    }
+
+    private async loadInitialData() {
+        try {
+            const sqlService = new SqlQueryService(this.stateService, this.context);
+            
+            // Get roles from database (excluding system roles and neon-specific roles)
+            const rolesQuery = `
+                SELECT rolname 
+                FROM pg_catalog.pg_roles 
+                WHERE rolname NOT LIKE 'pg_%' 
+                  AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                ORDER BY rolname;
+            `;
+            const rolesResult = await sqlService.executeQuery(rolesQuery, this.database);
+            const existingRoles = rolesResult.rows.map((row: any) => row.rolname);
+            
+            // Get current user
+            const currentUserResult = await sqlService.executeQuery('SELECT current_user', this.database);
+            const currentUser = currentUserResult.rows[0]?.current_user || '';
+
             this.sendMessage({
                 command: 'initialize',
                 schema: this.schema,
-                database: this.database
+                database: this.database,
+                existingRoles,
+                currentUser
             });
-        }, 100);
+        } catch (error) {
+            console.error('Failed to load initial data:', error);
+            this.sendMessage({
+                command: 'initialize',
+                schema: this.schema,
+                database: this.database,
+                existingRoles: [],
+                currentUser: ''
+            });
+        }
     }
 
     private async handleMessage(message: any) {
@@ -103,7 +136,7 @@ export class CreateTablePanel {
     }
 
     private generateCreateTableSql(tableDef: TableDefinition): string {
-        const { schema, tableName, columns } = tableDef;
+        const { schema, tableName, columns, owner } = tableDef;
         
         if (!tableName || columns.length === 0) {
             return '-- Invalid table definition';
@@ -170,6 +203,11 @@ export class CreateTablePanel {
                 sql += `\n\nCOMMENT ON COLUMN ${schema}.${tableName}.${col.name} IS '${col.comment.replace(/'/g, "''")}';`;
             }
         });
+
+        // Add owner if specified
+        if (owner) {
+            sql += `\n\nALTER TABLE ${schema}.${tableName} OWNER TO "${owner}";`;
+        }
 
         return sql;
     }
@@ -367,6 +405,14 @@ export class CreateTablePanel {
                 <input type="text" id="tableNameInput" placeholder="users" />
                 <div class="info-text">Must start with a letter and contain only letters, numbers, and underscores</div>
             </div>
+
+            <div class="form-group">
+                <label>Owner</label>
+                <select id="ownerInput">
+                    <option value="">Loading...</option>
+                </select>
+                <div class="info-text">The role that will own this table</div>
+            </div>
         </div>
 
         <div class="section-box">
@@ -431,6 +477,7 @@ export class CreateTablePanel {
         // Elements
         const schemaInput = document.getElementById('schemaInput');
         const tableNameInput = document.getElementById('tableNameInput');
+        const ownerInput = document.getElementById('ownerInput');
         const columnsTableBody = document.getElementById('columnsTableBody');
         const addColumnBtn = document.getElementById('addColumnBtn');
         const sqlPreview = document.getElementById('sqlPreview');
@@ -439,10 +486,11 @@ export class CreateTablePanel {
         const errorContainer = document.getElementById('errorContainer');
 
         // Event listeners
-        addColumnBtn.addEventListener('click', addColumn);
+        addColumnBtn.addEventListener('click', () => addColumn());
         createBtn.addEventListener('click', createTable);
         cancelBtn.addEventListener('click', cancel);
         tableNameInput.addEventListener('input', updatePreview);
+        ownerInput.addEventListener('change', updatePreview);
 
         // Message handling
         window.addEventListener('message', (event) => {
@@ -451,7 +499,24 @@ export class CreateTablePanel {
             switch (message.command) {
                 case 'initialize':
                     schemaInput.value = message.schema || 'public';
-                    addColumn(); // Add one column by default
+                    
+                    // Populate owner dropdown
+                    ownerInput.innerHTML = '';
+                    if (message.existingRoles && message.existingRoles.length > 0) {
+                        message.existingRoles.forEach(role => {
+                            const option = document.createElement('option');
+                            option.value = role;
+                            option.textContent = role;
+                            // Select the current user by default
+                            if (role === message.currentUser) {
+                                option.selected = true;
+                            }
+                            ownerInput.appendChild(option);
+                        });
+                    }
+                    
+                    // Add default 'id' column
+                    addColumn('id', 'SERIAL', false, true, false);
                     updatePreview(); // Generate initial preview
                     break;
                     
@@ -470,17 +535,17 @@ export class CreateTablePanel {
             }
         });
 
-        function addColumn() {
+        function addColumn(name = '', dataType = 'INTEGER', nullable = true, isPrimaryKey = false, isUnique = false) {
             const columnId = columnIdCounter++;
             
             const column = {
                 id: columnId,
-                name: '',
-                dataType: 'INTEGER',
+                name: name,
+                dataType: dataType,
                 length: '',
-                nullable: true,
-                isPrimaryKey: false,
-                isUnique: false,
+                nullable: nullable,
+                isPrimaryKey: isPrimaryKey,
+                isUnique: isUnique,
                 defaultValue: '',
                 comment: ''
             };
@@ -709,6 +774,7 @@ export class CreateTablePanel {
             return {
                 schema: schemaInput.value,
                 tableName: tableNameInput.value.trim(),
+                owner: ownerInput.value,
                 columns: columns.map(col => ({
                     name: col.name.trim(),
                     dataType: col.dataType,

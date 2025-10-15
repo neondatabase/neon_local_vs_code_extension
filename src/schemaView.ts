@@ -39,6 +39,14 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 this.contextValue = 'databasesContainer';
             } else if (containerType === 'schemas') {
                 this.contextValue = 'schemasContainer';
+            } else if (containerType === 'tables') {
+                this.contextValue = 'tablesContainer';
+            } else if (containerType === 'views') {
+                this.contextValue = 'viewsContainer';
+            } else if (containerType === 'functions') {
+                this.contextValue = 'functionsContainer';
+            } else if (containerType === 'sequences') {
+                this.contextValue = 'sequencesContainer';
             } else {
                 this.contextValue = 'container';
             }
@@ -978,9 +986,6 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.editView', (item: SchemaItem) => {
                 this.editView(item);
             }),
-            vscode.commands.registerCommand('neonLocal.schema.viewProperties', (item: SchemaItem) => {
-                this.viewProperties(item);
-            }),
             vscode.commands.registerCommand('neonLocal.schema.dropView', (item: SchemaItem) => {
                 this.dropView(item);
             }),
@@ -1032,17 +1037,11 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.editFunction', (item: SchemaItem) => {
                 this.editFunction(item);
             }),
-            vscode.commands.registerCommand('neonLocal.schema.viewFunctionProperties', (item: SchemaItem) => {
-                this.viewFunctionProperties(item);
-            }),
             vscode.commands.registerCommand('neonLocal.schema.dropFunction', (item: SchemaItem) => {
                 this.dropFunction(item);
             }),
             vscode.commands.registerCommand('neonLocal.schema.createSequence', (item: SchemaItem) => {
                 this.createSequence(item);
-            }),
-            vscode.commands.registerCommand('neonLocal.schema.viewSequenceProperties', (item: SchemaItem) => {
-                this.viewSequenceProperties(item);
             }),
             vscode.commands.registerCommand('neonLocal.schema.alterSequence', (item: SchemaItem) => {
                 this.alterSequence(item);
@@ -1399,13 +1398,21 @@ export class SchemaViewProvider {
     }
 
     private async createSchema(item: SchemaItem): Promise<void> {
-        // Can be called on database items
-        if (item.type !== 'database') {
+        // Can be called on database items or schemas container
+        if (item.type !== 'database' && item.type !== 'container') {
             return;
         }
 
         try {
-            const database = item.name;
+            let database: string;
+            if (item.type === 'database') {
+                database = item.name;
+            } else if (item.type === 'container' && item.metadata?.containerType === 'schemas') {
+                database = item.metadata.database;
+            } else {
+                return;
+            }
+
             await SchemaManagementPanel.createSchema(this.context, this.stateService, database);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to create schema: ${error instanceof Error ? error.message : String(error)}`);
@@ -1547,24 +1554,6 @@ export class SchemaViewProvider {
         }
     }
 
-    private async viewProperties(item: SchemaItem): Promise<void> {
-        if (item.type !== 'view') {
-            return;
-        }
-
-        try {
-            // Parse view ID: view_database_schema_viewname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const viewName = parts.slice(3).join('_');
-
-            await ViewManagementPanel.viewProperties(this.context, this.stateService, schema, viewName, database);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to show view properties: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
     private async dropView(item: SchemaItem): Promise<void> {
         if (item.type !== 'view') {
             return;
@@ -1618,22 +1607,12 @@ export class SchemaViewProvider {
                 return;
             }
 
-            // Ask about concurrent refresh
-            const concurrent = await vscode.window.showQuickPick(
-                ['Yes - Concurrent (non-blocking)', 'No - Standard (faster)'],
-                {
-                    placeHolder: 'Refresh concurrently? (Requires PostgreSQL 9.4+, allows queries during refresh)'
-                }
-            );
-
-            if (!concurrent) {
-                return;
-            }
-
-            const useConcurrent = concurrent.startsWith('Yes');
-            await ViewManagementPanel.refreshMaterializedView(this.context, this.stateService, schema, viewName, useConcurrent, database);
+            // Use standard (non-concurrent) refresh by default
+            // Concurrent refresh requires a unique index and is rarely needed for most use cases
+            await ViewManagementPanel.refreshMaterializedView(this.context, this.stateService, schema, viewName, false, database);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to refresh materialized view: ${error instanceof Error ? error.message : String(error)}`);
+            // Error is already shown in ViewManagementPanel.refreshMaterializedView
+            console.error('Error refreshing materialized view:', error);
         }
     }
 
@@ -1747,24 +1726,6 @@ export class SchemaViewProvider {
             await FunctionManagementPanel.editFunction(this.context, this.stateService, schema, functionName, database);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to edit function: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private async viewFunctionProperties(item: SchemaItem): Promise<void> {
-        if (item.type !== 'function') {
-            return;
-        }
-
-        try {
-            // Parse function ID: function_database_schema_functionname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const functionName = parts.slice(3).join('_');
-
-            await FunctionManagementPanel.viewFunctionProperties(this.context, this.stateService, schema, functionName, database);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to view function properties: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -2081,25 +2042,6 @@ export class SchemaViewProvider {
         }
     }
 
-    private async viewSequenceProperties(item: SchemaItem): Promise<void> {
-        if (item.type !== 'sequence') {
-            return;
-        }
-
-        try {
-            // Parse parent schema ID to get database and schema
-            const parentParts = item.parent?.split('_') || [];
-            const database = parentParts[2]; // schema_v2_database_schema...
-            const schema = parentParts.slice(3).join('_');
-            const sequenceName = item.name;
-
-            await SequenceManagementPanel.viewSequenceProperties(this.context, this.stateService, schema, sequenceName, database);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
-            vscode.window.showErrorMessage(`Failed to view sequence properties: ${errorMessage}`);
-        }
-    }
-
     private async alterSequence(item: SchemaItem): Promise<void> {
         if (item.type !== 'sequence') {
             return;
@@ -2119,7 +2061,7 @@ export class SchemaViewProvider {
         }
     }
 
-    private async dropSequence(item: SchemaItem): Promise<void> {
+    private dropSequence = async (item: SchemaItem): Promise<void> => {
         if (item.type !== 'sequence') {
             return;
         }
@@ -2145,15 +2087,12 @@ export class SchemaViewProvider {
 
             const cascade = confirmation.includes('CASCADE');
             await SequenceManagementPanel.dropSequence(this.context, this.stateService, schema, sequenceName, cascade, database);
-            
-            // Refresh the schema view after successful drop
-            this.clearCache();
-            this._onDidChangeTreeData.fire();
+            // Note: Tree refresh is handled by SequenceManagementPanel.dropSequence
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
             vscode.window.showErrorMessage(`Failed to drop sequence: ${errorMessage}`);
         }
-    }
+    };
 
     private async createForeignKey(item: SchemaItem): Promise<void> {
         if (item.type !== 'table') {
@@ -2192,7 +2131,7 @@ export class SchemaViewProvider {
         }
     }
 
-    private async dropForeignKey(item: SchemaItem): Promise<void> {
+    private dropForeignKey = async (item: SchemaItem): Promise<void> => {
         if (item.type !== 'foreignkey') {
             return;
         }
@@ -2220,7 +2159,7 @@ export class SchemaViewProvider {
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to drop foreign key: ${error instanceof Error ? error.message : String(error)}`);
         }
-    }
+    };
 
     private async createTrigger(item: SchemaItem): Promise<void> {
         if (item.type !== 'table') {
@@ -2259,7 +2198,7 @@ export class SchemaViewProvider {
         }
     }
 
-    private async enableTrigger(item: SchemaItem): Promise<void> {
+    private enableTrigger = async (item: SchemaItem): Promise<void> => {
         if (item.type !== 'trigger') {
             return;
         }
@@ -2276,9 +2215,9 @@ export class SchemaViewProvider {
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to enable trigger: ${error instanceof Error ? error.message : String(error)}`);
         }
-    }
+    };
 
-    private async disableTrigger(item: SchemaItem): Promise<void> {
+    private disableTrigger = async (item: SchemaItem): Promise<void> => {
         if (item.type !== 'trigger') {
             return;
         }
@@ -2295,9 +2234,9 @@ export class SchemaViewProvider {
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to disable trigger: ${error instanceof Error ? error.message : String(error)}`);
         }
-    }
+    };
 
-    private async dropTrigger(item: SchemaItem): Promise<void> {
+    private dropTrigger = async (item: SchemaItem): Promise<void> => {
         if (item.type !== 'trigger') {
             return;
         }
@@ -2327,7 +2266,7 @@ export class SchemaViewProvider {
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to drop trigger: ${error instanceof Error ? error.message : String(error)}`);
         }
-    }
+    };
 
     private async generateModel(item: SchemaItem): Promise<void> {
         if (item.type !== 'table') {
@@ -2384,13 +2323,6 @@ export class SchemaViewProvider {
 
             case 'database':
                 actions.push(
-                    { label: '$(add) Create Schema', command: 'neonLocal.schema.createSchema', description: 'Create a new schema' },
-                    { label: '$(table) Create Table', command: 'neonLocal.schema.createTable', description: 'Create a new table' },
-                    { label: '$(symbol-method) Create Function', command: 'neonLocal.schema.createFunction', description: 'Create a new function' },
-                    { label: '$(eye) Create View', command: 'neonLocal.schema.createView', description: 'Create a new view' },
-                    { label: '$(symbol-numeric) Create Sequence', command: 'neonLocal.schema.createSequence', description: 'Create a new sequence' },
-                    { label: '$(account) Show Users & Roles', command: 'neonLocal.schema.showUsers', description: 'Manage users and roles' },
-                    { label: '$(person-add) Create User', command: 'neonLocal.schema.createUser', description: 'Create a new user' },
                     { label: '$(terminal) Launch psql', command: 'neonLocal.schema.launchPsql', description: 'Open psql terminal' },
                     { label: '$(trash) Drop Database', command: 'neonLocal.schema.dropDatabase', description: 'Delete this database' }
                 );
@@ -2398,21 +2330,13 @@ export class SchemaViewProvider {
 
             case 'schema':
                 actions.push(
-                    { label: '$(info) Show Properties', command: 'neonLocal.schema.showSchemaProperties' },
-                    { label: '$(table) Create Table', command: 'neonLocal.schema.createTable' },
-                    { label: '$(symbol-method) Create Function', command: 'neonLocal.schema.createFunction' },
-                    { label: '$(eye) Create View', command: 'neonLocal.schema.createView' },
-                    { label: '$(symbol-numeric) Create Sequence', command: 'neonLocal.schema.createSequence' },
                     { label: '$(edit) Edit Schema', command: 'neonLocal.schema.editSchema' },
-                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
                     { label: '$(trash) Drop Schema', command: 'neonLocal.schema.dropSchema' }
                 );
                 break;
 
             case 'table':
                 actions.push(
-                    { label: '$(table) View Data', command: 'neonLocal.schema.viewTableData', description: 'Browse table data' },
-                    { label: '$(play) Query Table', command: 'neonLocal.schema.queryTable', description: 'Run SELECT query' },
                     { label: '$(edit) Edit Table', command: 'neonLocal.schema.editTable', description: 'Modify table structure' },
                     { label: '$(symbol-key) Create Index', command: 'neonLocal.schema.createIndex', description: 'Add an index' },
                     { label: '$(gear) Manage Indexes', command: 'neonLocal.schema.manageIndexes', description: 'View and manage indexes' },
@@ -2421,7 +2345,6 @@ export class SchemaViewProvider {
                     { label: '$(file-code) Generate Model', command: 'neonLocal.orm.generateModel', description: 'Generate ORM model code' },
                     { label: '$(export) Import Data', command: 'neonLocal.schema.importData', description: 'Import CSV/JSON' },
                     { label: '$(import) Export Data', command: 'neonLocal.schema.exportData', description: 'Export to CSV/JSON/SQL' },
-                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
                     { label: '$(clear-all) Truncate Table', command: 'neonLocal.schema.truncateTable', description: 'Delete all rows' },
                     { label: '$(trash) Drop Table', command: 'neonLocal.schema.dropTable', description: 'Delete table' }
                 );
@@ -2429,30 +2352,27 @@ export class SchemaViewProvider {
 
             case 'view':
                 actions.push(
-                    { label: '$(table) View Data', command: 'neonLocal.schema.viewTableData', description: 'Browse view data' },
-                    { label: '$(play) Query View', command: 'neonLocal.schema.queryTable', description: 'Run SELECT query' },
-                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewProperties', description: 'Show view details' },
-                    { label: '$(edit) Edit View', command: 'neonLocal.schema.editView', description: 'Modify view definition' },
-                    { label: '$(refresh) Refresh Materialized View', command: 'neonLocal.schema.refreshMaterializedView', description: 'Refresh data' },
-                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(edit) Edit View', command: 'neonLocal.schema.editView', description: 'Modify view definition' }
+                );
+                // Only show refresh for materialized views
+                if (item.metadata?.is_materialized) {
+                    actions.push({ label: '$(refresh) Refresh Materialized View', command: 'neonLocal.schema.refreshMaterializedView', description: 'Refresh data' });
+                }
+                actions.push(
                     { label: '$(trash) Drop View', command: 'neonLocal.schema.dropView', description: 'Delete view' }
                 );
                 break;
 
             case 'function':
                 actions.push(
-                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewFunctionProperties', description: 'Show function details' },
                     { label: '$(edit) Edit Function', command: 'neonLocal.schema.editFunction', description: 'Modify function code' },
-                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
                     { label: '$(trash) Drop Function', command: 'neonLocal.schema.dropFunction', description: 'Delete function' }
                 );
                 break;
 
             case 'sequence':
                 actions.push(
-                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewSequenceProperties', description: 'Show sequence details' },
                     { label: '$(edit) Edit Sequence', command: 'neonLocal.schema.alterSequence', description: 'Modify sequence settings' },
-                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
                     { label: '$(trash) Drop Sequence', command: 'neonLocal.schema.dropSequence', description: 'Delete sequence' }
                 );
                 break;
@@ -2536,19 +2456,19 @@ export class SchemaViewProvider {
                     );
                 } else if (containerType === 'tables') {
                     actions.push(
-                        { label: '$(table) Create Table', command: 'neonLocal.schema.createTable', description: 'Create a new table' }
+                        { label: '$(add) Create Table', command: 'neonLocal.schema.createTable', description: 'Create a new table' }
                     );
                 } else if (containerType === 'views') {
                     actions.push(
-                        { label: '$(eye) Create View', command: 'neonLocal.schema.createView', description: 'Create a new view' }
+                        { label: '$(add) Create View', command: 'neonLocal.schema.createView', description: 'Create a new view' }
                     );
                 } else if (containerType === 'functions') {
                     actions.push(
-                        { label: '$(symbol-method) Create Function', command: 'neonLocal.schema.createFunction', description: 'Create a new function' }
+                        { label: '$(add) Create Function', command: 'neonLocal.schema.createFunction', description: 'Create a new function' }
                     );
                 } else if (containerType === 'sequences') {
                     actions.push(
-                        { label: '$(symbol-numeric) Create Sequence', command: 'neonLocal.schema.createSequence', description: 'Create a new sequence' }
+                        { label: '$(add) Create Sequence', command: 'neonLocal.schema.createSequence', description: 'Create a new sequence' }
                     );
                 }
                 break;

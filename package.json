@@ -143,17 +143,12 @@
       {
         "command": "neonLocal.schema.createView",
         "title": "Create View",
-        "icon": "$(eye)"
+        "icon": "$(add)"
       },
       {
         "command": "neonLocal.schema.editView",
         "title": "Edit View",
         "icon": "$(edit)"
-      },
-      {
-        "command": "neonLocal.schema.viewProperties",
-        "title": "View Properties",
-        "icon": "$(info)"
       },
       {
         "command": "neonLocal.schema.dropView",
@@ -233,17 +228,12 @@
       {
         "command": "neonLocal.schema.createFunction",
         "title": "Create Function/Procedure",
-        "icon": "$(symbol-method)"
+        "icon": "$(add)"
       },
       {
         "command": "neonLocal.schema.editFunction",
         "title": "Edit Function",
         "icon": "$(edit)"
-      },
-      {
-        "command": "neonLocal.schema.viewFunctionProperties",
-        "title": "Function Properties",
-        "icon": "$(info)"
       },
       {
         "command": "neonLocal.schema.dropFunction",
@@ -253,12 +243,7 @@
       {
         "command": "neonLocal.schema.createSequence",
         "title": "Create Sequence",
-        "icon": "$(symbol-numeric)"
-      },
-      {
-        "command": "neonLocal.schema.viewSequenceProperties",
-        "title": "Sequence Properties",
-        "icon": "$(info)"
+        "icon": "$(add)"
       },
       {
         "command": "neonLocal.schema.alterSequence",
@@ -568,6 +553,26 @@
           "group": "inline"
         },
         {
+          "command": "neonLocal.schema.createTable",
+          "when": "view == neonLocalSchema && viewItem == tablesContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createView",
+          "when": "view == neonLocalSchema && viewItem == viewsContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createFunction",
+          "when": "view == neonLocalSchema && viewItem == functionsContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createSequence",
+          "when": "view == neonLocalSchema && viewItem == sequencesContainer",
+          "group": "inline"
+        },
+        {
           "command": "neonLocal.schema.viewTableData",
           "when": "view == neonLocalSchema && viewItem == table",
           "group": "inline"
@@ -584,22 +589,7 @@
         },
         {
           "command": "neonLocal.schema.openSqlQuery",
-          "when": "view == neonLocalSchema && viewItem != table && viewItem != connection",
-          "group": "4_query"
-        },
-        {
-          "command": "neonLocal.schema.queryTable",
-          "when": "view == neonLocalSchema && (viewItem == table || viewItem == view)",
-          "group": "4_query"
-        },
-        {
-          "command": "neonLocal.schema.viewTableData",
-          "when": "view == neonLocalSchema && viewItem == table",
-          "group": "4_query"
-        },
-        {
-          "command": "neonLocal.schema.launchPsql",
-          "when": "view == neonLocalSchema && viewItem == database",
+          "when": "view == neonLocalSchema && viewItem != table && viewItem != connection && viewItem != database",
           "group": "4_query"
         },
         {
@@ -653,16 +643,6 @@
           "group": "4_index"
         },
         {
-          "command": "neonLocal.schema.createView",
-          "when": "view == neonLocalSchema && (viewItem == schema || viewItem == database)",
-          "group": "3_view"
-        },
-        {
-          "command": "neonLocal.schema.viewProperties",
-          "when": "view == neonLocalSchema && viewItem == view",
-          "group": "1_view_info"
-        },
-        {
           "command": "neonLocal.schema.editView",
           "when": "view == neonLocalSchema && viewItem == view",
           "group": "2_view_modify"
@@ -713,11 +693,6 @@
           "group": "3_function"
         },
         {
-          "command": "neonLocal.schema.viewFunctionProperties",
-          "when": "view == neonLocalSchema && viewItem == function",
-          "group": "1_function_info"
-        },
-        {
           "command": "neonLocal.schema.editFunction",
           "when": "view == neonLocalSchema && viewItem == function",
           "group": "2_function_modify"
@@ -731,11 +706,6 @@
           "command": "neonLocal.schema.createSequence",
           "when": "view == neonLocalSchema && (viewItem == schema || viewItem == database)",
           "group": "3_sequence"
-        },
-        {
-          "command": "neonLocal.schema.viewSequenceProperties",
-          "when": "view == neonLocalSchema && viewItem == sequence",
-          "group": "1_sequence_info"
         },
         {
           "command": "neonLocal.schema.alterSequence",
@@ -806,6 +776,11 @@
           "command": "neonLocal.schema.createUser",
           "when": "view == neonLocalSchema && viewItem == rolesContainer",
           "group": "1_role_create"
+        },
+        {
+          "command": "neonLocal.schema.createTable",
+          "when": "view == neonLocalSchema && viewItem == tablesContainer",
+          "group": "1_table_create"
         },
         {
           "command": "neonLocal.schema.editRole",
