@@ -222,6 +222,18 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                     if (this._signInView) {
                         await this._signInView.handleSignIn();
                         // The authentication state change listener will handle the UI update
+                        // After sign-in completes, also update stateService with the persistent token
+                        const persistentToken = await this._authManager.getPersistentApiToken();
+                        if (persistentToken) {
+                            console.debug('ConnectViewProvider: Updating stateService with persistent API token');
+                            await this._stateService.setPersistentApiToken(persistentToken);
+                        }
+                        // Explicitly refresh the view after sign-in completes
+                        if (this._authManager.isAuthenticated && this._view) {
+                            console.debug('ConnectViewProvider: Explicitly refreshing view after sign-in');
+                            await this.initializeViewData();
+                            this._view.webview.html = this.getWebviewContent(this._view.webview);
+                        }
                     }
                     break;
                 case 'showLoading':

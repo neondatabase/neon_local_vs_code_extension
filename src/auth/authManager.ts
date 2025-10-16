@@ -3,6 +3,7 @@ import { auth, refreshToken, AuthProps } from './authService';
 import { CONFIG } from '../constants';
 import { StateService } from '../services/state.service';
 import { SecureTokenStorage } from '../services/secureTokenStorage';
+import { NeonApiService } from '../services/api.service';
 
 // Use any instead of importing TokenSet to avoid loading openid-client during extension activation
 type TokenSet = any;
@@ -114,7 +115,44 @@ export class AuthManager {
       
       this._onDidChangeAuthentication.fire(true);
       
-      vscode.window.showInformationMessage('Successfully signed in to Neon!');
+      // Auto-create persistent API key if one doesn't exist
+      try {
+        console.debug('AuthManager: Checking for existing persistent API token...');
+        const existingApiToken = await this.getPersistentApiToken();
+        console.debug('AuthManager: Existing API token check result:', !!existingApiToken);
+        
+        if (!existingApiToken) {
+          console.debug('AuthManager: No persistent API token found, creating one automatically...');
+          console.debug('AuthManager: Current access token available:', !!this._tokenSet?.access_token);
+          
+          const apiService = new NeonApiService(this.context);
+          const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+          const keyName = `VS Code Extension (${timestamp})`;
+          
+          console.debug('AuthManager: Calling API to create key with name:', keyName);
+          const apiKeyResponse = await apiService.createApiKey(keyName);
+          console.debug('AuthManager: API key created, storing it now...');
+          
+          await this.setPersistentApiToken(apiKeyResponse.key);
+          
+          console.debug('AuthManager: Persistent API key created and stored successfully');
+          vscode.window.showInformationMessage(
+            'Successfully signed in to Neon! An API key has been created for this extension.'
+          );
+        } else {
+          console.debug('AuthManager: Persistent API token already exists, skipping creation');
+          vscode.window.showInformationMessage('Successfully signed in to Neon!');
+        }
+      } catch (apiKeyError) {
+        // Don't fail the sign-in if API key creation fails
+        console.error('AuthManager: Failed to auto-create API key:', apiKeyError);
+        console.error('AuthManager: Error details:', JSON.stringify(apiKeyError, null, 2));
+        vscode.window.showInformationMessage('Successfully signed in to Neon!');
+        // Show a warning but don't block the sign-in
+        vscode.window.showWarningMessage(
+          'Signed in successfully, but failed to auto-create an API key. You can manually import one if needed.'
+        );
+      }
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to sign in: ${error instanceof Error ? error.message : String(error)}`);
       throw error;

@@ -33,6 +33,10 @@
         "title": "Neon Local Connect: Import API Key"
       },
       {
+        "command": "neonLocal.importApiToken",
+        "title": "Neon Local Connect: Import API Token"
+      },
+      {
         "command": "neon-local-connect.clearAuth",
         "title": "Neon Local Connect: Clear Authentication"
       },

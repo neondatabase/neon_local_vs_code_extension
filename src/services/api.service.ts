@@ -498,4 +498,46 @@ export class NeonApiService {
             throw new Error(`Failed to delete role: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
+
+    /**
+     * Creates a new API key for the authenticated user.
+     * Returns the key which should be stored securely as it's only shown once.
+     * @param keyName - A user-specified name for the API key
+     * @returns Object containing the API key ID and the key itself
+     */
+    public async createApiKey(keyName: string): Promise<{ id: string; key: string }> {
+        try {
+            console.debug('Creating API key with name:', keyName);
+            const payload = {
+                key_name: keyName
+            };
+
+            const response = await this.makeRequest<any>('/api_keys', 'POST', payload);
+            console.debug('API key creation response:', JSON.stringify(response, null, 2));
+            
+            // The response format from Neon API docs is typically nested
+            // It could be { id, key } or { api_key: { id, key } } or similar
+            let id: string;
+            let key: string;
+            
+            if (response.id && response.key) {
+                // Direct format
+                id = response.id;
+                key = response.key;
+            } else if (response.api_key) {
+                // Nested format
+                id = response.api_key.id;
+                key = response.api_key.key;
+            } else {
+                console.error('Unexpected API key response format:', response);
+                throw new Error('Unexpected API response format');
+            }
+            
+            console.debug('API key created successfully, ID:', id);
+            return { id, key };
+        } catch (error: unknown) {
+            console.error('Error creating API key:', error);
+            throw new Error(`Failed to create API key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
 }

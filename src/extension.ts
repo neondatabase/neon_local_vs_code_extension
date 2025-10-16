@@ -197,6 +197,40 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('neon-local-connect.stopProxy', async () => {
       await dockerService.stopContainer();
     }),
+    vscode.commands.registerCommand('neonLocal.importApiToken', async () => {
+      const token = await vscode.window.showInputBox({
+        prompt: 'Enter your Neon API token',
+        password: true,
+        ignoreFocusOut: true,
+        placeHolder: 'Paste your API token here'
+      });
+
+      if (token) {
+        try {
+          // Validate the token
+          await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Validating API token...",
+            cancellable: false
+          }, async () => {
+            const isValid = await apiService.validateToken(token);
+            
+            if (!isValid) {
+              throw new Error('Invalid API token');
+            }
+            
+            // Token is valid, store it
+            await authManager.setPersistentApiToken(token);
+            await stateService.setPersistentApiToken(token);
+          });
+          
+          vscode.window.showInformationMessage('API token imported successfully!');
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          vscode.window.showErrorMessage(`Failed to import API token: ${errorMessage}`);
+        }
+      }
+    }),
     vscode.commands.registerCommand('neon-local-connect.clearAuth', async () => {
       await authManager.signOut();
     }),
@@ -511,23 +545,30 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.registerWebviewViewProvider('neonLocalActions', actionsViewProvider)
   );
 
-  // Update context for schema view visibility
+  // Update context for schema view visibility (requires both authentication and connection)
   const updateSchemaViewContext = async () => {
     const viewData = await stateService.getViewData();
-    vscode.commands.executeCommand('setContext', 'neonLocal.connected', viewData.connected);
+    const isAuthenticated = authManager.isAuthenticated;
+    const shouldShowSchemaView = isAuthenticated && viewData.connected;
+    vscode.commands.executeCommand('setContext', 'neonLocal.connected', shouldShowSchemaView);
   };
 
   // Initial context update
   updateSchemaViewContext();
 
+  // Listen for authentication state changes to update context
+  const authListener = authManager.onDidChangeAuthentication(async () => {
+    await updateSchemaViewContext();
+  });
+
   // Listen for connection state changes to update context
   const originalSetIsProxyRunning = stateService.setIsProxyRunning.bind(stateService);
   stateService.setIsProxyRunning = async (value: boolean) => {
     await originalSetIsProxyRunning(value);
-    vscode.commands.executeCommand('setContext', 'neonLocal.connected', value);
+    await updateSchemaViewContext();
   };
 
-  context.subscriptions.push(...disposables);
+  context.subscriptions.push(...disposables, authListener);
 }
 
 // Store services globally for cleanup
