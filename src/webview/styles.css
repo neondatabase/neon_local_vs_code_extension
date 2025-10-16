@@ -249,7 +249,7 @@ button:disabled {
 
 .connection-string-container {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   font-family: var(--vscode-editor-font-family);
   width: 100%;
@@ -265,6 +265,38 @@ button:disabled {
   color: var(--vscode-foreground);
   min-width: 0;
   overflow-wrap: break-word;
+}
+
+.connection-string.truncated {
+  position: relative;
+}
+
+.expand-button {
+  align-self: flex-start;
+  padding: 4px 8px;
+  background-color: transparent;
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: 2px;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  outline: none;
+}
+
+.expand-button:hover {
+  background-color: transparent;
+}
+
+.expand-button:active {
+  opacity: 0.8;
+}
+
+.expand-button:focus {
+  outline: none;
+  border: none;
 }
 
 .copy-button {
@@ -411,6 +443,8 @@ button:disabled {
   background-color: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border);
   border-radius: 2px;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .database-content .connection-string {

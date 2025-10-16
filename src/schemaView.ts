@@ -64,7 +64,7 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 this.contextValue = 'container';
             }
         } else {
-            this.contextValue = item.type;
+        this.contextValue = item.type;
         }
         
         // Set command for leaf items
@@ -803,16 +803,16 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     const databases = await this.getDatabases();
                     this.schemaCache.set(databasesContainer.id, databases);
                     console.debug(`Schema view: Cached ${databases.length} databases`);
-                    
-                    // Don't preload if there are too many databases (performance consideration)
-                    if (databases.length > 10) {
+            
+            // Don't preload if there are too many databases (performance consideration)
+            if (databases.length > 10) {
                         console.debug(`Schema view: Skipping schema preload due to large number of databases (${databases.length})`);
-                        return;
-                    }
-                    
+                return;
+            }
+            
                     // For each database, preload the schemas container and its schemas
-                    for (const database of databases) {
-                        try {
+            for (const database of databases) {
+                try {
                             // Create schemas container for this database
                             const schemasContainer: SchemaItem = {
                                 id: `container_schemas_${database.name}`,
@@ -825,14 +825,14 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                             this.schemaCache.set(database.id, [schemasContainer]);
                             
                             // Load schemas for the schemas container
-                            const schemas = await this.getSchemas(database.name);
-                            
-                            // Don't preload if there are too many schemas in this database
-                            if (schemas.length > 20) {
-                                console.debug(`Schema view: Skipping preload for database ${database.name} due to large number of schemas (${schemas.length})`);
-                                continue;
-                            }
-                            
+                    const schemas = await this.getSchemas(database.name);
+                    
+                    // Don't preload if there are too many schemas in this database
+                    if (schemas.length > 20) {
+                        console.debug(`Schema view: Skipping preload for database ${database.name} due to large number of schemas (${schemas.length})`);
+                        continue;
+                    }
+                    
                             // Cache schemas under the schemas container ID
                             this.schemaCache.set(schemasContainer.id, schemas);
                     
@@ -920,8 +920,8 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                             console.error(`Error preloading schema ${schema.name}:`, error);
                         }
                     }
-                        } catch (error) {
-                            console.error(`Error preloading database ${database.name}:`, error);
+                } catch (error) {
+                    console.error(`Error preloading database ${database.name}:`, error);
                         }
                     }
                 } catch (error) {
@@ -1494,8 +1494,8 @@ export class SchemaViewProvider {
             } else if (item.type === 'container' && item.metadata?.containerType === 'schemas') {
                 database = item.metadata.database;
             } else {
-                return;
-            }
+            return;
+        }
 
             await SchemaManagementPanel.createSchema(this.context, this.stateService, database);
         } catch (error) {
@@ -1571,8 +1571,8 @@ export class SchemaViewProvider {
                 tableName = item.metadata?.tableName || '';
             } else {
                 // Called from table
-                // Parse table ID: table_database_schema_tablename
-                const parts = item.id.split('_');
+            // Parse table ID: table_database_schema_tablename
+            const parts = item.id.split('_');
                 database = parts[1];
                 schema = parts[2];
                 tableName = parts.slice(3).join('_');
@@ -1851,7 +1851,7 @@ export class SchemaViewProvider {
                 schema = 'public';
             } else {
                 // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-                const parts = item.id.split('_');
+            const parts = item.id.split('_');
                 database = parts[1] === 'v2' ? parts[2] : parts[1];
                 schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
             }

@@ -224,7 +224,7 @@ export class SchemaManagementPanel {
             
             const schemaNameInput = document.getElementById('schemaName');
             const schemaName = schemaNameInput.value.trim() || schemaNameInput.placeholder;
-            
+
             if (!schemaName) {
                 showError('Schema name is required');
                 return false;
@@ -654,7 +654,7 @@ export class SchemaManagementPanel {
                             break;
                     }
                 });
-
+            
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
             vscode.window.showErrorMessage(`Failed to open edit schema panel: ${errorMessage}`);

@@ -9,6 +9,7 @@ interface DatabaseViewProps {
 export const DatabaseView: React.FC<DatabaseViewProps> = ({ vscode }) => {
   const { state } = useStateService();
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [isConfigExpanded, setIsConfigExpanded] = useState<boolean>(false);
 
   const handleDatabaseChange = (value: string) => {
     vscode.postMessage({
@@ -113,11 +114,11 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({ vscode }) => {
       <div>
         <div className="detail-row">
           <div className="detail-label-container">
-            <div className="detail-label" title="When connecting to your database's local connection string with the Neon serverless driver, you must also set the local fetch endpoint in your app's Neon config.">Local Fetch Endpoint</div>
+            <div className="detail-label" title="When connecting to your app using the Neon serverless driver, you need to add these configuration settings to your app's code.">Neon Serverless Driver Config</div>
             <button
               className="copy-button"
-              title="Copy fetch endpoint configuration"
-              onClick={() => handleCopy(`import { neonConfig } from '@neondatabase/serverless';\n\nneonConfig.fetchEndpoint = 'http://localhost:${state.port}/sql';`, 'endpoint')}
+              title="Copy serverless driver configuration"
+              onClick={() => handleCopy(`import { neonConfig } from '@neondatabase/serverless';\n\n// For http connections\nneonConfig.fetchEndpoint = 'http://localhost:${state.port}/sql';\nneonConfig.poolQueryViaFetch = true;\n\n// For web socket connections\n// neonConfig.wsProxy = () => 'localhost:${state.port}';\n// neonConfig.useSecureWebSocket = false;\n// neonConfig.pipelineConnect = false;\n// neonConfig.poolQueryViaFetch = false;`, 'endpoint')}
             >
               {copySuccess === 'endpoint' ? (
                 <span>✓</span>
@@ -130,10 +131,34 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({ vscode }) => {
             </button>
           </div>
           <div className="detail-value connection-string-container">
-            <div className="connection-string">
-              import {'{'} neonConfig {'}'} from '@neondatabase/serverless';<br /><br />
-              neonConfig.fetchEndpoint = 'http://localhost:{state.port}/sql';
+            <div className={`connection-string ${!isConfigExpanded ? 'truncated' : ''}`}>
+              {!isConfigExpanded ? (
+                <>
+                  import {'{'} neonConfig {'}'} from '@neondatabase/serverless';<br />
+                  neonConfig.fetchEndpoint = 'http://localhost:{state.port}/sql';<br />
+                  <span style={{ opacity: 0.6 }}>...</span>
+                </>
+              ) : (
+                <>
+                  import {'{'} neonConfig {'}'} from '@neondatabase/serverless';<br /><br />
+                  // For http connections<br />
+                  neonConfig.fetchEndpoint = 'http://localhost:{state.port}/sql';<br />
+                  neonConfig.poolQueryViaFetch = true;<br /><br />
+                  // For web socket connections<br />
+                  // neonConfig.wsProxy = () =&gt; 'localhost:{state.port}';<br />
+                  // neonConfig.useSecureWebSocket = false;<br />
+                  // neonConfig.pipelineConnect = false;<br />
+                  // neonConfig.poolQueryViaFetch = false;
+                </>
+              )}
             </div>
+            <button
+              className="expand-button"
+              onClick={() => setIsConfigExpanded(!isConfigExpanded)}
+              title={isConfigExpanded ? 'Show less' : 'Show more'}
+            >
+              {isConfigExpanded ? '▲ Show less' : '▼ Show more'}
+            </button>
           </div>
         </div>
       </div>

@@ -298,15 +298,141 @@ export class DockerService {
         }
     }
 
-    private async pullImage(): Promise<void> {
+    /**
+     * Checks if we need to check for image updates today.
+     * Returns true if the last update check was more than 24 hours ago.
+     */
+    private async shouldCheckForImageUpdate(): Promise<boolean> {
+        const lastCheckKey = 'neonLocal.lastImageUpdateCheck';
+        const lastCheck = this.context.globalState.get<string>(lastCheckKey);
+        
+        if (!lastCheck) {
+            return true;
+        }
+        
+        const lastCheckDate = new Date(lastCheck);
+        const now = new Date();
+        const hoursSinceLastCheck = (now.getTime() - lastCheckDate.getTime()) / (1000 * 60 * 60);
+        
+        // Check once per day (24 hours)
+        return hoursSinceLastCheck >= 24;
+    }
+
+    /**
+     * Marks that we've checked for image updates today.
+     */
+    private async markImageUpdateChecked(): Promise<void> {
+        const lastCheckKey = 'neonLocal.lastImageUpdateCheck';
+        await this.context.globalState.update(lastCheckKey, new Date().toISOString());
+    }
+
+    /**
+     * Checks if a newer version of the image is available on Docker Hub.
+     * Returns true if an update is available.
+     */
+    private async isImageUpdateAvailable(): Promise<boolean> {
         try {
-            await this.docker.getImage('neondatabase/neon_local:v1').inspect();
+            const imageName = 'neondatabase/neon_local:v1';
+            
+            // Get local image digest
+            let localDigest: string | undefined;
+            try {
+                const localImage = await this.docker.getImage(imageName).inspect();
+                localDigest = localImage.RepoDigests?.[0];
+                console.debug('Local image digest:', localDigest);
+            } catch (error) {
+                // Image doesn't exist locally, so we need to pull it
+                console.debug('Local image not found, update required');
+                return true;
+            }
+
+            // Get remote image digest using Docker registry API
+            const authConfig = this.getDockerAuthConfig();
+            const pullOpts = authConfig ? { authconfig: authConfig } : {};
+            
+            return new Promise((resolve, reject) => {
+                // Use Docker's inspect to get the latest manifest
+                this.docker.pull(imageName, pullOpts, (err: any, stream: any) => {
+                    if (err) {
+                        console.error('Failed to check for image updates:', err);
+                        resolve(false); // Don't block on update check failures
+                        return;
+                    }
+
+                    // Collect all progress events
+                    const progressEvents: any[] = [];
+                    this.docker.modem.followProgress(
+                        stream,
+                        (err: any) => {
+                            if (err) {
+                                console.error('Failed to check for image updates:', err);
+                                resolve(false);
+                                return;
+                            }
+                            
+                            // Check if the pulled image has a different digest
+                            this.docker.getImage(imageName).inspect()
+                                .then((newImage: any) => {
+                                    const newDigest = newImage.RepoDigests?.[0];
+                                    console.debug('Remote image digest:', newDigest);
+                                    
+                                    // Compare digests - if different, an update was pulled
+                                    const wasUpdated = localDigest !== newDigest;
+                                    console.debug('Image update available:', wasUpdated);
+                                    resolve(wasUpdated);
+                                })
+                                .catch(() => {
+                                    resolve(false);
+                                });
+                        },
+                        (event: any) => {
+                            progressEvents.push(event);
+                        }
+                    );
+                });
+            });
+        } catch (error) {
+            console.error('Error checking for image updates:', error);
+            return false;
+        }
+    }
+
+    private async pullImage(checkForUpdates: boolean = false): Promise<void> {
+        const imageName = 'neondatabase/neon_local:v1';
+        
+        try {
+            await this.docker.getImage(imageName).inspect();
+            
+            // If image exists and we should check for updates
+            if (checkForUpdates && await this.shouldCheckForImageUpdate()) {
+                console.debug('Checking for proxy container image updates...');
+                
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Checking for proxy container updates...",
+                    cancellable: false
+                }, async () => {
+                    const updateAvailable = await this.isImageUpdateAvailable();
+                    
+                    if (updateAvailable) {
+                        console.debug('New proxy container version available, updated successfully');
+                        vscode.window.showInformationMessage('Proxy container updated to latest version');
+                    } else {
+                        console.debug('Proxy container is up to date');
+                    }
+                    
+                    await this.markImageUpdateChecked();
+                });
+                
+                return; // Image was already pulled during the update check
+            }
         } catch {
+            // Image doesn't exist, pull it
             const authConfig = this.getDockerAuthConfig();
             const pullOpts = authConfig ? { authconfig: authConfig } : {};
 
             await new Promise((resolve, reject) => {
-                this.docker.pull('neondatabase/neon_local:v1', pullOpts, (err: any, stream: any) => {
+                this.docker.pull(imageName, pullOpts, (err: any, stream: any) => {
                     if (err) {
                         reject(err);
                         return;
@@ -551,8 +677,8 @@ export class DockerService {
 
         // If persistent token exists, use it for all operations
         if (persistentApiToken) {
-            // Pull the latest image
-            await this.pullImage();
+            // Pull the latest image and check for updates once per day
+            await this.pullImage(true);
 
             // Create container configuration
             const containerConfig: any = {
@@ -609,8 +735,8 @@ export class DockerService {
             throw new Error('No valid authentication token available. Please sign in again.');
         }
 
-        // Pull the latest image
-        await this.pullImage();
+        // Pull the latest image and check for updates once per day
+        await this.pullImage(true);
 
         // Create container configuration
         const containerConfig: any = {

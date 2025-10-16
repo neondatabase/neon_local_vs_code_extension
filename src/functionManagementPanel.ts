@@ -523,17 +523,17 @@ export class FunctionManagementPanel {
                 Advanced Options
             </div>
             <div class="collapsible-content" id="optionsSection">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="isVolatile" checked />
-                    <label for="isVolatile" style="margin: 0;">VOLATILE</label>
-                </div>
-                <div class="info-text">Uncheck for STABLE functions (deterministic, no database modifications)</div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="isVolatile" checked />
+                <label for="isVolatile" style="margin: 0;">VOLATILE</label>
+            </div>
+            <div class="info-text">Uncheck for STABLE functions (deterministic, no database modifications)</div>
 
                 <div class="checkbox-group" style="margin-top: 12px;">
-                    <input type="checkbox" id="securityDefiner" />
-                    <label for="securityDefiner" style="margin: 0;">SECURITY DEFINER</label>
-                </div>
-                <div class="info-text">Execute with privileges of function owner (use with caution)</div>
+                <input type="checkbox" id="securityDefiner" />
+                <label for="securityDefiner" style="margin: 0;">SECURITY DEFINER</label>
+            </div>
+            <div class="info-text">Execute with privileges of function owner (use with caution)</div>
             </div>
         </div>
 
