@@ -329,22 +329,11 @@ export class PolicyManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            let errorMessage: string;
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'object' && error !== null) {
-                if ('message' in error && typeof error.message === 'string') {
-                    errorMessage = error.message;
-                } else {
-                    errorMessage = JSON.stringify(error);
-                }
-            } else {
-                errorMessage = String(error);
-            }
+            const errorMessage = PolicyManagementPanel.extractErrorMessage(error);
             
             panel.webview.postMessage({
                 command: 'error',
-                message: errorMessage
+                error: errorMessage
             });
         }
     }
@@ -373,22 +362,11 @@ export class PolicyManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            let errorMessage: string;
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'object' && error !== null) {
-                if ('message' in error && typeof error.message === 'string') {
-                    errorMessage = error.message;
-                } else {
-                    errorMessage = JSON.stringify(error);
-                }
-            } else {
-                errorMessage = String(error);
-            }
+            const errorMessage = PolicyManagementPanel.extractErrorMessage(error);
             
             panel.webview.postMessage({
                 command: 'error',
-                message: errorMessage
+                error: errorMessage
             });
         }
     }
@@ -406,12 +384,15 @@ export class PolicyManagementPanel {
             withCheckExpression
         } = policyDef;
 
+        // Ensure roles is always an array
+        const rolesArray = Array.isArray(roles) ? roles : (roles ? [roles] : []);
+
         let sql = `CREATE POLICY "${name}" ON "${schema}"."${tableName}"\n`;
         sql += `  AS ${type}\n`;
         sql += `  FOR ${command}\n`;
         
-        if (roles && roles.length > 0) {
-            sql += `  TO ${roles.map((r: string) => r === 'PUBLIC' ? r : `"${r}"`).join(', ')}\n`;
+        if (rolesArray && rolesArray.length > 0) {
+            sql += `  TO ${rolesArray.map((r: string) => r === 'PUBLIC' ? r : `"${r}"`).join(', ')}\n`;
         }
         
         if (usingExpression && usingExpression.trim()) {
@@ -645,6 +626,10 @@ export class PolicyManagementPanel {
 
         createBtn.addEventListener('click', () => {
             if (!validatePolicy(true)) return;
+            
+            createBtn.disabled = true;
+            createBtn.textContent = 'Creating...';
+            
             vscode.postMessage({
                 command: 'createPolicy',
                 policyDef: getPolicyDefinition()
@@ -662,7 +647,9 @@ export class PolicyManagementPanel {
                     document.getElementById('sqlPreview').textContent = message.sql;
                     break;
                 case 'error':
-                    showError(message.message);
+                    showError(message.error);
+                    createBtn.disabled = false;
+                    createBtn.textContent = 'Create Policy';
                     break;
             }
         });
@@ -707,7 +694,11 @@ export class PolicyManagementPanel {
             case 'd': commandValue = 'DELETE'; break;
         }
         
-        const policyRoles = policyInfo.roles || [];
+        // Ensure roles is always an array (handle case where it might be null or other type)
+        let policyRoles = policyInfo.roles;
+        if (!Array.isArray(policyRoles)) {
+            policyRoles = policyRoles ? [policyRoles] : [];
+        }
         const selectedRolesJson = JSON.stringify(policyRoles);
         
         return `<!DOCTYPE html>
@@ -740,7 +731,7 @@ export class PolicyManagementPanel {
 </head>
 <body>
     <div class="container">
-        <h1>Edit Policy</h1>
+        <h1>Edit RLS Policy: ${policyName} on ${schema}.${tableName}</h1>
         
         <div id="errorContainer"></div>
 
@@ -906,6 +897,10 @@ export class PolicyManagementPanel {
 
         saveBtn.addEventListener('click', () => {
             if (!validatePolicy(true)) return;
+            
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+            
             vscode.postMessage({
                 command: 'editPolicy',
                 policyDef: getPolicyDefinition()
@@ -923,7 +918,9 @@ export class PolicyManagementPanel {
                     document.getElementById('sqlPreview').textContent = message.sql;
                     break;
                 case 'error':
-                    showError(message.message);
+                    showError(message.error);
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Changes';
                     break;
             }
         });

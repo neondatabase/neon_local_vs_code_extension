@@ -545,6 +545,12 @@ export class SchemaService {
 
                 const typeLabel = row.is_permissive ? 'PERMISSIVE' : 'RESTRICTIVE';
 
+                // Ensure roles is always an array (handle case where it might be null or other type)
+                let rolesArray = row.roles;
+                if (!Array.isArray(rolesArray)) {
+                    rolesArray = rolesArray ? [rolesArray] : [];
+                }
+
                 return {
                     id: `policy_${database}_${schema}_${tableName}_${row.name}`,
                     name: row.name,
@@ -555,7 +561,7 @@ export class SchemaService {
                         type_label: typeLabel,
                         command: row.command,
                         command_label: commandLabel,
-                        roles: row.roles,
+                        roles: rolesArray,
                         using_expression: row.using_expression,
                         with_check_expression: row.with_check_expression,
                         schema: schema,

@@ -125,8 +125,16 @@ export class SchemaTreeItem extends vscode.TreeItem {
             case 'policy':
                 const policy = item.metadata;
                 let policyTooltip = `RLS Policy: ${item.name}\nType: ${policy?.type_label || 'Unknown'}\nCommand: ${policy?.command_label || 'Unknown'}`;
-                if (policy?.roles && policy.roles.length > 0) {
-                    policyTooltip += `\nRoles: ${policy.roles.join(', ')}`;
+                if (policy?.roles) {
+                    // Ensure roles is an array (it might be a string or other type in some cases)
+                    const rolesArray = Array.isArray(policy.roles) ? policy.roles : 
+                                      (policy.roles === null || policy.roles === undefined) ? [] :
+                                      [policy.roles];
+                    if (rolesArray.length > 0) {
+                        policyTooltip += `\nRoles: ${rolesArray.join(', ')}`;
+                    } else {
+                        policyTooltip += `\nRoles: PUBLIC (all)`;
+                    }
                 }
                 if (policy?.using_expression) {
                     policyTooltip += `\nUSING: ${policy.using_expression}`;
@@ -2722,9 +2730,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse policy ID: policy_database_schema_tablename_policyname
-            const { database, schema, name: tableName } = this.parseSchemaItem(item);
-            const policyName = parts.slice(4).join('_');
+            // Get metadata from policy item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const policyName = item.name;
 
             await PolicyManagementPanel.editPolicy(this.context, this.stateService, schema, tableName, policyName, database);
         } catch (error) {
@@ -2738,9 +2748,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse policy ID: policy_database_schema_tablename_policyname
-            const { database, schema, name: tableName } = this.parseSchemaItem(item);
-            const policyName = parts.slice(4).join('_');
+            // Get metadata from policy item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const policyName = item.name;
 
             // Confirmation dialog
             const confirmation = await vscode.window.showWarningMessage(

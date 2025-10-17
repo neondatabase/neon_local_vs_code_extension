@@ -995,8 +995,8 @@ export class FunctionManagementPanel {
             </div>
 
             <div class="form-group">
-                <label>Return Type <span class="required">*</span></label>
-                <select id="returnType">
+                <label>Return Type (Read-only)</label>
+                <select id="returnType" disabled>
                     <option value="">-- Select Return Type --</option>
                     <optgroup label="Common Types">
                         <option value="VOID">VOID (No return value)</option>
@@ -1029,7 +1029,7 @@ export class FunctionManagementPanel {
                         <option value="TABLE">TABLE</option>
                     </optgroup>
                 </select>
-                <div class="info-text">Use VOID for procedures, TRIGGER for trigger functions</div>
+                <div class="info-text">Return type cannot be modified when editing a function. In PostgreSQL, the function signature (name + parameters + return type) uniquely identifies a function, so changing the return type would create a new function instead of editing the existing one. To modify the return type, drop and recreate the function.</div>
             </div>
 
             <div class="form-group">
