@@ -16,6 +16,27 @@ export interface IndexDefinition {
 }
 
 export class IndexManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -755,6 +776,7 @@ export class IndexManagementPanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

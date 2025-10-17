@@ -10,6 +10,27 @@ export interface SchemaDefinition {
 
 export class SchemaManagementPanel {
     
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     /**
      * Create a new database schema
      */
@@ -33,11 +54,13 @@ export class SchemaManagementPanel {
             const sqlService = new SqlQueryService(stateService, context);
             
             // Get roles from database (excluding system roles and neon-specific roles)
+            // Only show roles the current user is a member of (or if user is superuser)
             const rolesQuery = `
                 SELECT rolname 
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
             const rolesResult = await sqlService.executeQuery(rolesQuery, database);
@@ -73,14 +96,7 @@ export class SchemaManagementPanel {
                 });
 
         } catch (error) {
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error && typeof error === 'object') {
-                errorMessage = JSON.stringify(error);
-            }
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to open create schema panel: ${errorMessage}`);
             panel.dispose();
         }
@@ -106,14 +122,7 @@ export class SchemaManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error && typeof error === 'object') {
-                errorMessage = JSON.stringify(error);
-            }
+            const errorMessage = this.extractErrorMessage(error);
             panel.webview.postMessage({
                 command: 'error',
                 error: errorMessage
@@ -122,15 +131,25 @@ export class SchemaManagementPanel {
     }
 
     /**
+     * Quote a PostgreSQL identifier to preserve case and handle special characters
+     */
+    private static quoteIdentifier(identifier: string): string {
+        // Escape any double quotes by doubling them
+        const escaped = identifier.replace(/"/g, '""');
+        // Wrap in double quotes
+        return `"${escaped}"`;
+    }
+
+    /**
      * Generate CREATE SCHEMA SQL
      */
     private static generateCreateSchemaSql(schemaDef: SchemaDefinition): string {
         const { name, owner } = schemaDef;
 
-        let sql = `CREATE SCHEMA ${name}`;
+        let sql = `CREATE SCHEMA ${this.quoteIdentifier(name)}`;
         
         if (owner) {
-            sql += ` AUTHORIZATION ${owner}`;
+            sql += ` AUTHORIZATION ${this.quoteIdentifier(owner)}`;
         }
         
         sql += ';';
@@ -303,6 +322,7 @@ export class SchemaManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = '<div class="error">' + message + '</div>';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -472,6 +492,7 @@ export class SchemaManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -616,11 +637,13 @@ export class SchemaManagementPanel {
             const currentSchema = schemaResult.rows[0];
 
             // Get available roles (excluding system roles and neon-specific roles)
+            // Only show roles the current user is a member of (or if user is superuser)
             const rolesResult = await sqlService.executeQuery(`
                 SELECT rolname 
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname
             `, [], database);
             const existingRoles = rolesResult.rows.map((row: any) => row.rolname);
@@ -656,7 +679,7 @@ export class SchemaManagementPanel {
                 });
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to open edit schema panel: ${errorMessage}`);
             panel.dispose();
         }
@@ -719,7 +742,7 @@ export class SchemaManagementPanel {
             }
 
             // Execute RENAME statement
-            const sql = `ALTER SCHEMA ${currentSchemaName} RENAME TO ${newSchemaName};`;
+            const sql = `ALTER SCHEMA "${currentSchemaName}" RENAME TO "${newSchemaName}";`;
             const sqlService = new SqlQueryService(stateService, context);
             await sqlService.executeQuery(sql, database);
 
@@ -729,14 +752,7 @@ export class SchemaManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error && typeof error === 'object') {
-                errorMessage = JSON.stringify(error);
-            }
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to rename schema: ${errorMessage}`);
         }
     }
@@ -759,12 +775,14 @@ export class SchemaManagementPanel {
             }
 
             // Fetch available roles
+            // Only show roles the current user is a member of (or if user is superuser)
             const sqlService = new SqlQueryService(stateService, context);
             const rolesResult = await sqlService.executeQuery(`
                 SELECT rolname as name 
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%'
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `, database);
 
@@ -808,7 +826,7 @@ export class SchemaManagementPanel {
             }
 
             // Execute ALTER SCHEMA statement
-            const sql = `ALTER SCHEMA ${schemaName} OWNER TO ${newOwner};`;
+            const sql = `ALTER SCHEMA "${schemaName}" OWNER TO "${newOwner}";`;
             await sqlService.executeQuery(sql, database);
 
             vscode.window.showInformationMessage(`Schema "${schemaName}" owner changed to "${newOwner}" successfully!`);
@@ -817,14 +835,7 @@ export class SchemaManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error && typeof error === 'object') {
-                errorMessage = JSON.stringify(error);
-            }
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to change schema owner: ${errorMessage}`);
         }
     }
@@ -886,7 +897,7 @@ export class SchemaManagementPanel {
             }
 
             // Execute DROP SCHEMA statement
-            const sql = `DROP SCHEMA ${schemaName} ${dropMode.value};`;
+            const sql = `DROP SCHEMA "${schemaName}" ${dropMode.value};`;
             const sqlService = new SqlQueryService(stateService, context);
             await sqlService.executeQuery(sql, database);
 
@@ -896,14 +907,7 @@ export class SchemaManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error && typeof error === 'object') {
-                errorMessage = JSON.stringify(error);
-            }
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to drop schema: ${errorMessage}`);
         }
     }
@@ -955,14 +959,7 @@ Functions: ${info.function_count}
             vscode.window.showInformationMessage(message, { modal: false });
             
         } catch (error) {
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error && typeof error === 'object') {
-                errorMessage = JSON.stringify(error);
-            }
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to get schema properties: ${errorMessage}`);
         }
     }

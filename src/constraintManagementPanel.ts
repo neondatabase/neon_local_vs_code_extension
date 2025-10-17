@@ -8,16 +8,43 @@ export interface ConstraintDefinition {
     constraintName: string;
     tableName: string;
     schema: string;
-    constraintType: 'check' | 'unique' | 'exclusion';
+    constraintType: 'check' | 'unique' | 'exclusion' | 'foreignkey';
     columns?: string[];
     checkExpression?: string;
     exclusionMethod?: string;
     exclusionElements?: Array<{element: string; operator: string}>;
+    foreignKeyReferencedTable?: string;
+    foreignKeyReferencedSchema?: string;
+    foreignKeyReferencedColumns?: string[];
+    foreignKeyOnUpdate?: string;
+    foreignKeyOnDelete?: string;
+    foreignKeyMatch?: string;
     deferrable?: boolean;
     deferred?: boolean;
 }
 
 export class ConstraintManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -390,6 +417,12 @@ export class ConstraintManagementPanel {
             checkExpression,
             exclusionMethod,
             exclusionElements,
+            foreignKeyReferencedTable,
+            foreignKeyReferencedSchema,
+            foreignKeyReferencedColumns,
+            foreignKeyOnUpdate,
+            foreignKeyOnDelete,
+            foreignKeyMatch,
             deferrable,
             deferred
         } = constraintDef;
@@ -409,6 +442,20 @@ export class ConstraintManagementPanel {
                 sql += ` EXCLUDE USING ${exclusionMethod} (`;
                 sql += exclusionElements!.map(el => `${el.element} WITH ${el.operator}`).join(', ');
                 sql += ')';
+                break;
+            
+            case 'foreignkey':
+                sql += ` FOREIGN KEY (${columns!.map(col => `"${col}"`).join(', ')})`;
+                sql += ` REFERENCES "${foreignKeyReferencedSchema}"."${foreignKeyReferencedTable}" (${foreignKeyReferencedColumns!.map(col => `"${col}"`).join(', ')})`;
+                if (foreignKeyMatch && foreignKeyMatch !== 'SIMPLE') {
+                    sql += ` MATCH ${foreignKeyMatch}`;
+                }
+                if (foreignKeyOnUpdate && foreignKeyOnUpdate !== 'NO ACTION') {
+                    sql += ` ON UPDATE ${foreignKeyOnUpdate}`;
+                }
+                if (foreignKeyOnDelete && foreignKeyOnDelete !== 'NO ACTION') {
+                    sql += ` ON DELETE ${foreignKeyOnDelete}`;
+                }
                 break;
         }
 
@@ -489,10 +536,17 @@ export class ConstraintManagementPanel {
             background-color: var(--vscode-button-secondaryBackground);
             color: var(--vscode-button-secondaryForeground);
             border: none;
-            padding: 4px 8px;
-            border-radius: 3px;
+            padding: 8px;
+            border-radius: 4px;
             cursor: pointer;
-            font-size: 11px;
+            font-size: 16px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-remove:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground);
         }
     </style>
 </head>
@@ -506,7 +560,7 @@ export class ConstraintManagementPanel {
             <div class="form-group">
                 <label>Constraint Name <span class="required">*</span></label>
                 <input type="text" id="constraintName" placeholder="chk_tablename_condition" />
-                <div class="info-text">Naming conventions: chk_ for CHECK, uq_ for UNIQUE, ex_ for EXCLUSION</div>
+                <div class="info-text">Naming conventions: chk_ for CHECK, uq_ for UNIQUE, ex_ for EXCLUSION, fk_ for FOREIGN KEY</div>
             </div>
 
             <div class="form-group">
@@ -515,8 +569,9 @@ export class ConstraintManagementPanel {
                     <option value="check">CHECK - Validate expression</option>
                     <option value="unique">UNIQUE - Ensure column uniqueness</option>
                     <option value="exclusion">EXCLUSION - Prevent overlapping values</option>
+                    <option value="foreignkey">FOREIGN KEY - Reference another table</option>
                 </select>
-                <div class="info-text">CHECK validates data, UNIQUE prevents duplicates, EXCLUSION prevents overlaps</div>
+                <div class="info-text">CHECK validates data, UNIQUE prevents duplicates, EXCLUSION prevents overlaps, FOREIGN KEY enforces relationships</div>
             </div>
         </div>
 
@@ -549,6 +604,66 @@ export class ConstraintManagementPanel {
             <label>Exclusion Elements</label>
             <div id="exclusionElementsContainer"></div>
             <button type="button" class="btn btn-secondary" id="addExclusionElement">Add Element</button>
+        </div>
+
+        <div class="section-box" id="foreignKeySection" style="display: none;">
+            <div class="form-group">
+                <label>Local Columns <span class="required">*</span></label>
+                <div class="info-text" style="margin-bottom: 8px;">Select columns from this table that reference another table</div>
+                <div class="column-selector" id="fkColumnSelector"></div>
+            </div>
+
+            <div class="form-group">
+                <label>Referenced Schema <span class="required">*</span></label>
+                <input type="text" id="fkReferencedSchema" placeholder="public" value="${schema}" />
+                <div class="info-text">Schema containing the referenced table</div>
+            </div>
+
+            <div class="form-group">
+                <label>Referenced Table <span class="required">*</span></label>
+                <input type="text" id="fkReferencedTable" placeholder="referenced_table" />
+                <div class="info-text">Table that is being referenced</div>
+            </div>
+
+            <div class="form-group">
+                <label>Referenced Columns <span class="required">*</span></label>
+                <input type="text" id="fkReferencedColumns" placeholder="id, code" />
+                <div class="info-text">Comma-separated list of columns in the referenced table (must match the number and types of local columns)</div>
+            </div>
+
+            <div class="form-group">
+                <label>ON DELETE</label>
+                <select id="fkOnDelete">
+                    <option value="NO ACTION">NO ACTION (Default)</option>
+                    <option value="RESTRICT">RESTRICT</option>
+                    <option value="CASCADE">CASCADE</option>
+                    <option value="SET NULL">SET NULL</option>
+                    <option value="SET DEFAULT">SET DEFAULT</option>
+                </select>
+                <div class="info-text">Action to take when referenced row is deleted</div>
+            </div>
+
+            <div class="form-group">
+                <label>ON UPDATE</label>
+                <select id="fkOnUpdate">
+                    <option value="NO ACTION">NO ACTION (Default)</option>
+                    <option value="RESTRICT">RESTRICT</option>
+                    <option value="CASCADE">CASCADE</option>
+                    <option value="SET NULL">SET NULL</option>
+                    <option value="SET DEFAULT">SET DEFAULT</option>
+                </select>
+                <div class="info-text">Action to take when referenced row is updated</div>
+            </div>
+
+            <div class="form-group">
+                <label>MATCH Type</label>
+                <select id="fkMatch">
+                    <option value="SIMPLE">SIMPLE (Default)</option>
+                    <option value="FULL">FULL</option>
+                    <option value="PARTIAL">PARTIAL</option>
+                </select>
+                <div class="info-text">How NULL values in the foreign key are handled</div>
+            </div>
         </div>
 
         <div class="section-box collapsible">
@@ -591,6 +706,7 @@ export class ConstraintManagementPanel {
         const vscode = acquireVsCodeApi();
         const columns = ${columnsJson};
         let selectedUniqueColumns = [];
+        let selectedFkColumns = [];
 
         function toggleSection(sectionId) {
             const section = document.getElementById(sectionId);
@@ -607,11 +723,19 @@ export class ConstraintManagementPanel {
         const checkSection = document.getElementById('checkSection');
         const uniqueSection = document.getElementById('uniqueSection');
         const exclusionSection = document.getElementById('exclusionSection');
+        const foreignKeySection = document.getElementById('foreignKeySection');
         const checkExpressionInput = document.getElementById('checkExpression');
         const uniqueColumnSelector = document.getElementById('uniqueColumnSelector');
         const exclusionMethodSelect = document.getElementById('exclusionMethod');
         const exclusionElementsContainer = document.getElementById('exclusionElementsContainer');
         const addExclusionElementBtn = document.getElementById('addExclusionElement');
+        const fkColumnSelector = document.getElementById('fkColumnSelector');
+        const fkReferencedSchema = document.getElementById('fkReferencedSchema');
+        const fkReferencedTable = document.getElementById('fkReferencedTable');
+        const fkReferencedColumns = document.getElementById('fkReferencedColumns');
+        const fkOnDelete = document.getElementById('fkOnDelete');
+        const fkOnUpdate = document.getElementById('fkOnUpdate');
+        const fkMatch = document.getElementById('fkMatch');
         const deferrableCheckbox = document.getElementById('deferrable');
         const deferredCheckbox = document.getElementById('deferred');
         const createBtn = document.getElementById('createBtn');
@@ -640,11 +764,34 @@ export class ConstraintManagementPanel {
             uniqueColumnSelector.appendChild(div);
         });
 
+        // Render foreign key column checkboxes
+        columns.forEach(col => {
+            const div = document.createElement('div');
+            div.className = 'column-item';
+            div.innerHTML = \`
+                <input type="checkbox" id="fk_col_\${col}" value="\${col}" />
+                <label for="fk_col_\${col}" style="cursor: pointer; margin: 0;">\${col}</label>
+            \`;
+            div.addEventListener('click', (e) => {
+                if (e.target.tagName !== 'INPUT') {
+                    const checkbox = div.querySelector('input');
+                    checkbox.checked = !checkbox.checked;
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+            div.querySelector('input').addEventListener('change', () => {
+                selectedFkColumns = Array.from(fkColumnSelector.querySelectorAll('input:checked')).map(cb => cb.value);
+                updatePreview();
+            });
+            fkColumnSelector.appendChild(div);
+        });
+
         // Show/hide sections based on constraint type
         constraintTypeSelect.addEventListener('change', () => {
             checkSection.style.display = 'none';
             uniqueSection.style.display = 'none';
             exclusionSection.style.display = 'none';
+            foreignKeySection.style.display = 'none';
             
             const type = constraintTypeSelect.value;
             if (type === 'check') {
@@ -653,6 +800,8 @@ export class ConstraintManagementPanel {
                 uniqueSection.style.display = 'block';
             } else if (type === 'exclusion') {
                 exclusionSection.style.display = 'block';
+            } else if (type === 'foreignkey') {
+                foreignKeySection.style.display = 'block';
             }
             updatePreview();
         });
@@ -714,6 +863,14 @@ export class ConstraintManagementPanel {
                     element: row.querySelector('.exclusion-element').value.trim(),
                     operator: row.querySelector('.exclusion-operator').value
                 }));
+            } else if (type === 'foreignkey') {
+                def.columns = selectedFkColumns;
+                def.foreignKeyReferencedSchema = fkReferencedSchema.value.trim();
+                def.foreignKeyReferencedTable = fkReferencedTable.value.trim();
+                def.foreignKeyReferencedColumns = fkReferencedColumns.value.split(',').map(c => c.trim()).filter(c => c);
+                def.foreignKeyOnDelete = fkOnDelete.value;
+                def.foreignKeyOnUpdate = fkOnUpdate.value;
+                def.foreignKeyMatch = fkMatch.value;
             }
 
             return def;
@@ -759,6 +916,30 @@ export class ConstraintManagementPanel {
                 }
             }
 
+            if (type === 'foreignkey') {
+                if (selectedFkColumns.length === 0) {
+                    if (showErrors) showError('At least one local column must be selected for FOREIGN KEY constraint');
+                    return false;
+                }
+                if (!fkReferencedSchema.value.trim()) {
+                    if (showErrors) showError('Referenced schema is required');
+                    return false;
+                }
+                if (!fkReferencedTable.value.trim()) {
+                    if (showErrors) showError('Referenced table is required');
+                    return false;
+                }
+                const refCols = fkReferencedColumns.value.split(',').map(c => c.trim()).filter(c => c);
+                if (refCols.length === 0) {
+                    if (showErrors) showError('Referenced columns are required');
+                    return false;
+                }
+                if (refCols.length !== selectedFkColumns.length) {
+                    if (showErrors) showError('Number of referenced columns must match the number of local columns');
+                    return false;
+                }
+            }
+
             return true;
         }
 
@@ -777,6 +958,12 @@ export class ConstraintManagementPanel {
         constraintNameInput.addEventListener('input', updatePreview);
         checkExpressionInput.addEventListener('input', updatePreview);
         exclusionMethodSelect.addEventListener('change', updatePreview);
+        fkReferencedSchema.addEventListener('input', updatePreview);
+        fkReferencedTable.addEventListener('input', updatePreview);
+        fkReferencedColumns.addEventListener('input', updatePreview);
+        fkOnDelete.addEventListener('change', updatePreview);
+        fkOnUpdate.addEventListener('change', updatePreview);
+        fkMatch.addEventListener('change', updatePreview);
         deferredCheckbox.addEventListener('change', updatePreview);
 
         createBtn.addEventListener('click', () => {
@@ -805,6 +992,7 @@ export class ConstraintManagementPanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -897,10 +1085,17 @@ export class ConstraintManagementPanel {
             background-color: var(--vscode-button-secondaryBackground);
             color: var(--vscode-button-secondaryForeground);
             border: none;
-            padding: 4px 8px;
-            border-radius: 3px;
+            padding: 8px;
+            border-radius: 4px;
             cursor: pointer;
-            font-size: 11px;
+            font-size: 16px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-remove:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground);
         }
     </style>
 </head>
@@ -1146,6 +1341,7 @@ export class ConstraintManagementPanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

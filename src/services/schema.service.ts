@@ -268,7 +268,10 @@ export class SchemaService {
                     foreign_table_name: row.foreign_table_name,
                     foreign_columns: row.foreign_columns,
                     update_rule: row.update_rule,
-                    delete_rule: row.delete_rule
+                    delete_rule: row.delete_rule,
+                    schema: schema,
+                    database: database,
+                    tableName: tableName
                 }
             }));
         } catch (error) {
@@ -324,7 +327,10 @@ export class SchemaService {
                     is_primary_key: row.is_primary_key,
                     is_foreign_key: row.is_foreign_key,
                     foreign_table: row.foreign_table_name,
-                    foreign_column: row.foreign_column_name
+                    foreign_column: row.foreign_column_name,
+                    schema: schema,
+                    database: database,
+                    tableName: table
                 }
             }));
         } catch (error) {
@@ -412,7 +418,10 @@ export class SchemaService {
                 metadata: {
                     definition: row.indexdef,
                     is_primary: row.is_primary,
-                    is_unique: row.is_unique
+                    is_unique: row.is_unique,
+                    schema: schema,
+                    database: database,
+                    tableName: table
                 }
             }));
         } catch (error) {
@@ -492,7 +501,10 @@ export class SchemaService {
                         constraint_type_label: constraintTypeLabel,
                         definition: row.definition,
                         is_deferrable: row.is_deferrable,
-                        is_deferred: row.is_deferred
+                        is_deferred: row.is_deferred,
+                        schema: schema,
+                        database: database,
+                        tableName: tableName
                     }
                 };
             });
@@ -545,7 +557,10 @@ export class SchemaService {
                         command_label: commandLabel,
                         roles: row.roles,
                         using_expression: row.using_expression,
-                        with_check_expression: row.with_check_expression
+                        with_check_expression: row.with_check_expression,
+                        schema: schema,
+                        database: database,
+                        tableName: tableName
                     }
                 };
             });
@@ -602,7 +617,10 @@ export class SchemaService {
                     level: row.level,
                     is_enabled: row.is_enabled === 'O' || row.is_enabled === 't',
                     function_name: row.function_name,
-                    function_schema: row.function_schema
+                    function_schema: row.function_schema,
+                    schema: schema,
+                    database: database,
+                    tableName: table
                 }
             }));
         } catch (error) {

@@ -23,6 +23,27 @@ export interface FunctionParameter {
 }
 
 export class FunctionManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -191,6 +212,16 @@ export class FunctionManagementPanel {
     }
 
     /**
+     * Quote a PostgreSQL identifier to preserve case and handle special characters
+     */
+    private static quoteIdentifier(identifier: string): string {
+        // Escape any double quotes by doubling them
+        const escaped = identifier.replace(/"/g, '""');
+        // Wrap in double quotes
+        return `"${escaped}"`;
+    }
+
+    /**
      * Drop a function
      */
     public static async dropFunction(
@@ -203,7 +234,7 @@ export class FunctionManagementPanel {
     ): Promise<void> {
         try {
             const cascadeStr = cascade ? ' CASCADE' : ' RESTRICT';
-            const sql = `DROP FUNCTION ${schema}.${functionName}${cascadeStr};`;
+            const sql = `DROP FUNCTION ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(functionName)}${cascadeStr};`;
             
             const sqlService = new SqlQueryService(stateService, context);
             await sqlService.executeQuery(sql, database);
@@ -212,7 +243,7 @@ export class FunctionManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to drop function: ${errorMessage}`);
             throw error;
         }
@@ -367,6 +398,14 @@ export class FunctionManagementPanel {
             height: 32px;
             box-sizing: border-box;
         }
+        /* Styling for disabled/readonly fields */
+        .param-mode:disabled, .param-type:disabled,
+        .param-name[readonly], .param-default[readonly] {
+            background-color: var(--vscode-input-background);
+            opacity: 0.6;
+            cursor: not-allowed;
+            color: var(--vscode-descriptionForeground);
+        }
         .btn-remove {
             background-color: var(--vscode-errorForeground);
             color: white;
@@ -387,6 +426,9 @@ export class FunctionManagementPanel {
         }
         select.param-type {
             cursor: pointer;
+        }
+        select.param-type:disabled, select.param-mode:disabled {
+            cursor: not-allowed;
         }
         .function-body-editor {
             display: flex;
@@ -466,12 +508,13 @@ export class FunctionManagementPanel {
                         <option value="JSONB[]">JSONB[]</option>
                     </optgroup>
                     <optgroup label="Special">
+                        <option value="TRIGGER">TRIGGER (For trigger functions)</option>
                         <option value="RECORD">RECORD</option>
                         <option value="SETOF RECORD">SETOF RECORD</option>
                         <option value="TABLE">TABLE</option>
                     </optgroup>
                 </select>
-                <div class="info-text">Use VOID for procedures that don't return values</div>
+                <div class="info-text">Use VOID for procedures, TRIGGER for trigger functions</div>
             </div>
 
             <div class="form-group">
@@ -490,7 +533,7 @@ export class FunctionManagementPanel {
         </div>
 
         <div class="section-box">
-            <div style="margin-bottom: 12px; font-weight: 500;">Parameters (optional)</div>
+            <div style="margin-bottom: 12px; font-weight: 500;">Parameters</div>
             <div class="info-text" style="margin-bottom: 12px;">Add input/output parameters for your function</div>
             
             <div id="parametersList"></div>
@@ -621,7 +664,7 @@ export class FunctionManagementPanel {
                             <option value="TEXT[]" \${param.type === 'TEXT[]' ? 'selected' : ''}>TEXT[]</option>
                         </optgroup>
                     </select>
-                    <input type="text" class="param-default" data-id="\${param.id}" value="\${param.defaultValue || ''}" placeholder="Default (optional)" />
+                    <input type="text" class="param-default" data-id="\${param.id}" value="\${param.defaultValue || ''}" placeholder="Default" />
                     <button class="btn-remove" onclick="removeParameter(\${param.id})">✕</button>
                 </div>
             \`).join('');
@@ -737,6 +780,7 @@ export class FunctionManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -864,6 +908,14 @@ export class FunctionManagementPanel {
             height: 32px;
             box-sizing: border-box;
         }
+        /* Styling for disabled/readonly fields */
+        .param-mode:disabled, .param-type:disabled,
+        .param-name[readonly], .param-default[readonly] {
+            background-color: var(--vscode-input-background);
+            opacity: 0.6;
+            cursor: not-allowed;
+            color: var(--vscode-descriptionForeground);
+        }
         .btn-remove {
             background-color: var(--vscode-errorForeground);
             color: white;
@@ -884,6 +936,9 @@ export class FunctionManagementPanel {
         }
         select.param-type {
             cursor: pointer;
+        }
+        select.param-type:disabled, select.param-mode:disabled {
+            cursor: not-allowed;
         }
         .function-body-editor {
             display: flex;
@@ -968,12 +1023,13 @@ export class FunctionManagementPanel {
                         <option value="JSONB[]">JSONB[]</option>
                     </optgroup>
                     <optgroup label="Special">
+                        <option value="TRIGGER">TRIGGER (For trigger functions)</option>
                         <option value="RECORD">RECORD</option>
                         <option value="SETOF RECORD">SETOF RECORD</option>
                         <option value="TABLE">TABLE</option>
                     </optgroup>
                 </select>
-                <div class="info-text">Use VOID for procedures that don't return values</div>
+                <div class="info-text">Use VOID for procedures, TRIGGER for trigger functions</div>
             </div>
 
             <div class="form-group">
@@ -992,11 +1048,12 @@ export class FunctionManagementPanel {
         </div>
 
         <div class="section-box">
-            <div style="margin-bottom: 12px; font-weight: 500;">Parameters (optional)</div>
-            <div class="info-text" style="margin-bottom: 12px;">Add input/output parameters for your function</div>
+            <div style="margin-bottom: 12px; font-weight: 500;">Parameters (Read-only)</div>
+            <div class="info-text" style="margin-bottom: 12px; color: var(--vscode-descriptionForeground);">
+                Parameters cannot be modified when editing a function. In PostgreSQL, the function signature (name + parameters) uniquely identifies a function, so changing parameters would create a new function instead of editing the existing one. To modify parameters, drop and recreate the function.
+            </div>
             
             <div id="parametersList"></div>
-            <button class="btn btn-secondary" id="addParamBtn" style="margin-top: 12px;">+ Add Parameter</button>
         </div>
 
         <div class="section-box">
@@ -1091,13 +1148,13 @@ export class FunctionManagementPanel {
 
             container.innerHTML = parameters.map(param => \`
                 <div class="parameter-item">
-                    <select class="param-mode" data-id="\${param.id}">
+                    <select class="param-mode" data-id="\${param.id}" disabled>
                         <option value="IN" \${param.mode === 'IN' ? 'selected' : ''}>IN</option>
                         <option value="OUT" \${param.mode === 'OUT' ? 'selected' : ''}>OUT</option>
                         <option value="INOUT" \${param.mode === 'INOUT' ? 'selected' : ''}>INOUT</option>
                     </select>
-                    <input type="text" class="param-name" placeholder="param_name" data-id="\${param.id}" value="\${param.name}" />
-                    <select class="param-type" data-id="\${param.id}">
+                    <input type="text" class="param-name" placeholder="param_name" data-id="\${param.id}" value="\${param.name}" readonly />
+                    <select class="param-type" data-id="\${param.id}" disabled>
                         <option value="">-- Select Type --</option>
                         <optgroup label="Numeric">
                             <option value="INTEGER" \${param.type === 'INTEGER' ? 'selected' : ''}>INTEGER</option>
@@ -1126,55 +1183,12 @@ export class FunctionManagementPanel {
                             <option value="JSONB[]" \${param.type === 'JSONB[]' ? 'selected' : ''}>JSONB[]</option>
                         </optgroup>
                     </select>
-                    <input type="text" class="param-default" placeholder="default" data-id="\${param.id}" value="\${param.defaultValue || ''}" />
-                    <button class="btn-remove" onclick="removeParameter(\${param.id})">×</button>
+                    <input type="text" class="param-default" placeholder="default" data-id="\${param.id}" value="\${param.defaultValue || ''}" readonly />
+                    <div style="width: 32px;"></div>
                 </div>
             \`).join('');
 
-            // Add event listeners
-            container.querySelectorAll('.param-mode').forEach(el => {
-                el.addEventListener('change', (e) => {
-                    const id = parseInt(e.target.dataset.id);
-                    const param = parameters.find(p => p.id === id);
-                    if (param) {
-                        param.mode = e.target.value;
-                        updatePreview();
-                    }
-                });
-            });
-
-            container.querySelectorAll('.param-name').forEach(el => {
-                el.addEventListener('input', (e) => {
-                    const id = parseInt(e.target.dataset.id);
-                    const param = parameters.find(p => p.id === id);
-                    if (param) {
-                        param.name = e.target.value;
-                        updatePreview();
-                    }
-                });
-            });
-
-            container.querySelectorAll('.param-type').forEach(el => {
-                el.addEventListener('change', (e) => {
-                    const id = parseInt(e.target.dataset.id);
-                    const param = parameters.find(p => p.id === id);
-                    if (param) {
-                        param.type = e.target.value;
-                        updatePreview();
-                    }
-                });
-            });
-
-            container.querySelectorAll('.param-default').forEach(el => {
-                el.addEventListener('input', (e) => {
-                    const id = parseInt(e.target.dataset.id);
-                    const param = parameters.find(p => p.id === id);
-                    if (param) {
-                        param.defaultValue = e.target.value;
-                        updatePreview();
-                    }
-                });
-            });
+            // Note: No event listeners needed since parameters are read-only in edit mode
         }
 
         window.removeParameter = removeParameter;
@@ -1211,7 +1225,7 @@ export class FunctionManagementPanel {
         const isVolatileCheckbox = document.getElementById('isVolatile');
         const securityDefinerCheckbox = document.getElementById('securityDefiner');
         const replaceIfExistsCheckbox = document.getElementById('replaceIfExists');
-        const addParamBtn = document.getElementById('addParamBtn');
+        // Note: addParamBtn removed - parameters cannot be edited in edit mode
         const updateBtn = document.getElementById('updateBtn');
         const cancelBtn = document.getElementById('cancelBtn');
 
@@ -1223,7 +1237,7 @@ export class FunctionManagementPanel {
         isVolatileCheckbox.addEventListener('change', updatePreview);
         securityDefinerCheckbox.addEventListener('change', updatePreview);
         replaceIfExistsCheckbox.addEventListener('change', updatePreview);
-        addParamBtn.addEventListener('click', addParameter);
+        // Note: addParamBtn removed - parameters cannot be edited
 
         updateBtn.addEventListener('click', () => {
             const funcDef = getFunctionDefinition();
@@ -1270,6 +1284,7 @@ export class FunctionManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         // Set initial function body from JSON-encoded value

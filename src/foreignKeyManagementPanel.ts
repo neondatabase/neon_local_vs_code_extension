@@ -3,6 +3,27 @@ import { StateService } from './services/state.service';
 import { SqlQueryService } from './services/sqlQuery.service';
 
 export class ForeignKeyManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     private static currentPanels: Map<string, vscode.WebviewPanel> = new Map();
 
     /**
@@ -251,7 +272,7 @@ export class ForeignKeyManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             panel.webview.postMessage({
                 command: 'error',
                 message: errorMessage
@@ -609,6 +630,7 @@ export class ForeignKeyManagementPanel {
             const errorDiv = document.getElementById('error');
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
             setTimeout(() => {
                 errorDiv.style.display = 'none';
             }, 5000);

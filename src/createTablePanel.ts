@@ -87,6 +87,7 @@ export class CreateTablePanel {
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
             const rolesResult = await sqlService.executeQuery(rolesQuery, this.database);
@@ -135,6 +136,16 @@ export class CreateTablePanel {
         }
     }
 
+    /**
+     * Quote a PostgreSQL identifier to preserve case and handle special characters
+     */
+    private quoteIdentifier(identifier: string): string {
+        // Escape any double quotes by doubling them
+        const escaped = identifier.replace(/"/g, '""');
+        // Wrap in double quotes
+        return `"${escaped}"`;
+    }
+
     private generateCreateTableSql(tableDef: TableDefinition): string {
         const { schema, tableName, columns, owner } = tableDef;
         
@@ -142,7 +153,7 @@ export class CreateTablePanel {
             return '-- Invalid table definition';
         }
 
-        let sql = `CREATE TABLE ${schema}.${tableName} (\n`;
+        let sql = `CREATE TABLE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(tableName)} (\n`;
         
         const columnDefs: string[] = [];
         const constraints: string[] = [];
@@ -153,7 +164,7 @@ export class CreateTablePanel {
                 return;
             }
 
-            let colDef = `    ${col.name} ${col.dataType.toUpperCase()}`;
+            let colDef = `    ${this.quoteIdentifier(col.name)} ${col.dataType.toUpperCase()}`;
             
             // Add length/precision for types that support it
             if (col.length && (
@@ -184,7 +195,7 @@ export class CreateTablePanel {
 
             // Track primary keys for constraint
             if (col.isPrimaryKey) {
-                constraints.push(col.name);
+                constraints.push(this.quoteIdentifier(col.name));
             }
         });
 
@@ -200,13 +211,13 @@ export class CreateTablePanel {
         // Add column comments if any
         columns.forEach(col => {
             if (col.comment) {
-                sql += `\n\nCOMMENT ON COLUMN ${schema}.${tableName}.${col.name} IS '${col.comment.replace(/'/g, "''")}';`;
+                sql += `\n\nCOMMENT ON COLUMN ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(tableName)}.${this.quoteIdentifier(col.name)} IS '${col.comment.replace(/'/g, "''")}';`;
             }
         });
 
         // Add owner if specified
         if (owner) {
-            sql += `\n\nALTER TABLE ${schema}.${tableName} OWNER TO "${owner}";`;
+            sql += `\n\nALTER TABLE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(tableName)} OWNER TO "${owner}";`;
         }
 
         return sql;
@@ -230,14 +241,7 @@ export class CreateTablePanel {
             this.panel.dispose();
             
         } catch (error) {
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error && typeof error === 'object') {
-                errorMessage = JSON.stringify(error);
-            }
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to create table: ${errorMessage}`);
             this.sendMessage({
                 command: 'error',
@@ -250,6 +254,27 @@ export class CreateTablePanel {
 
     private sendMessage(message: any) {
         this.panel.webview.postMessage(message);
+    }
+
+    private extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
     }
 
     private getWebviewContent(): string {
@@ -336,54 +361,47 @@ export class CreateTablePanel {
             color: var(--vscode-errorForeground);
         }
 
-        .advanced-toggle {
+        .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .advanced-toggle-btn {
+            background: transparent;
             color: var(--vscode-textLink-foreground);
+            border: none;
+            padding: 0;
             cursor: pointer;
             font-size: 12px;
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            margin-left: 12px;
-            text-decoration: underline;
         }
 
-        .advanced-toggle:hover {
+        .advanced-toggle-btn:hover {
+            background: transparent;
             color: var(--vscode-textLink-activeForeground);
         }
 
-        .advanced-row {
+        .advanced-toggle-btn:focus {
+            outline: none;
+            border: none;
+            background: transparent;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            max-width: 100%;
+        }
+
+        .advanced-column {
             display: none;
-            background-color: var(--vscode-input-background);
         }
 
-        .advanced-row.show {
-            display: table-row;
-        }
-
-        .advanced-cell {
-            padding: 8px 8px 12px 40px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-        }
-
-        .advanced-fields {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-        }
-
-        .advanced-field {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .advanced-field label {
-            font-size: 11px;
-            margin-bottom: 4px;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .toggle-icon.expanded {
-            transform: rotate(90deg);
+        .show-advanced .advanced-column {
+            display: table-cell;
         }
     </style>
 </head>
@@ -416,23 +434,36 @@ export class CreateTablePanel {
         </div>
 
         <div class="section-box">
-            <div style="margin-bottom: 12px; font-weight: 500;">Columns</div>
-            <div class="info-text" style="margin-bottom: 12px;">Define the columns for your table. At least one column is required.</div>
-            
-            <table class="columns-table">
-                <thead>
-                    <tr>
-                        <th style="width: 30%;">Column Name <span class="required">*</span></th>
-                        <th style="width: 30%;">Data Type <span class="required">*</span></th>
-                        <th style="width: 12%;">Nullable</th>
-                        <th style="width: 12%;">Primary Key</th>
-                        <th style="width: 16%;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="columnsTableBody">
-                    <!-- Columns will be added dynamically -->
-                </tbody>
-            </table>
+            <div class="table-controls">
+                <div>
+                    <div style="font-weight: 500;">Columns</div>
+                    <div class="info-text" style="margin-top: 4px;">Define the columns for your table. At least one column is required.</div>
+                </div>
+                <button class="advanced-toggle-btn" id="advancedToggleBtn">
+                    <span id="toggleIcon">▶</span> Show Advanced Options
+                </button>
+            </div>
+
+            <div class="table-wrapper">
+                    <table class="columns-table" id="columnsTable">
+                        <thead>
+                            <tr>
+                                <th>Column Name <span class="required">*</span></th>
+                                <th>Data Type <span class="required">*</span></th>
+                                <th>Nullable</th>
+                                <th>Unique</th>
+                                <th>Primary Key</th>
+                                <th class="advanced-column">Length</th>
+                                <th class="advanced-column">Default</th>
+                                <th class="advanced-column">Comment</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                    <tbody id="columnsTableBody">
+                        <!-- Columns will be added dynamically -->
+                    </tbody>
+                </table>
+            </div>
 
             <button class="btn btn-secondary" id="addColumnBtn" style="margin-top: 12px;">+ Add Column</button>
         </div>
@@ -489,6 +520,7 @@ export class CreateTablePanel {
         addColumnBtn.addEventListener('click', () => addColumn());
         createBtn.addEventListener('click', createTable);
         cancelBtn.addEventListener('click', cancel);
+        document.getElementById('advancedToggleBtn').addEventListener('click', toggleAdvancedColumns);
         tableNameInput.addEventListener('input', updatePreview);
         ownerInput.addEventListener('change', updatePreview);
 
@@ -620,6 +652,19 @@ export class CreateTablePanel {
                 nullableCell.appendChild(nullableCheckbox);
                 row.appendChild(nullableCell);
 
+                // Unique
+                const uniqueCell = document.createElement('td');
+                uniqueCell.style.textAlign = 'center';
+                const uniqueCheckbox = document.createElement('input');
+                uniqueCheckbox.type = 'checkbox';
+                uniqueCheckbox.checked = col.isUnique;
+                uniqueCheckbox.addEventListener('change', (e) => {
+                    col.isUnique = e.target.checked;
+                    updatePreview();
+                });
+                uniqueCell.appendChild(uniqueCheckbox);
+                row.appendChild(uniqueCell);
+
                 // Primary Key
                 const pkCell = document.createElement('td');
                 pkCell.style.textAlign = 'center';
@@ -638,107 +683,80 @@ export class CreateTablePanel {
                 pkCell.appendChild(pkCheckbox);
                 row.appendChild(pkCell);
 
-                // Actions (Delete + Advanced Toggle)
-                const actionsCell = document.createElement('td');
-                actionsCell.style.textAlign = 'center';
-                
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'icon-btn delete';
-                deleteBtn.innerHTML = '🗑️';
-                deleteBtn.title = 'Remove column';
-                deleteBtn.addEventListener('click', () => removeColumn(col.id));
-                actionsCell.appendChild(deleteBtn);
-                
-                const advancedToggle = document.createElement('span');
-                advancedToggle.className = 'advanced-toggle';
-                advancedToggle.innerHTML = '<span class="toggle-icon">▶</span> Advanced';
-                advancedToggle.addEventListener('click', () => toggleAdvanced(col.id));
-                actionsCell.appendChild(advancedToggle);
-                
-                row.appendChild(actionsCell);
-
-                columnsTableBody.appendChild(row);
-
-                // Advanced options row (hidden by default)
-                const advancedRow = document.createElement('tr');
-                advancedRow.className = 'advanced-row';
-                advancedRow.id = 'advanced-row-' + col.id;
-                
-                const advancedCell = document.createElement('td');
-                advancedCell.className = 'advanced-cell';
-                advancedCell.colSpan = 5;
-                
-                const advancedFields = document.createElement('div');
-                advancedFields.className = 'advanced-fields';
-                
-                // Length/Precision
-                const lengthField = document.createElement('div');
-                lengthField.className = 'advanced-field';
-                const lengthLabel = document.createElement('label');
-                lengthLabel.textContent = 'Length/Precision';
+                // Length (Advanced)
+                const lengthCell = document.createElement('td');
+                lengthCell.className = 'advanced-column';
                 const lengthInput = document.createElement('input');
                 lengthInput.type = 'number';
                 lengthInput.value = col.length || '';
                 lengthInput.placeholder = '255';
                 lengthInput.min = '1';
+                lengthInput.style.width = '80px';
                 lengthInput.addEventListener('input', (e) => {
                     col.length = e.target.value ? parseInt(e.target.value) : undefined;
                     updatePreview();
                 });
-                lengthField.appendChild(lengthLabel);
-                lengthField.appendChild(lengthInput);
-                advancedFields.appendChild(lengthField);
+                lengthCell.appendChild(lengthInput);
+                row.appendChild(lengthCell);
 
-                // Unique Constraint
-                const uniqueField = document.createElement('div');
-                uniqueField.className = 'advanced-field';
-                const uniqueLabel = document.createElement('label');
-                uniqueLabel.textContent = 'Unique Constraint';
-                const uniqueCheckbox = document.createElement('input');
-                uniqueCheckbox.type = 'checkbox';
-                uniqueCheckbox.checked = col.isUnique;
-                uniqueCheckbox.style.marginTop = '4px';
-                uniqueCheckbox.addEventListener('change', (e) => {
-                    col.isUnique = e.target.checked;
-                    updatePreview();
-                });
-                uniqueField.appendChild(uniqueLabel);
-                uniqueField.appendChild(uniqueCheckbox);
-                advancedFields.appendChild(uniqueField);
-
-                // Default Value
-                const defaultField = document.createElement('div');
-                defaultField.className = 'advanced-field';
-                const defaultLabel = document.createElement('label');
-                defaultLabel.textContent = 'Default Value';
+                // Default Value (Advanced)
+                const defaultCell = document.createElement('td');
+                defaultCell.className = 'advanced-column';
                 const defaultInput = document.createElement('input');
                 defaultInput.type = 'text';
                 defaultInput.value = col.defaultValue || '';
-                defaultInput.placeholder = 'NULL, NOW(), etc.';
+                defaultInput.placeholder = 'NULL, NOW()';
                 defaultInput.addEventListener('input', (e) => {
                     col.defaultValue = e.target.value;
                     updatePreview();
                 });
-                defaultField.appendChild(defaultLabel);
-                defaultField.appendChild(defaultInput);
-                advancedFields.appendChild(defaultField);
+                defaultCell.appendChild(defaultInput);
+                row.appendChild(defaultCell);
 
-                advancedCell.appendChild(advancedFields);
-                advancedRow.appendChild(advancedCell);
-                columnsTableBody.appendChild(advancedRow);
+                // Comment (Advanced)
+                const commentCell = document.createElement('td');
+                commentCell.className = 'advanced-column';
+                const commentInput = document.createElement('input');
+                commentInput.type = 'text';
+                commentInput.value = col.comment || '';
+                commentInput.placeholder = 'Description';
+                commentInput.addEventListener('input', (e) => {
+                    col.comment = e.target.value;
+                    updatePreview();
+                });
+                commentCell.appendChild(commentInput);
+                row.appendChild(commentCell);
+
+                // Actions
+                const actionsCell = document.createElement('td');
+                actionsCell.style.textAlign = 'center';
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'icon-btn delete';
+                deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.5 1.5v1h-4v1h1v9.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V3.5h1v-1h-4v-1h-3zm-2.5 2h8v9.5h-8V3.5zm2 1.5v6h1v-6h-1zm3 0v6h1v-6h-1z" fill="currentColor"/></svg>';
+                deleteBtn.title = 'Remove column';
+                deleteBtn.addEventListener('click', () => removeColumn(col.id));
+                actionsCell.appendChild(deleteBtn);
+                
+                row.appendChild(actionsCell);
+
+                columnsTableBody.appendChild(row);
             });
         }
 
-        function toggleAdvanced(columnId) {
-            const advancedRow = document.getElementById('advanced-row-' + columnId);
-            const toggle = document.querySelector('#column-row-' + columnId + ' .toggle-icon');
+        function toggleAdvancedColumns() {
+            const table = document.getElementById('columnsTable');
+            const toggleIcon = document.getElementById('toggleIcon');
+            const toggleBtn = document.getElementById('advancedToggleBtn');
             
-            if (advancedRow.classList.contains('show')) {
-                advancedRow.classList.remove('show');
-                toggle.classList.remove('expanded');
+            if (table.classList.contains('show-advanced')) {
+                table.classList.remove('show-advanced');
+                toggleIcon.textContent = '▶';
+                toggleBtn.innerHTML = '<span id="toggleIcon">▶</span> Show Advanced Options';
             } else {
-                advancedRow.classList.add('show');
-                toggle.classList.add('expanded');
+                table.classList.add('show-advanced');
+                toggleIcon.textContent = '▼';
+                toggleBtn.innerHTML = '<span id="toggleIcon">▼</span> Hide Advanced Options';
             }
         }
 
@@ -837,6 +855,7 @@ export class CreateTablePanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

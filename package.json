@@ -608,7 +608,7 @@
       "view/item/context": [
         {
           "command": "neonLocal.schema.showContextMenu",
-          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == view || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == trigger || viewItem == role || viewItem == container || viewItem == column || viewItem == index || viewItem == constraint || viewItem == policy)",
+          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == view || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == triggerEnabled || viewItem == triggerDisabled || viewItem == role || viewItem == container || viewItem == column || viewItem == index || viewItem == constraint || viewItem == policy)",
           "group": "inline"
         },
         {
@@ -668,7 +668,7 @@
         },
         {
           "command": "neonLocal.schema.openSqlQuery",
-          "when": "view == neonLocalSchema && viewItem != table && viewItem != connection && viewItem != database",
+          "when": "view == neonLocalSchema && viewItem != table && viewItem != connection && viewItem != database && viewItem != triggerEnabled && viewItem != triggerDisabled",
           "group": "4_query"
         },
         {
@@ -832,28 +832,23 @@
           "group": "5_trigger"
         },
         {
-          "command": "neonLocal.schema.viewTriggerProperties",
-          "when": "view == neonLocalSchema && viewItem == trigger",
-          "group": "1_trigger_info"
-        },
-        {
           "command": "neonLocal.schema.editTrigger",
-          "when": "view == neonLocalSchema && viewItem == trigger",
+          "when": "view == neonLocalSchema && (viewItem == triggerEnabled || viewItem == triggerDisabled)",
           "group": "1_trigger_edit"
         },
         {
           "command": "neonLocal.schema.enableTrigger",
-          "when": "view == neonLocalSchema && viewItem == trigger",
+          "when": "view == neonLocalSchema && viewItem == triggerDisabled",
           "group": "2_trigger_toggle"
         },
         {
           "command": "neonLocal.schema.disableTrigger",
-          "when": "view == neonLocalSchema && viewItem == trigger",
+          "when": "view == neonLocalSchema && viewItem == triggerEnabled",
           "group": "2_trigger_toggle"
         },
         {
           "command": "neonLocal.schema.dropTrigger",
-          "when": "view == neonLocalSchema && viewItem == trigger",
+          "when": "view == neonLocalSchema && (viewItem == triggerEnabled || viewItem == triggerDisabled)",
           "group": "9_trigger_delete"
         },
         {

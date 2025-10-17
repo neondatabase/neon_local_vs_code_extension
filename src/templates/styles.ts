@@ -42,6 +42,11 @@ export const getStyles = (): string => `
     select:hover:not(:disabled) {
         border-color: var(--vscode-dropdown-listBackground);
     }
+    select:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        color: var(--vscode-descriptionForeground);
+    }
     button {
         padding: 8px 24px;
         margin: 4px 0 8px 0;
@@ -312,9 +317,13 @@ export const getStyles = (): string => `
     }
     
     input:disabled,
-    select:disabled {
-        opacity: 0.5;
+    textarea:disabled,
+    input[readonly],
+    textarea[readonly] {
+        background-color: var(--vscode-input-background);
+        opacity: 0.6;
         cursor: not-allowed;
+        color: var(--vscode-descriptionForeground);
     }
     
     .info-text {

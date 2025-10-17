@@ -14,6 +14,7 @@ export interface UserDefinition {
     canCreateRole: boolean;
     connectionLimit: number;
     validUntil?: string;
+    members?: Array<{ role: string; admin: boolean }>;
 }
 
 export interface PermissionGrant {
@@ -26,6 +27,27 @@ export interface PermissionGrant {
 }
 
 export class UserManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -505,7 +527,7 @@ export class UserManagementPanel {
             vscode.window.showInformationMessage(`User/role "${username}" dropped successfully!`);
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to drop user: ${errorMessage}`);
             throw error;
         }
@@ -552,7 +574,7 @@ export class UserManagementPanel {
             });
 
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to open change password panel: ${errorMessage}`);
             panel.dispose();
         }
@@ -815,6 +837,7 @@ export class UserManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -906,11 +929,27 @@ export class UserManagementPanel {
             existingRoles.push('neon_superuser');
             existingRoles.sort();
 
+            // Fetch current members of this role (roles that are members of this role)
+            const membersResult = await sqlService.executeQuery(`
+                SELECT 
+                    r.rolname,
+                    am.admin_option
+                FROM pg_catalog.pg_auth_members am
+                JOIN pg_catalog.pg_roles r ON r.oid = am.member
+                WHERE am.roleid = (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1)
+                ORDER BY r.rolname
+            `, [roleName], targetDb);
+            const currentMembers = membersResult.rows.map((row: any) => ({
+                role: row.rolname,
+                admin: row.admin_option
+            }));
+
             panel.webview.html = UserManagementPanel.getEditRoleHtml(
                 roleName,
                 currentRole,
                 memberOfArray,
-                existingRoles
+                existingRoles,
+                currentMembers
             );
 
             panel.webview.onDidReceiveMessage(async (message) => {
@@ -936,7 +975,7 @@ export class UserManagementPanel {
             });
 
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to open edit role panel: ${errorMessage}`);
             panel.dispose();
         }
@@ -1113,6 +1152,48 @@ export class UserManagementPanel {
                 }
             }
             
+            // Handle members changes (roles that are members of this role)
+            if (userDef.members && Array.isArray(userDef.members)) {
+                // Get current members of this role
+                const currentMembersResult = await sqlService.executeQuery(`
+                    SELECT 
+                        r.rolname,
+                        am.admin_option
+                    FROM pg_catalog.pg_auth_members am
+                    JOIN pg_catalog.pg_roles r ON r.oid = am.member
+                    WHERE am.roleid = (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1)
+                `, [currentRoleName], database);
+                
+                const currentMembers = currentMembersResult.rows.map((row: any) => ({
+                    role: row.rolname,
+                    admin: row.admin_option
+                }));
+                
+                // Revoke removed members
+                for (const currentMember of currentMembers) {
+                    const stillMember = userDef.members.find((m: any) => m.role === currentMember.role);
+                    if (!stillMember) {
+                        await sqlService.executeQuery(`REVOKE "${currentRoleName}" FROM "${currentMember.role}"`, database);
+                    }
+                }
+                
+                // Grant new members or update admin option
+                for (const newMember of userDef.members) {
+                    const currentMember = currentMembers.find((m: any) => m.role === newMember.role);
+                    
+                    if (!currentMember) {
+                        // New member - grant
+                        const adminOption = newMember.admin ? ' WITH ADMIN OPTION' : '';
+                        await sqlService.executeQuery(`GRANT "${currentRoleName}" TO "${newMember.role}"${adminOption}`, database);
+                    } else if (currentMember.admin !== newMember.admin) {
+                        // Admin option changed - revoke and re-grant
+                        await sqlService.executeQuery(`REVOKE "${currentRoleName}" FROM "${newMember.role}"`, database);
+                        const adminOption = newMember.admin ? ' WITH ADMIN OPTION' : '';
+                        await sqlService.executeQuery(`GRANT "${currentRoleName}" TO "${newMember.role}"${adminOption}`, database);
+                    }
+                }
+            }
+            
             vscode.window.showInformationMessage(`Role "${currentRoleName}" updated successfully!`);
             panel.dispose();
             
@@ -1143,10 +1224,12 @@ export class UserManagementPanel {
         roleName: string,
         currentRole: any,
         currentMemberOf: string[],
-        existingRoles: string[]
+        existingRoles: string[],
+        currentMembers: Array<{ role: string; admin: boolean }>
     ): string {
         const rolesJson = JSON.stringify(existingRoles);
         const currentMemberOfJson = JSON.stringify(currentMemberOf);
+        const currentMembersJson = JSON.stringify(currentMembers);
         const validUntil = currentRole.valid_until ? new Date(currentRole.valid_until).toISOString().slice(0, 16) : '';
         
         return `<!DOCTYPE html>
@@ -1183,9 +1266,16 @@ export class UserManagementPanel {
             </div>
             <div class="collapsible-content" id="advancedSettingsContent" style="display: none;">
                 <div class="form-group">
-                    <label>Role Membership (optional)</label>
+                    <label>Role Membership</label>
                     <div class="info-text" style="margin-bottom: 8px;">Make this user a member of existing roles (e.g., neon_superuser for superuser privileges)</div>
                     <div id="rolesList"></div>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                    <label>Members</label>
+                    <div class="info-text" style="margin-bottom: 8px;">Grant membership in this role to other roles/users</div>
+                    <div id="membersList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                    <button type="button" class="btn btn-secondary" id="addMemberBtn" style="margin-top: 8px; width: auto; padding: 6px 12px;">Add Member</button>
                 </div>
 
                 <div style="margin-top: 16px;">
@@ -1209,7 +1299,7 @@ export class UserManagementPanel {
                 </div>
 
                 <div class="form-group">
-                    <label>Valid Until (optional)</label>
+                    <label>Valid Until</label>
                     <input type="datetime-local" id="validUntil" value="${validUntil}" />
                     <div class="info-text">Expiration date/time for this user</div>
                 </div>
@@ -1235,6 +1325,7 @@ export class UserManagementPanel {
         const vscode = acquireVsCodeApi();
         const existingRoles = ${rolesJson};
         const currentMemberOf = ${currentMemberOfJson};
+        const currentMembers = ${currentMembersJson};
         const originalRoleName = '${roleName}';
         let selectedRoles = [...currentMemberOf];
 
@@ -1257,6 +1348,78 @@ export class UserManagementPanel {
             rolesList.appendChild(div);
         });
 
+        // Members management
+        let members = [];
+        let memberIdCounter = 0;
+        const membersList = document.getElementById('membersList');
+        const addMemberBtn = document.getElementById('addMemberBtn');
+
+        function addMemberRow(role = '', admin = false) {
+            const memberId = memberIdCounter++;
+            const memberDiv = document.createElement('div');
+            memberDiv.className = 'member-row';
+            memberDiv.id = \`member-\${memberId}\`;
+            memberDiv.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+            
+            memberDiv.innerHTML = \`
+                <select class="member-select" style="flex: 1; padding: 4px 8px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground);">
+                    <option value="">Select role...</option>
+                    \${existingRoles.map(r => \`<option value="\${r}" \${r === role ? 'selected' : ''}>\${r}</option>\`).join('')}
+                </select>
+                <label style="display: flex; align-items: center; gap: 4px; margin: 0; white-space: nowrap;">
+                    <input type="checkbox" class="member-admin" \${admin ? 'checked' : ''} />
+                    <span>Admin</span>
+                </label>
+                <button type="button" class="btn btn-icon" style="padding: 4px 8px; font-size: 12px;" title="Remove member">✕</button>
+            \`;
+            
+            const selectEl = memberDiv.querySelector('.member-select');
+            const adminEl = memberDiv.querySelector('.member-admin');
+            const removeBtn = memberDiv.querySelector('.btn-icon');
+            
+            selectEl.addEventListener('change', () => {
+                updateMembersArray();
+                updatePreview();
+            });
+            
+            adminEl.addEventListener('change', () => {
+                updateMembersArray();
+                updatePreview();
+            });
+            
+            removeBtn.addEventListener('click', () => {
+                memberDiv.remove();
+                updateMembersArray();
+                updatePreview();
+            });
+            
+            membersList.appendChild(memberDiv);
+            updateMembersArray();
+        }
+
+        function updateMembersArray() {
+            members = [];
+            document.querySelectorAll('.member-row').forEach(row => {
+                const select = row.querySelector('.member-select');
+                const admin = row.querySelector('.member-admin');
+                if (select.value) {
+                    members.push({
+                        role: select.value,
+                        admin: admin.checked
+                    });
+                }
+            });
+        }
+
+        addMemberBtn.addEventListener('click', () => {
+            addMemberRow();
+        });
+
+        // Initialize with current members
+        currentMembers.forEach(member => {
+            addMemberRow(member.role, member.admin);
+        });
+
         function getUserDefinition() {
             return {
                 roleName: document.getElementById('roleName').value.trim(),
@@ -1265,7 +1428,8 @@ export class UserManagementPanel {
                 canCreateRole: document.getElementById('canCreateRole').checked,
                 connectionLimit: parseInt(document.getElementById('connectionLimit').value),
                 validUntil: document.getElementById('validUntil').value,
-                memberOf: selectedRoles
+                memberOf: selectedRoles,
+                members: members
             };
         }
 
@@ -1317,6 +1481,7 @@ export class UserManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -1632,7 +1797,8 @@ export class UserManagementPanel {
             canCreateRole,
             connectionLimit,
             validUntil,
-            memberOf
+            memberOf,
+            members
         } = userDef;
 
         let sql = `CREATE ROLE ${username}`;
@@ -1675,10 +1841,18 @@ export class UserManagementPanel {
         
         sql += ';';
         
-        // Add role memberships
+        // Add role memberships (roles this role is a member of)
         if (memberOf && memberOf.length > 0) {
             memberOf.forEach(role => {
                 sql += `\nGRANT ${role} TO ${username};`;
+            });
+        }
+        
+        // Add members (roles that are members of this role)
+        if (members && members.length > 0) {
+            members.forEach(member => {
+                const adminOption = member.admin ? ' WITH ADMIN OPTION' : '';
+                sql += `\nGRANT ${username} TO ${member.role}${adminOption};`;
             });
         }
         
@@ -2055,9 +2229,16 @@ export class UserManagementPanel {
             </div>
             <div class="collapsible-content" id="advancedSettingsContent" style="display: none;">
                 <div class="form-group">
-                    <label>Role Membership (optional)</label>
+                    <label>Role Membership</label>
                     <div class="info-text" style="margin-bottom: 8px;">Make this user a member of existing roles (e.g., neon_superuser for superuser privileges)</div>
                     <div id="rolesList"></div>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                    <label>Members</label>
+                    <div class="info-text" style="margin-bottom: 8px;">Grant membership in this role to other roles/users</div>
+                    <div id="membersList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                    <button type="button" class="btn btn-secondary" id="addMemberBtn" style="margin-top: 8px; width: auto; padding: 6px 12px;">Add Member</button>
                 </div>
 
                 <div style="margin-top: 16px;">
@@ -2081,7 +2262,7 @@ export class UserManagementPanel {
             </div>
 
             <div class="form-group">
-                <label>Valid Until (optional)</label>
+                <label>Valid Until</label>
                 <input type="datetime-local" id="validUntil" />
                 <div class="info-text">Expiration date/time for this user</div>
             </div>
@@ -2125,6 +2306,74 @@ export class UserManagementPanel {
                 updatePreview();
             });
             rolesList.appendChild(div);
+        });
+
+        // Members management
+        let members = [];
+        let memberIdCounter = 0;
+        const membersList = document.getElementById('membersList');
+        const addMemberBtn = document.getElementById('addMemberBtn');
+
+        function addMemberRow(role = '', admin = false) {
+            const memberId = memberIdCounter++;
+            const memberDiv = document.createElement('div');
+            memberDiv.className = 'member-row';
+            memberDiv.id = \`member-\${memberId}\`;
+            memberDiv.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+            
+            memberDiv.innerHTML = \`
+                <select class="member-select" style="flex: 1; padding: 4px 8px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground);">
+                    <option value="">Select role...</option>
+                    \${existingRoles.map(r => \`<option value="\${r}" \${r === role ? 'selected' : ''}>\${r}</option>\`).join('')}
+                </select>
+                <label style="display: flex; align-items: center; gap: 4px; margin: 0; white-space: nowrap;">
+                    <input type="checkbox" class="member-admin" \${admin ? 'checked' : ''} />
+                    <span>Admin</span>
+                </label>
+                <button type="button" class="btn btn-icon" style="padding: 4px 8px; font-size: 12px;" title="Remove member">✕</button>
+            \`;
+            
+            const selectEl = memberDiv.querySelector('.member-select');
+            const adminEl = memberDiv.querySelector('.member-admin');
+            const removeBtn = memberDiv.querySelector('.btn-icon');
+            
+            selectEl.addEventListener('change', () => {
+                updateMembersArray();
+                updatePreview();
+            });
+            
+            adminEl.addEventListener('change', () => {
+                updateMembersArray();
+                updatePreview();
+            });
+            
+            removeBtn.addEventListener('click', () => {
+                memberDiv.remove();
+                updateMembersArray();
+                updatePreview();
+            });
+            
+            membersList.appendChild(memberDiv);
+            updateMembersArray();
+            updatePreview();
+        }
+
+        function updateMembersArray() {
+            members = [];
+            document.querySelectorAll('.member-row').forEach(row => {
+                const select = row.querySelector('.member-select');
+                const admin = row.querySelector('.member-admin');
+                if (select.value) {
+                    members.push({
+                        role: select.value,
+                        admin: admin.checked
+                    });
+                }
+            });
+        }
+
+        addMemberBtn.addEventListener('click', () => {
+            addMemberRow();
         });
 
         // Password visibility toggle
@@ -2222,7 +2471,8 @@ export class UserManagementPanel {
                 canCreateRole: roleType === 'neon' ? false : document.getElementById('canCreateRole').checked,
                 connectionLimit: roleType === 'neon' ? -1 : parseInt(document.getElementById('connectionLimit').value),
                 validUntil: roleType === 'neon' ? '' : document.getElementById('validUntil').value,
-                memberOf: roleType === 'neon' ? [] : selectedRoles
+                memberOf: roleType === 'neon' ? [] : selectedRoles,
+                members: roleType === 'neon' ? [] : members
             };
         }
 
@@ -2340,6 +2590,7 @@ export class UserManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -2523,6 +2774,7 @@ export class UserManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function showSuccess(message) {
@@ -2772,6 +3024,7 @@ export class UserManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function showSuccess(message) {

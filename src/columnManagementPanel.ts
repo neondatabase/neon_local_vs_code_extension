@@ -16,6 +16,27 @@ interface ColumnDefinition {
 }
 
 export class ColumnManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     /**
      * Create a new column
      */
@@ -163,7 +184,7 @@ export class ColumnManagementPanel {
                 context.subscriptions
             );
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to load column details: ${errorMessage}`);
             panel.dispose();
         }
@@ -683,6 +704,7 @@ export class ColumnManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -928,6 +950,7 @@ export class ColumnManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

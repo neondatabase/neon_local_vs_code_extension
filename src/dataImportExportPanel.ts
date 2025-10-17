@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { SqlQueryService } from './services/sqlQuery.service';
 import { StateService } from './services/state.service';
 import { SchemaService } from './services/schema.service';
+import { getStyles } from './templates/styles';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -31,6 +32,27 @@ export interface ExportOptions {
 }
 
 export class DataImportExportPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -355,7 +377,7 @@ export class DataImportExportPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             panel.webview.postMessage({
                 command: 'error',
                 error: `Import failed: ${errorMessage}`
@@ -439,7 +461,7 @@ export class DataImportExportPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             panel.webview.postMessage({
                 command: 'error',
                 error: `Export failed: ${errorMessage}`
@@ -499,8 +521,25 @@ export class DataImportExportPanel {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Import Data</title>
+    ${getStyles()}
     <style>
-        ${DataImportExportPanel.getCommonStyles()}
+        /* Consistent form field spacing */
+        .section-box .checkbox-group {
+            margin-bottom: 16px;
+        }
+        .section-box .info-text:last-child {
+            margin-bottom: 0;
+        }
+        .section-box > button:not(.btn) {
+            margin-top: 0;
+        }
+        #csvOptions {
+            margin-bottom: 16px;
+        }
+        #csvOptions .form-group:last-child {
+            margin-bottom: 0;
+        }
+        
         .file-input {
             display: flex;
             gap: 8px;
@@ -514,7 +553,7 @@ export class DataImportExportPanel {
             border: 1px solid var(--vscode-input-border);
             border-radius: 4px;
             padding: 12px;
-            margin-top: 12px;
+            margin-top: 16px;
             max-height: 300px;
             overflow: auto;
         }
@@ -537,20 +576,25 @@ export class DataImportExportPanel {
             height: 20px;
             background-color: var(--vscode-input-background);
             border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
+            border-radius: 4px;
             overflow: hidden;
-            margin-top: 12px;
+            margin-top: 16px;
         }
         .progress-fill {
             height: 100%;
-            background-color: var(--vscode-charts-blue);
+            background-color: var(--vscode-progressBar-background);
             width: 0%;
             transition: width 0.3s ease;
         }
         .progress-text {
             text-align: center;
-            margin-top: 4px;
+            margin-top: 8px;
             font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+        }
+        textarea {
+            resize: vertical;
+            font-family: var(--vscode-editor-font-family, monospace);
         }
     </style>
 </head>
@@ -560,8 +604,8 @@ export class DataImportExportPanel {
         
         <div id="errorContainer"></div>
 
-        <div class="section">
-            <div class="section-title">1. Select File</div>
+        <div class="section-box">
+            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Select File</h2>
             
             <div class="form-group">
                 <label>File Format</label>
@@ -579,18 +623,20 @@ export class DataImportExportPanel {
                 </div>
             </div>
 
-            <button class="btn btn-secondary" id="previewBtn" style="margin-top: 12px;" disabled>Preview File</button>
+            <button class="btn btn-secondary" id="previewBtn" disabled>Preview File</button>
             
             <div id="previewContainer"></div>
         </div>
 
-        <div class="section">
-            <div class="section-title">2. Import Options</div>
+        <div class="section-box">
+            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Import Options</h2>
             
             <div id="csvOptions">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="skipFirstRow" checked />
-                    <label for="skipFirstRow" style="margin: 0;">First row contains headers</label>
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="skipFirstRow" checked />
+                        <label for="skipFirstRow" style="margin: 0;">First row contains headers</label>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -615,16 +661,18 @@ export class DataImportExportPanel {
                 <div class="info-text">How NULL values are represented in the file</div>
             </div>
 
-            <div class="checkbox-group">
-                <input type="checkbox" id="truncateFirst" />
-                <label for="truncateFirst" style="margin: 0;">Truncate table before import</label>
+            <div class="form-group">
+                <div class="checkbox-group" style="margin-bottom: 8px;">
+                    <input type="checkbox" id="truncateFirst" />
+                    <label for="truncateFirst" style="margin: 0;">Truncate table before import</label>
+                </div>
+                <div class="info-text">⚠️ This will delete all existing data in the table</div>
             </div>
-            <div class="info-text">⚠️ This will delete all existing data in the table</div>
         </div>
 
-        <div class="section">
-            <div class="section-title">3. Target Table Columns</div>
-            <div class="info-text" style="margin-bottom: 8px;">
+        <div class="section-box">
+            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Target Table Columns</h2>
+            <div class="info-text">
                 Table columns: ${columns.map(c => c.name).join(', ')}
             </div>
         </div>
@@ -772,8 +820,22 @@ export class DataImportExportPanel {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Export Data</title>
+    ${getStyles()}
     <style>
-        ${DataImportExportPanel.getCommonStyles()}
+        /* Consistent form field spacing */
+        .section-box .checkbox-group {
+            margin-bottom: 16px;
+        }
+        .section-box .info-text:last-child {
+            margin-bottom: 0;
+        }
+        #csvOptions {
+            margin-bottom: 16px;
+        }
+        #csvOptions .form-group:last-child {
+            margin-bottom: 0;
+        }
+        
         .file-input {
             display: flex;
             gap: 8px;
@@ -781,6 +843,10 @@ export class DataImportExportPanel {
         }
         .file-input input {
             flex: 1;
+        }
+        textarea {
+            resize: vertical;
+            font-family: var(--vscode-editor-font-family, monospace);
         }
     </style>
 </head>
@@ -790,8 +856,8 @@ export class DataImportExportPanel {
         
         <div id="errorContainer"></div>
 
-        <div class="section">
-            <div class="section-title">1. Select Destination</div>
+        <div class="section-box">
+            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Select Destination</h2>
             
             <div class="form-group">
                 <label>File Format</label>
@@ -811,13 +877,15 @@ export class DataImportExportPanel {
             </div>
         </div>
 
-        <div class="section">
-            <div class="section-title">2. Export Options</div>
+        <div class="section-box">
+            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Export Options</h2>
             
             <div id="csvOptions">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="includeHeaders" checked />
-                    <label for="includeHeaders" style="margin: 0;">Include column headers</label>
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="includeHeaders" checked />
+                        <label for="includeHeaders" style="margin: 0;">Include column headers</label>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -842,11 +910,11 @@ export class DataImportExportPanel {
             </div>
         </div>
 
-        <div class="section">
-            <div class="section-title">3. Data Selection</div>
+        <div class="section-box">
+            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Data Selection</h2>
             
             <div class="form-group">
-                <label>Custom SQL Query (optional)</label>
+                <label>Custom SQL Query</label>
                 <textarea id="customQuery" placeholder="SELECT * FROM ${schema}.${tableName} WHERE ..."></textarea>
                 <div class="info-text">Leave empty to export all rows</div>
             </div>
@@ -936,116 +1004,6 @@ export class DataImportExportPanel {
     </script>
 </body>
 </html>`;
-    }
-
-    /**
-     * Common styles
-     */
-    private static getCommonStyles(): string {
-        return `
-        body {
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            background-color: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-            padding: 20px;
-            margin: 0;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
-        .section {
-            margin-bottom: 20px;
-            background-color: var(--vscode-input-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 16px;
-        }
-        .section-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-        .form-group {
-            margin-bottom: 16px;
-        }
-        label {
-            display: block;
-            margin-bottom: 4px;
-            font-weight: 500;
-        }
-        input[type="text"],
-        select,
-        textarea {
-            width: 100%;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
-            padding: 6px 8px;
-            font-size: 13px;
-        }
-        textarea {
-            min-height: 100px;
-            font-family: monospace;
-            resize: vertical;
-        }
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-        .info-text {
-            color: var(--vscode-descriptionForeground);
-            font-size: 12px;
-            margin-top: 4px;
-        }
-        .btn {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 8px 16px;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 13px;
-            margin-right: 8px;
-        }
-        .btn:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .btn-secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        .btn-secondary:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-        .error {
-            color: var(--vscode-errorForeground);
-            background-color: var(--vscode-inputValidation-errorBackground);
-            border: 1px solid var(--vscode-inputValidation-errorBorder);
-            padding: 12px;
-            border-radius: 3px;
-            margin-bottom: 16px;
-        }
-        .actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 20px;
-            padding-top: 16px;
-            border-top: 1px solid var(--vscode-panel-border);
-        }
-        `;
     }
 }
 

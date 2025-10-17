@@ -10,6 +10,27 @@ export interface DatabaseDefinition {
 }
 
 export class DatabaseManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -58,6 +79,7 @@ export class DatabaseManagementPanel {
                 FROM pg_catalog.pg_roles
                 WHERE rolname !~ '^pg_'
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname
             `, [], 'postgres');
 
@@ -132,7 +154,7 @@ export class DatabaseManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to drop database: ${errorMessage}`);
             throw error;
         }
@@ -157,7 +179,7 @@ export class DatabaseManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             panel.webview.postMessage({
                 command: 'error',
                 error: errorMessage
@@ -234,22 +256,6 @@ export class DatabaseManagementPanel {
         </div>
 
         <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('dbOptions')">
-                <span class="toggle-icon" id="dbOptionsIcon">▶</span>
-                Advanced Options
-            </div>
-            <div class="collapsible-content" id="dbOptions">
-                <div class="form-group">
-                    <label>Encoding</label>
-                    <select id="encoding" disabled>
-                        <option value="UTF8" selected>UTF8</option>
-                    </select>
-                    <div class="info-text">Neon only supports UTF8 encoding (Unicode, 8-bit variable-width)</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
             <div class="collapsible-header" onclick="toggleSection('sqlPreview')">
                 <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
                 SQL Preview
@@ -290,7 +296,7 @@ export class DatabaseManagementPanel {
             return {
                 name: dbName,
                 owner: document.getElementById('owner').value,
-                encoding: document.getElementById('encoding').value
+                encoding: 'UTF8'
             };
         }
 
@@ -323,7 +329,6 @@ export class DatabaseManagementPanel {
         // Add event listeners to all form fields to auto-update preview
         document.getElementById('dbName').addEventListener('input', updatePreview);
         document.getElementById('owner').addEventListener('change', updatePreview);
-        // encoding is disabled (Neon only supports UTF8), no listener needed
 
         document.getElementById('createBtn').addEventListener('click', () => {
             if (!validateDatabase()) return;
@@ -369,6 +374,7 @@ export class DatabaseManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = '<div class="error">' + message + '</div>';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

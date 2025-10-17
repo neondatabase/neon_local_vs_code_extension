@@ -30,6 +30,27 @@ export interface SequenceProperties {
 }
 
 export class SequenceManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -133,16 +154,15 @@ export class SequenceManagementPanel {
             // Get current sequence properties
             const propsResult = await sqlService.executeQuery(`
                 SELECT 
-                    s.increment,
-                    s.minimum_value,
-                    s.maximum_value,
-                    s.cycle_option,
-                    COALESCE(seq.seqcache, 1) as cache
-                FROM information_schema.sequences s
-                LEFT JOIN pg_class c ON c.relname = s.sequence_name
-                LEFT JOIN pg_namespace n ON n.nspname = s.sequence_schema AND n.oid = c.relnamespace
-                LEFT JOIN pg_sequence seq ON seq.seqrelid = c.oid
-                WHERE s.sequence_schema = $1 AND s.sequence_name = $2
+                    increment_by as increment,
+                    min_value as minimum_value,
+                    max_value as maximum_value,
+                    CASE WHEN cycle THEN 'YES' ELSE 'NO' END as cycle_option,
+                    cache_size as cache,
+                    start_value,
+                    last_value as current_value
+                FROM pg_sequences
+                WHERE schemaname = $1 AND sequencename = $2
             `, [schema, sequenceName], database);
 
             if (propsResult.rows.length === 0) {
@@ -187,7 +207,7 @@ export class SequenceManagementPanel {
             });
 
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to open edit sequence panel: ${errorMessage}`);
             panel.dispose();
         }
@@ -545,9 +565,14 @@ export class SequenceManagementPanel {
             statements.push(sql);
         }
         
+        // Handle current value change if needed
+        if (changes.currentValue !== undefined && changes.currentValue !== '') {
+            statements.push(`SELECT setval('${schema}.${sequenceName}', ${changes.currentValue});`);
+        }
+        
         // Handle sequence rename if needed
         if (changes.newSequenceName && changes.newSequenceName !== sequenceName) {
-            statements.push(`\nALTER SEQUENCE ${schema}.${sequenceName} RENAME TO ${changes.newSequenceName};`);
+            statements.push(`ALTER SEQUENCE ${schema}.${sequenceName} RENAME TO ${changes.newSequenceName};`);
         }
         
         return statements.length > 0 ? statements.join('\n') : '-- No changes to apply';
@@ -564,6 +589,13 @@ export class SequenceManagementPanel {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Sequence</title>
     ${getStyles()}
+    <style>
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -585,28 +617,32 @@ export class SequenceManagementPanel {
                 Sequence Options
             </div>
             <div class="collapsible-content" id="optionsSection">
-                <div class="form-group">
-                    <label>Start Value</label>
-                    <input type="number" id="startValue" placeholder="1" />
-                    <div class="info-text">Initial value of the sequence (defaults to 1)</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Minimum Value</label>
+                        <input type="number" id="minValue" placeholder="Leave empty for NO MINVALUE" />
+                        <div class="info-text">Minimum value of the sequence (or leave empty)</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Maximum Value</label>
+                        <input type="number" id="maxValue" placeholder="Leave empty for NO MAXVALUE" />
+                        <div class="info-text">Maximum value of the sequence (or leave empty)</div>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Increment By</label>
-                    <input type="number" id="incrementBy" value="1" />
-                    <div class="info-text">Value to add to current sequence value (can be negative)</div>
-                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Start Value</label>
+                        <input type="number" id="startValue" placeholder="1" />
+                        <div class="info-text">Initial value of the sequence (defaults to 1)</div>
+                    </div>
 
-                <div class="form-group">
-                    <label>Minimum Value</label>
-                    <input type="number" id="minValue" placeholder="Leave empty for NO MINVALUE" />
-                    <div class="info-text">Minimum value of the sequence (or leave empty)</div>
-                </div>
-
-                <div class="form-group">
-                    <label>Maximum Value</label>
-                    <input type="number" id="maxValue" placeholder="Leave empty for NO MAXVALUE" />
-                    <div class="info-text">Maximum value of the sequence (or leave empty)</div>
+                    <div class="form-group">
+                        <label>Increment By</label>
+                        <input type="number" id="incrementBy" value="1" />
+                        <div class="info-text">Value to add to current sequence value (can be negative)</div>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -740,6 +776,7 @@ export class SequenceManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -768,6 +805,13 @@ export class SequenceManagementPanel {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Sequence</title>
     ${getStyles()}
+    <style>
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -795,21 +839,37 @@ export class SequenceManagementPanel {
             </div>
             <div class="collapsible-content" id="optionsSection" style="display: block;">
                 <div class="form-group">
-                    <label>Increment By</label>
-                    <input type="number" id="incrementBy" value="${currentProps.increment}" />
-                    <div class="info-text">Value to add to current sequence value (can be negative)</div>
+                    <label>Current Value</label>
+                    <input type="number" id="currentValue" value="${currentProps.current_value || currentProps.start_value || 1}" />
+                    <div class="info-text">The current value of the sequence (next value to be returned)</div>
                 </div>
 
-                <div class="form-group">
-                    <label>Minimum Value</label>
-                    <input type="text" id="minValue" value="${currentProps.minimum_value}" />
-                    <div class="info-text">Minimum value of the sequence</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Minimum Value</label>
+                        <input type="text" id="minValue" value="${currentProps.minimum_value}" />
+                        <div class="info-text">Minimum value of the sequence</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Maximum Value</label>
+                        <input type="text" id="maxValue" value="${currentProps.maximum_value}" />
+                        <div class="info-text">Maximum value of the sequence</div>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Maximum Value</label>
-                    <input type="text" id="maxValue" value="${currentProps.maximum_value}" />
-                    <div class="info-text">Maximum value of the sequence</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Start Value</label>
+                        <input type="text" id="startValue" value="${currentProps.start_value || 1}" readonly />
+                        <div class="info-text">Initial value of the sequence (read-only)</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Increment By</label>
+                        <input type="number" id="incrementBy" value="${currentProps.increment}" />
+                        <div class="info-text">Value to add to current sequence value (can be negative)</div>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -864,6 +924,9 @@ export class SequenceManagementPanel {
                 changes.newSequenceName = newSequenceName;
             }
             
+            const currentValue = document.getElementById('currentValue').value;
+            if (currentValue) changes.currentValue = parseInt(currentValue);
+            
             const incrementBy = document.getElementById('incrementBy').value;
             if (incrementBy) changes.incrementBy = parseInt(incrementBy);
             
@@ -890,7 +953,7 @@ export class SequenceManagementPanel {
         }
 
         // Auto-update preview on input changes
-        ['sequenceName', 'incrementBy', 'minValue', 'maxValue', 'cache', 'cycle'].forEach(id => {
+        ['sequenceName', 'currentValue', 'incrementBy', 'minValue', 'maxValue', 'cache', 'cycle'].forEach(id => {
             const element = document.getElementById(id);
             element.addEventListener('input', updatePreview);
             element.addEventListener('change', updatePreview);
@@ -921,6 +984,7 @@ export class SequenceManagementPanel {
 
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

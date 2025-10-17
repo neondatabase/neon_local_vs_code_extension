@@ -109,6 +109,7 @@ export class EditTablePanel {
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
             const rolesResult = await sqlService.executeQuery(rolesQuery, this.database);
@@ -142,7 +143,7 @@ export class EditTablePanel {
             });
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to load table structure: ${errorMessage}`);
             this.sendMessage({
                 command: 'error',
@@ -302,7 +303,7 @@ export class EditTablePanel {
             this.panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to update table: ${errorMessage}`);
             this.sendMessage({
                 command: 'error',
@@ -315,6 +316,27 @@ export class EditTablePanel {
 
     private sendMessage(message: any) {
         this.panel.webview.postMessage(message);
+    }
+
+    private extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
     }
 
     private getWebviewContent(): string {
@@ -414,6 +436,49 @@ export class EditTablePanel {
             color: var(--vscode-errorForeground);
         }
 
+        .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .advanced-toggle-btn {
+            background: transparent;
+            color: var(--vscode-textLink-foreground);
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .advanced-toggle-btn:hover {
+            background: transparent;
+            color: var(--vscode-textLink-activeForeground);
+        }
+
+        .advanced-toggle-btn:focus {
+            outline: none;
+            border: none;
+            background: transparent;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            max-width: 100%;
+        }
+
+        .advanced-column {
+            display: none;
+        }
+
+        .show-advanced .advanced-column {
+            display: table-cell;
+        }
+
         .status-badge {
             display: inline-block;
             padding: 2px 6px;
@@ -480,26 +545,34 @@ export class EditTablePanel {
             </div>
 
             <div class="section-box">
-                <div style="margin-bottom: 12px; font-weight: 500;">Columns</div>
-                
-                <table class="columns-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 8%;">Status</th>
-                            <th style="width: 18%;">Column Name</th>
-                            <th style="width: 15%;">Data Type</th>
-                            <th style="width: 10%;">Length</th>
-                            <th style="width: 8%;">Nullable</th>
-                            <th style="width: 8%;">PK</th>
-                            <th style="width: 8%;">Unique</th>
-                            <th style="width: 15%;">Default</th>
-                            <th style="width: 10%;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="columnsTableBody">
-                        <!-- Columns will be added dynamically -->
-                    </tbody>
-                </table>
+                <div class="table-controls">
+                    <div style="font-weight: 500;">Columns</div>
+                    <button class="advanced-toggle-btn" id="advancedToggleBtn">
+                        <span id="toggleIcon">▶</span> Show Advanced Options
+                    </button>
+                </div>
+
+                <div class="table-wrapper">
+                    <table class="columns-table" id="columnsTable">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Column Name</th>
+                                <th>Data Type</th>
+                                <th>Nullable</th>
+                                <th>Unique</th>
+                                <th>Primary Key</th>
+                                <th class="advanced-column">Length</th>
+                                <th class="advanced-column">Default</th>
+                                <th class="advanced-column">Comment</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="columnsTableBody">
+                            <!-- Columns will be added dynamically -->
+                        </tbody>
+                    </table>
+                </div>
 
                 <button class="btn btn-secondary" id="addColumnBtn" style="margin-top: 12px;">+ Add New Column</button>
             </div>
@@ -563,6 +636,7 @@ export class EditTablePanel {
         addColumnBtn.addEventListener('click', addNewColumn);
         applyBtn.addEventListener('click', applyChanges);
         cancelBtn.addEventListener('click', cancel);
+        document.getElementById('advancedToggleBtn').addEventListener('click', toggleAdvancedColumns);
         tableNameInput.addEventListener('input', updatePreview);
         ownerInput.addEventListener('change', updatePreview);
 
@@ -746,21 +820,6 @@ export class EditTablePanel {
                 typeCell.appendChild(typeSelect);
                 row.appendChild(typeCell);
 
-                // Length
-                const lengthCell = document.createElement('td');
-                const lengthInput = document.createElement('input');
-                lengthInput.type = 'number';
-                lengthInput.value = col.length || '';
-                lengthInput.placeholder = '255';
-                lengthInput.min = '1';
-                lengthInput.disabled = col.isDeleted;
-                lengthInput.addEventListener('input', (e) => {
-                    col.length = e.target.value ? parseInt(e.target.value) : undefined;
-                    updatePreview();
-                });
-                lengthCell.appendChild(lengthInput);
-                row.appendChild(lengthCell);
-
                 // Nullable
                 const nullableCell = document.createElement('td');
                 nullableCell.style.textAlign = 'center';
@@ -775,29 +834,6 @@ export class EditTablePanel {
                 });
                 nullableCell.appendChild(nullableCheckbox);
                 row.appendChild(nullableCell);
-
-                // Primary Key
-                const pkCell = document.createElement('td');
-                pkCell.style.textAlign = 'center';
-                const pkCheckbox = document.createElement('input');
-                pkCheckbox.type = 'checkbox';
-                pkCheckbox.checked = col.isPrimaryKey;
-                pkCheckbox.disabled = col.isDeleted || col.status === 'existing'; // Can't modify PK on existing
-                pkCheckbox.addEventListener('change', (e) => {
-                    col.isPrimaryKey = e.target.checked;
-                    if (e.target.checked) {
-                        col.nullable = false;
-                        // Update the nullable checkbox in the UI
-                        const nullableCheckbox = row.querySelector('td:nth-child(5) input[type="checkbox"]');
-                        if (nullableCheckbox) {
-                            nullableCheckbox.checked = false;
-                        }
-                    }
-                    updateStatusBadge(row, col);
-                    updatePreview();
-                });
-                pkCell.appendChild(pkCheckbox);
-                row.appendChild(pkCell);
 
                 // Unique
                 const uniqueCell = document.createElement('td');
@@ -814,8 +850,46 @@ export class EditTablePanel {
                 uniqueCell.appendChild(uniqueCheckbox);
                 row.appendChild(uniqueCell);
 
-                // Default Value
+                // Primary Key
+                const pkCell = document.createElement('td');
+                pkCell.style.textAlign = 'center';
+                const pkCheckbox = document.createElement('input');
+                pkCheckbox.type = 'checkbox';
+                pkCheckbox.checked = col.isPrimaryKey;
+                pkCheckbox.disabled = col.isDeleted || col.status === 'existing'; // Can't modify PK on existing
+                pkCheckbox.addEventListener('change', (e) => {
+                    col.isPrimaryKey = e.target.checked;
+                    if (e.target.checked) {
+                        col.nullable = false;
+                        nullableCheckbox.checked = false;
+                    }
+                    updateStatusBadge(row, col);
+                    updatePreview();
+                });
+                pkCell.appendChild(pkCheckbox);
+                row.appendChild(pkCell);
+
+                // Length (Advanced)
+                const lengthCell = document.createElement('td');
+                lengthCell.className = 'advanced-column';
+                const lengthInput = document.createElement('input');
+                lengthInput.type = 'number';
+                lengthInput.value = col.length || '';
+                lengthInput.placeholder = '255';
+                lengthInput.min = '1';
+                lengthInput.style.width = '80px';
+                lengthInput.disabled = col.isDeleted;
+                lengthInput.addEventListener('input', (e) => {
+                    col.length = e.target.value ? parseInt(e.target.value) : undefined;
+                    updateStatusBadge(row, col);
+                    updatePreview();
+                });
+                lengthCell.appendChild(lengthInput);
+                row.appendChild(lengthCell);
+
+                // Default Value (Advanced)
                 const defaultCell = document.createElement('td');
+                defaultCell.className = 'advanced-column';
                 const defaultInput = document.createElement('input');
                 defaultInput.type = 'text';
                 defaultInput.value = col.defaultValue || '';
@@ -823,10 +897,27 @@ export class EditTablePanel {
                 defaultInput.disabled = col.isDeleted;
                 defaultInput.addEventListener('input', (e) => {
                     col.defaultValue = e.target.value;
+                    updateStatusBadge(row, col);
                     updatePreview();
                 });
                 defaultCell.appendChild(defaultInput);
                 row.appendChild(defaultCell);
+
+                // Comment (Advanced)
+                const commentCell = document.createElement('td');
+                commentCell.className = 'advanced-column';
+                const commentInput = document.createElement('input');
+                commentInput.type = 'text';
+                commentInput.value = col.comment || '';
+                commentInput.placeholder = 'Description';
+                commentInput.disabled = col.isDeleted;
+                commentInput.addEventListener('input', (e) => {
+                    col.comment = e.target.value;
+                    updateStatusBadge(row, col);
+                    updatePreview();
+                });
+                commentCell.appendChild(commentInput);
+                row.appendChild(commentCell);
 
                 // Actions
                 const actionsCell = document.createElement('td');
@@ -835,14 +926,14 @@ export class EditTablePanel {
                 if (col.status === 'new') {
                     const removeBtn = document.createElement('button');
                     removeBtn.className = 'icon-btn delete';
-                    removeBtn.innerHTML = '🗑️';
+                    removeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.5 1.5v1h-4v1h1v9.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V3.5h1v-1h-4v-1h-3zm-2.5 2h8v9.5h-8V3.5zm2 1.5v6h1v-6h-1zm3 0v6h1v-6h-1z" fill="currentColor"/></svg>';
                     removeBtn.title = 'Remove new column';
                     removeBtn.addEventListener('click', () => removeNewColumn(col.id));
                     actionsCell.appendChild(removeBtn);
                 } else {
                     const deleteBtn = document.createElement('button');
                     deleteBtn.className = 'icon-btn delete';
-                    deleteBtn.innerHTML = col.isDeleted ? '↶' : '🗑️';
+                    deleteBtn.innerHTML = col.isDeleted ? '↶' : '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.5 1.5v1h-4v1h1v9.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V3.5h1v-1h-4v-1h-3zm-2.5 2h8v9.5h-8V3.5zm2 1.5v6h1v-6h-1zm3 0v6h1v-6h-1z" fill="currentColor"/></svg>';
                     deleteBtn.title = col.isDeleted ? 'Restore column' : 'Mark for deletion';
                     deleteBtn.addEventListener('click', () => markColumnAsDeleted(col.id));
                     actionsCell.appendChild(deleteBtn);
@@ -852,6 +943,22 @@ export class EditTablePanel {
 
                 columnsTableBody.appendChild(row);
             });
+        }
+
+        function toggleAdvancedColumns() {
+            const table = document.getElementById('columnsTable');
+            const toggleIcon = document.getElementById('toggleIcon');
+            const toggleBtn = document.getElementById('advancedToggleBtn');
+            
+            if (table.classList.contains('show-advanced')) {
+                table.classList.remove('show-advanced');
+                toggleIcon.textContent = '▶';
+                toggleBtn.innerHTML = '<span id="toggleIcon">▶</span> Show Advanced Options';
+            } else {
+                table.classList.add('show-advanced');
+                toggleIcon.textContent = '▼';
+                toggleBtn.innerHTML = '<span id="toggleIcon">▼</span> Hide Advanced Options';
+            }
         }
 
         function hasColumnChanged(col) {
@@ -1000,6 +1107,7 @@ export class EditTablePanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

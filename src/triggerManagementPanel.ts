@@ -4,6 +4,27 @@ import { SqlQueryService } from './services/sqlQuery.service';
 import { getStyles } from './templates/styles';
 
 export class TriggerManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     private static currentPanels: Map<string, vscode.WebviewPanel> = new Map();
 
     /**
@@ -90,6 +111,9 @@ export class TriggerManagementPanel {
                             message.triggerDef
                         );
                         panel.webview.postMessage({ command: 'sqlPreview', sql });
+                        break;
+                    case 'cancel':
+                        panel.dispose();
                         break;
                 }
             });
@@ -378,7 +402,7 @@ export class TriggerManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to ${enable ? 'enable' : 'disable'} trigger: ${errorMessage}`);
         }
     }
@@ -453,7 +477,7 @@ export class TriggerManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             panel.webview.postMessage({
                 command: 'error',
                 message: errorMessage
@@ -569,192 +593,138 @@ export class TriggerManagementPanel {
         const columnsJson = JSON.stringify(columns);
         
         return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Trigger</title>
+    ${getStyles()}
     <style>
-        body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            padding: 20px;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 600;
-        }
-        input, select, textarea {
-            width: 100%;
-            padding: 8px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 2px;
-            box-sizing: border-box;
-        }
-        textarea {
-            min-height: 80px;
-            font-family: var(--vscode-editor-font-family);
-        }
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 2px;
-            cursor: pointer;
-            font-size: 14px;
-            margin-right: 10px;
-        }
-        .btn-primary {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-        }
-        .btn-secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        .btn:hover {
-            opacity: 0.9;
-        }
-        .checkbox-group {
+        .events-checkboxes {
             display: flex;
-            gap: 15px;
+            gap: 16px;
             flex-wrap: wrap;
-        }
-        .checkbox-item {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .checkbox-item input {
-            width: auto;
-        }
-        .error {
-            color: var(--vscode-errorForeground);
-            margin-top: 10px;
-            padding: 10px;
-            background-color: var(--vscode-inputValidation-errorBackground);
-            border: 1px solid var(--vscode-inputValidation-errorBorder);
-        }
-        .sql-preview {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: var(--vscode-textCodeBlock-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 4px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 13px;
-            white-space: pre-wrap;
-            display: none;
-        }
-        .info {
-            padding: 10px;
-            background-color: var(--vscode-textBlockQuote-background);
-            border-left: 3px solid var(--vscode-textLink-foreground);
-            margin-bottom: 20px;
-        }
-        .help-text {
-            font-size: 12px;
-            color: var(--vscode-descriptionForeground);
-            margin-top: 3px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Create Trigger</h1>
-        <div class="info">
-            Creating trigger on table: <strong>${schema}.${tableName}</strong>
-        </div>
+        <h1>Create Trigger on ${schema}.${tableName}</h1>
+        
+        <div id="errorContainer"></div>
 
-        <form id="triggerForm">
+        <div class="section-box">
             <div class="form-group">
-                <label for="triggerName">Trigger Name *</label>
-                <input type="text" id="triggerName" required placeholder="tr_tablename_action">
+                <label for="triggerName">Trigger Name <span class="required">*</span></label>
+                <input type="text" id="triggerName" placeholder="tr_tablename_action" />
+                <div class="info-text">Naming convention: tr_tablename_action (e.g., tr_users_update)</div>
             </div>
 
             <div class="form-group">
-                <label for="timing">Timing *</label>
-                <select id="timing" required>
+                <label for="timing">Timing <span class="required">*</span></label>
+                <select id="timing">
                     <option value="BEFORE">BEFORE - Execute before the event</option>
                     <option value="AFTER">AFTER - Execute after the event</option>
                     <option value="INSTEAD OF">INSTEAD OF - Replace the event (views only)</option>
                 </select>
+                <div class="info-text">When the trigger fires relative to the event</div>
             </div>
 
             <div class="form-group">
-                <label>Events * (select at least one)</label>
-                <div class="checkbox-group">
-                    <div class="checkbox-item">
+                <label>Events <span class="required">*</span></label>
+                <div class="events-checkboxes">
+                    <div class="checkbox-group">
                         <input type="checkbox" id="eventInsert" value="INSERT">
-                        <label for="eventInsert">INSERT</label>
+                        <label for="eventInsert" style="margin: 0;">INSERT</label>
                     </div>
-                    <div class="checkbox-item">
+                    <div class="checkbox-group">
                         <input type="checkbox" id="eventUpdate" value="UPDATE">
-                        <label for="eventUpdate">UPDATE</label>
+                        <label for="eventUpdate" style="margin: 0;">UPDATE</label>
                     </div>
-                    <div class="checkbox-item">
+                    <div class="checkbox-group">
                         <input type="checkbox" id="eventDelete" value="DELETE">
-                        <label for="eventDelete">DELETE</label>
+                        <label for="eventDelete" style="margin: 0;">DELETE</label>
                     </div>
-                    <div class="checkbox-item">
+                    <div class="checkbox-group">
                         <input type="checkbox" id="eventTruncate" value="TRUNCATE">
-                        <label for="eventTruncate">TRUNCATE</label>
+                        <label for="eventTruncate" style="margin: 0;">TRUNCATE</label>
                     </div>
                 </div>
+                <div class="info-text">Select at least one event that will fire the trigger</div>
             </div>
 
             <div class="form-group">
-                <label for="level">Trigger Level *</label>
-                <select id="level" required>
+                <label for="level">Trigger Level <span class="required">*</span></label>
+                <select id="level">
                     <option value="ROW">FOR EACH ROW - Execute once per affected row</option>
                     <option value="STATEMENT">FOR EACH STATEMENT - Execute once per statement</option>
                 </select>
+                <div class="info-text">Whether to fire once per row or once per statement</div>
             </div>
+        </div>
 
+        <div class="section-box">
+            <div style="margin-bottom: 12px; font-weight: 500;">Trigger Function</div>
+            
             <div class="form-group">
-                <label for="whenCondition">WHEN Condition (optional)</label>
-                <textarea id="whenCondition" placeholder="e.g., NEW.status != OLD.status"></textarea>
-                <div class="help-text">Optional condition to filter when trigger executes. Use OLD and NEW to reference row values.</div>
-            </div>
-
-            <div class="form-group">
-                <label for="triggerFunction">Trigger Function *</label>
-                <select id="triggerFunction" required>
-                    <option value="">Select a function...</option>
+                <label for="triggerFunction">Function <span class="required">*</span></label>
+                <select id="triggerFunction">
+                    <option value="">-- Select a function --</option>
                 </select>
-                <div class="help-text">Function must return type 'trigger'</div>
+                <div class="info-text">Function must return type TRIGGER</div>
             </div>
 
             <div class="form-group">
-                <label for="functionArgs">Function Arguments (optional)</label>
-                <input type="text" id="functionArgs" placeholder="'arg1', 'arg2'">
-                <div class="help-text">Comma-separated arguments to pass to the trigger function</div>
+                <label for="functionArgs">Function Arguments (Optional)</label>
+                <input type="text" id="functionArgs" placeholder="'arg1', 'arg2'" />
+                <div class="info-text">Comma-separated arguments to pass to the trigger function</div>
             </div>
+        </div>
 
-            <div style="margin-top: 30px;">
-                <button type="button" class="btn btn-secondary" onclick="previewSql()">Preview SQL</button>
-                <button type="submit" class="btn btn-primary">Create Trigger</button>
+        <div class="section-box collapsible">
+            <div class="collapsible-header" onclick="toggleSection('conditionSection')">
+                <span class="toggle-icon" id="conditionIcon">▶</span>
+                WHEN Condition (Optional)
             </div>
+            <div class="collapsible-content" id="conditionSection">
+                <div class="form-group">
+                    <label for="whenCondition">Condition Expression</label>
+                    <textarea id="whenCondition" rows="3" placeholder="e.g., NEW.status != OLD.status"></textarea>
+                    <div class="info-text">Boolean expression to filter when trigger executes. Use OLD and NEW to reference row values.</div>
+                </div>
+            </div>
+        </div>
 
-            <div id="sqlPreview" class="sql-preview"></div>
-            <div id="error" class="error" style="display: none;"></div>
-        </form>
+        <div class="section-box collapsible">
+            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
+                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
+                SQL Preview
+            </div>
+            <div class="collapsible-content" id="sqlPreviewSection">
+                <div class="sql-preview" id="sqlPreview">-- Fill in required fields to generate SQL preview</div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn" id="createBtn">Create Trigger</button>
+            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
+        </div>
     </div>
 
     <script>
         const vscode = acquireVsCodeApi();
         const functions = ${functionsJson};
         const columns = ${columnsJson};
+
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
+            const isExpanded = section.style.display === 'block';
+            section.style.display = isExpanded ? 'none' : 'block';
+            icon.textContent = isExpanded ? '▶' : '▼';
+        }
+
+        window.toggleSection = toggleSection;
         
         // Populate functions dropdown
         const functionSelect = document.getElementById('triggerFunction');
@@ -807,18 +777,28 @@ export class TriggerManagementPanel {
             };
         }
 
-        function previewSql() {
+        function updatePreview() {
             try {
                 const triggerDef = getFormData();
                 vscode.postMessage({ command: 'previewSql', triggerDef });
             } catch (error) {
-                showError(error.message);
+                document.getElementById('sqlPreview').textContent = '-- Fill in required fields to generate SQL preview';
             }
         }
 
-        document.getElementById('triggerForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            
+        // Auto-update preview on input changes
+        document.getElementById('triggerName').addEventListener('input', updatePreview);
+        document.getElementById('timing').addEventListener('change', updatePreview);
+        document.getElementById('eventInsert').addEventListener('change', updatePreview);
+        document.getElementById('eventUpdate').addEventListener('change', updatePreview);
+        document.getElementById('eventDelete').addEventListener('change', updatePreview);
+        document.getElementById('eventTruncate').addEventListener('change', updatePreview);
+        document.getElementById('level').addEventListener('change', updatePreview);
+        document.getElementById('triggerFunction').addEventListener('change', updatePreview);
+        document.getElementById('functionArgs').addEventListener('input', updatePreview);
+        document.getElementById('whenCondition').addEventListener('input', updatePreview);
+
+        document.getElementById('createBtn').addEventListener('click', () => {
             try {
                 const triggerDef = getFormData();
                 vscode.postMessage({ command: 'createTrigger', triggerDef });
@@ -827,24 +807,27 @@ export class TriggerManagementPanel {
             }
         });
 
+        document.getElementById('cancelBtn').addEventListener('click', () => {
+            vscode.postMessage({ command: 'cancel' });
+        });
+
         window.addEventListener('message', (event) => {
             const message = event.data;
             if (message.command === 'sqlPreview') {
                 document.getElementById('sqlPreview').textContent = message.sql;
-                document.getElementById('sqlPreview').style.display = 'block';
             } else if (message.command === 'error') {
                 showError(message.message);
             }
         });
 
         function showError(message) {
-            const errorDiv = document.getElementById('error');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
-            setTimeout(() => {
-                errorDiv.style.display = 'none';
-            }, 5000);
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = '<div class="error">' + message + '</div>';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+
+        // Initialize preview
+        updatePreview();
     </script>
 </body>
 </html>`;
@@ -860,70 +843,18 @@ export class TriggerManagementPanel {
             : '<span style="color: var(--vscode-errorForeground);">✗ Disabled</span>';
         
         return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <style>
-        body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            padding: 20px;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
-        .property-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        .property-table th,
-        .property-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--vscode-panel-border);
-        }
-        .property-table th {
-            background-color: var(--vscode-list-headerBackground);
-            font-weight: 600;
-        }
-        .property-table tr:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-        .label {
-            font-weight: 600;
-            color: var(--vscode-textLink-foreground);
-        }
-        .section {
-            margin-top: 30px;
-        }
-        .section h2 {
-            font-size: 18px;
-            margin-bottom: 15px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            padding-bottom: 8px;
-        }
-        .code-block {
-            background-color: var(--vscode-textCodeBlock-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 4px;
-            padding: 15px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 13px;
-            white-space: pre-wrap;
-            overflow-x: auto;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trigger Properties</title>
+    ${getStyles()}
 </head>
 <body>
     <div class="container">
         <h1>Trigger: ${trigger.trigger_name}</h1>
 
-        <div class="section">
+        <div class="section-box">
             <h2>General Information</h2>
             <table class="property-table">
                 <tr>
@@ -957,9 +888,9 @@ export class TriggerManagementPanel {
             </table>
         </div>
 
-        <div class="section">
+        <div class="section-box">
             <h2>Trigger Definition</h2>
-            <div class="code-block">${trigger.trigger_definition}</div>
+            <pre class="sql-preview">${trigger.trigger_definition}</pre>
         </div>
     </div>
 </body>
@@ -1226,6 +1157,7 @@ export class TriggerManagementPanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

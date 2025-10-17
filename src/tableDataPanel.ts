@@ -1205,15 +1205,22 @@ export class TableDataPanel {
             if (message.success) {
                 updateStatus('Operation completed successfully');
                 
-                // Reset new row state if we were adding a row
+                // Reset editing state for successful operations
+                // (Table will be refreshed via dataLoaded message from backend)
                 if (isAddingNewRow) {
                     isAddingNewRow = false;
                     newRowData = {};
+                    editingRowIndex = -1;
+                } else if (editingRowIndex !== -1) {
                     editingRowIndex = -1;
                 }
             } else {
                 updateStatus(\`Error: \${message.error}\`);
                 showErrorMessage(\`Error: \${message.error}\`);
+                
+                // Re-render the table to restore the editing row with functional buttons
+                // Keep the editing state so user can fix the error and try again
+                displayTable(currentData);
             }
         }
         
@@ -1480,10 +1487,13 @@ export class TableDataPanel {
                     primaryKeyValues,
                     newValues: changes
                 });
+                // Don't reset state here - wait for response from backend
+                // State will be reset in handleRowOperation() based on success/failure
+            } else {
+                // No changes, just cancel the edit
+                editingRowIndex = -1;
+                displayTable(currentData);
             }
-            
-            editingRowIndex = -1;
-            displayTable(currentData);
         }
 
         function cancelRowEdit(index) {
@@ -1709,9 +1719,8 @@ export class TableDataPanel {
                 rowData
             });
             
-            // Reset state
-            isAddingNewRow = false;
-            newRowData = {};
+            // Don't reset state here - wait for response from backend
+            // State will be reset in handleRowOperation() based on success/failure
         }
         
         function cancelNewRow() {

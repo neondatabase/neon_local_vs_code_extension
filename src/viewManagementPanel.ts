@@ -15,6 +15,27 @@ export interface ViewDefinition {
 }
 
 export class ViewManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     public static currentPanels = new Map<string, vscode.WebviewPanel>();
 
     /**
@@ -61,6 +82,7 @@ export class ViewManagementPanel {
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
             const rolesResult = await sqlService.executeQuery(rolesQuery, database);
@@ -176,6 +198,7 @@ export class ViewManagementPanel {
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
                   AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
             const rolesResult = await sqlService.executeQuery(rolesQuery, database);
@@ -247,7 +270,7 @@ export class ViewManagementPanel {
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to drop view: ${errorMessage}`);
             throw error;
         }
@@ -315,7 +338,7 @@ export class ViewManagementPanel {
             panel.dispose();
             
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = this.extractErrorMessage(error);
             panel.webview.postMessage({
                 command: 'error',
                 error: errorMessage
@@ -881,6 +904,7 @@ export class ViewManagementPanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {
@@ -1044,6 +1068,7 @@ export class ViewManagementPanel {
 
         function showError(message) {
             errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function clearError() {

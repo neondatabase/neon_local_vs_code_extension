@@ -51,7 +51,9 @@ export class SchemaTreeItem extends vscode.TreeItem {
             } else if (containerType === 'sequences') {
                 this.contextValue = 'sequencesContainer';
             } else if (containerType === 'columns') {
-                this.contextValue = 'columnsContainer';
+                // Distinguish between table columns and view columns
+                const parentType = item.metadata?.parentType;
+                this.contextValue = parentType === 'view' ? 'viewColumnsContainer' : 'columnsContainer';
             } else if (containerType === 'indexes') {
                 this.contextValue = 'indexesContainer';
             } else if (containerType === 'constraints') {
@@ -63,8 +65,14 @@ export class SchemaTreeItem extends vscode.TreeItem {
             } else {
                 this.contextValue = 'container';
             }
+        } else if (item.type === 'column' && item.metadata?.parentType === 'view') {
+            // View columns should not be editable
+            this.contextValue = 'viewColumn';
+        } else if (item.type === 'trigger') {
+            // Set context value based on trigger enabled status
+            this.contextValue = item.metadata?.is_enabled ? 'triggerEnabled' : 'triggerDisabled';
         } else {
-        this.contextValue = item.type;
+            this.contextValue = item.type;
         }
         
         // Set command for leaf items
@@ -165,7 +173,7 @@ export class SchemaTreeItem extends vscode.TreeItem {
             case 'column':
                 const column = item.metadata;
                 if (column?.data_type) {
-                    let desc = column.data_type;
+                    let desc = column.data_type.toUpperCase();
                     if (column.character_maximum_length) {
                         desc += `(${column.character_maximum_length})`;
                     }
@@ -174,58 +182,83 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 break;
             case 'table':
             case 'view':
-                return item.metadata?.table_type;
+                return item.metadata?.table_type?.toUpperCase();
             case 'index':
                 if (item.metadata?.is_primary) return 'PRIMARY';
                 if (item.metadata?.is_unique) return 'UNIQUE';
                 break;
             case 'constraint':
-                return item.metadata?.constraint_type_label;
+                return item.metadata?.constraint_type_label?.toUpperCase();
             case 'policy':
-                return item.metadata?.command_label;
+                return item.metadata?.command_label?.toUpperCase();
+            case 'trigger':
+                return item.metadata?.is_enabled ? 'ENABLED' : 'DISABLED';
         }
         return undefined;
     }
 
     private getIcon(): vscode.ThemeIcon | undefined {
+        // Hierarchy-based coloring:
+        // Level 1 (Connection): Green
+        // Level 2 (Database): Cyan
+        // Level 3 (Schema): Blue
+        // Level 4 (Table, View, Function, Sequence, Role): Purple
+        // Level 5 (Column, Index, Constraint, Trigger, Policy, Foreign Key): Magenta
+        
         switch (this.item.type) {
             case 'connection':
-                return new vscode.ThemeIcon('git-branch');
+                // Level 1 - Green
+                return new vscode.ThemeIcon('git-branch', new vscode.ThemeColor('charts.green'));
             case 'database':
-                return new vscode.ThemeIcon('database');
+                // Level 2 - Cyan
+                return new vscode.ThemeIcon('database', new vscode.ThemeColor('terminal.ansiCyan'));
             case 'schema':
-                return new vscode.ThemeIcon('folder');
+                // Level 3 - Blue
+                return new vscode.ThemeIcon('folder', new vscode.ThemeColor('charts.blue'));
             case 'table':
-                return new vscode.ThemeIcon('table');
+                // Level 4 - Purple
+                return new vscode.ThemeIcon('table', new vscode.ThemeColor('charts.purple'));
             case 'view':
-                return new vscode.ThemeIcon('eye');
+                // Level 4 - Purple
+                return new vscode.ThemeIcon('eye', new vscode.ThemeColor('charts.purple'));
+            case 'function':
+                // Level 4 - Purple
+                return new vscode.ThemeIcon('symbol-function', new vscode.ThemeColor('charts.purple'));
+            case 'sequence':
+                // Level 4 - Purple
+                return new vscode.ThemeIcon('symbol-numeric', new vscode.ThemeColor('charts.purple'));
+            case 'role':
+                // Same as database - Cyan
+                return new vscode.ThemeIcon('account', new vscode.ThemeColor('terminal.ansiCyan'));
             case 'column':
+                // Level 5 - Magenta
                 const column = this.item.metadata;
+                const columnColor = new vscode.ThemeColor('terminal.ansiMagenta');
                 if (column?.is_primary_key) {
-                    return new vscode.ThemeIcon('key');
+                    return new vscode.ThemeIcon('key', columnColor);
                 } else if (column?.is_foreign_key) {
-                    return new vscode.ThemeIcon('link');
+                    return new vscode.ThemeIcon('link', columnColor);
                 } else {
-                    return new vscode.ThemeIcon('symbol-field');
+                    return new vscode.ThemeIcon('symbol-field', columnColor);
                 }
             case 'index':
-                return new vscode.ThemeIcon('list-ordered');
-            case 'function':
-                return new vscode.ThemeIcon('symbol-function');
-            case 'trigger':
-                return new vscode.ThemeIcon('play');
-            case 'policy':
-                return new vscode.ThemeIcon('shield-check');
-            case 'sequence':
-                return new vscode.ThemeIcon('symbol-numeric');
-            case 'foreignkey':
-                return new vscode.ThemeIcon('link');
+                // Level 5 - Magenta
+                return new vscode.ThemeIcon('list-ordered', new vscode.ThemeColor('terminal.ansiMagenta'));
             case 'constraint':
-                return new vscode.ThemeIcon('shield');
-            case 'role':
-                return new vscode.ThemeIcon('account');
+                // Level 5 - Magenta
+                return new vscode.ThemeIcon('shield', new vscode.ThemeColor('terminal.ansiMagenta'));
+            case 'foreignkey':
+                // Level 5 - Magenta
+                return new vscode.ThemeIcon('link', new vscode.ThemeColor('terminal.ansiMagenta'));
+            case 'trigger':
+                // Level 5 - Magenta
+                return new vscode.ThemeIcon('play', new vscode.ThemeColor('terminal.ansiMagenta'));
+            case 'policy':
+                // Level 5 - Magenta
+                return new vscode.ThemeIcon('shield-check', new vscode.ThemeColor('terminal.ansiMagenta'));
             case 'container':
-                return this.getContainerIcon(this.item.metadata?.containerType);
+                // Container nodes - no icons for grouping nodes
+                return undefined;
             default:
                 return new vscode.ThemeIcon('symbol-misc');
         }
@@ -234,31 +267,43 @@ export class SchemaTreeItem extends vscode.TreeItem {
     private getContainerIcon(containerType: string): vscode.ThemeIcon {
         switch (containerType) {
             case 'databases':
-                return new vscode.ThemeIcon('database');
+                // Blue for databases container
+                return new vscode.ThemeIcon('database', new vscode.ThemeColor('charts.blue'));
             case 'schemas':
-                return new vscode.ThemeIcon('folder-library');
+                // Yellow for schemas container
+                return new vscode.ThemeIcon('folder-library', new vscode.ThemeColor('charts.yellow'));
             case 'roles':
-                return new vscode.ThemeIcon('organization');
+                // Bright cyan for roles container
+                return new vscode.ThemeIcon('organization', new vscode.ThemeColor('terminal.ansiBrightCyan'));
             case 'tables':
-                return new vscode.ThemeIcon('symbol-class');
+                // Green for tables container
+                return new vscode.ThemeIcon('symbol-class', new vscode.ThemeColor('charts.green'));
             case 'views':
-                return new vscode.ThemeIcon('symbol-interface');
+                // Purple for views container
+                return new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('charts.purple'));
             case 'functions':
-                return new vscode.ThemeIcon('symbol-method');
+                // Orange for functions container
+                return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('charts.orange'));
             case 'sequences':
-                return new vscode.ThemeIcon('symbol-numeric');
+                // Bright magenta for sequences container
+                return new vscode.ThemeIcon('symbol-numeric', new vscode.ThemeColor('terminal.ansiBrightMagenta'));
             case 'columns':
-                return new vscode.ThemeIcon('list-unordered');
+                // Bright yellow for columns container
+                return new vscode.ThemeIcon('list-unordered', new vscode.ThemeColor('terminal.ansiBrightYellow'));
             case 'indexes':
-                return new vscode.ThemeIcon('list-ordered');
+                // Bright blue for indexes container
+                return new vscode.ThemeIcon('list-ordered', new vscode.ThemeColor('terminal.ansiBrightBlue'));
             case 'constraints':
-                return new vscode.ThemeIcon('shield');
+                // Red for constraints container
+                return new vscode.ThemeIcon('shield', new vscode.ThemeColor('terminal.ansiRed'));
             case 'triggers':
-                return new vscode.ThemeIcon('flash');
+                // Bright green for triggers container
+                return new vscode.ThemeIcon('flash', new vscode.ThemeColor('terminal.ansiGreen'));
             case 'policies':
-                return new vscode.ThemeIcon('lock');
+                // Bright green for policies container
+                return new vscode.ThemeIcon('lock', new vscode.ThemeColor('terminal.ansiBrightGreen'));
             default:
-                return new vscode.ThemeIcon('folder');
+                return new vscode.ThemeIcon('folder', new vscode.ThemeColor('charts.blue'));
         }
     }
 }
@@ -427,10 +472,28 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     break;
                 case 'table':
                 case 'view':
-                    const tableParts = element.id.split('_');
-                    const tableDatabase = tableParts[1];
-                    const tableSchema = tableParts[2];
-                    const tableName = tableParts.slice(3).join('_');
+                    // Parse using parent to handle underscores in schema names correctly
+                    // Parent format: schema_v2_database_schema (where schema can have underscores)
+                    let tableDatabase: string;
+                    let tableSchema: string;
+                    let tableName: string;
+                    
+                    if (element.parent) {
+                        const parentParts = element.parent.split('_');
+                        // parent format: schema_v2_database_schema...
+                        tableDatabase = parentParts[2];
+                        tableSchema = parentParts.slice(3).join('_');
+                        // Extract table name from ID: remove "table_" or "view_" prefix and the database_schema prefix
+                        const prefix = `${element.type}_${tableDatabase}_${tableSchema}_`;
+                        tableName = element.id.substring(prefix.length);
+                    } else {
+                        // Fallback to old parsing (shouldn't happen with new data structure)
+                        const tableParts = element.id.split('_');
+                        tableDatabase = tableParts[1];
+                        tableSchema = tableParts[2];
+                        tableName = tableParts.slice(3).join('_');
+                    }
+                    
                     children = await this.getTableContainers(tableDatabase, tableSchema, tableName, element.type);
                     break;
             }
@@ -608,6 +671,12 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     break;
                 case 'columns':
                     result = await this.schemaService.getColumns(database, schema, containerItem.metadata.tableName);
+                    // Add parentType to column metadata to distinguish table columns from view columns
+                    result.forEach(col => {
+                        if (col.metadata) {
+                            col.metadata.parentType = containerItem.metadata.parentType;
+                        }
+                    });
                     break;
                 case 'indexes':
                     result = await this.schemaService.getIndexes(database, schema, containerItem.metadata.tableName);
@@ -707,7 +776,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                 id: `container_columns_${baseId}`,
                 name: 'Columns',
                 type: 'container' as any,
-                metadata: { containerType: 'columns', database, schema, tableName }
+                metadata: { containerType: 'columns', database, schema, tableName, parentType: itemType }
             }
         ];
 
@@ -894,10 +963,26 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                                 .filter(item => item.type === 'table' || item.type === 'view')
                                 .map(async (tableItem) => {
                                     try {
-                                        const tableParts = tableItem.id.split('_');
-                                        const tableDatabase = tableParts[1];
-                                        const tableSchema = tableParts[2];
-                                        const tableName = tableParts.slice(3).join('_');
+                                        // Parse using parent to handle underscores in schema names correctly
+                                        let tableDatabase: string;
+                                        let tableSchema: string;
+                                        let tableName: string;
+                                        
+                                        if (tableItem.parent) {
+                                            const parentParts = tableItem.parent.split('_');
+                                            // parent format: schema_v2_database_schema...
+                                            tableDatabase = parentParts[2];
+                                            tableSchema = parentParts.slice(3).join('_');
+                                            // Extract table name from ID
+                                            const prefix = `${tableItem.type}_${tableDatabase}_${tableSchema}_`;
+                                            tableName = tableItem.id.substring(prefix.length);
+                                        } else {
+                                            // Fallback to old parsing
+                                            const tableParts = tableItem.id.split('_');
+                                            tableDatabase = tableParts[1];
+                                            tableSchema = tableParts[2];
+                                            tableName = tableParts.slice(3).join('_');
+                                        }
                                         
                                         // Use getTableContainers to get the new container structure
                                         const tableContainers = await this.getTableContainers(tableDatabase, tableSchema, tableName, tableItem.type);
@@ -962,6 +1047,57 @@ export class SchemaViewProvider {
 
         this.registerCommands();
         this.setupEventListeners();
+    }
+
+    /**
+     * Parse schema/table/view/function identifiers from SchemaItem
+     * Uses parent field when available to handle underscores in names
+     */
+    private parseSchemaItem(item: SchemaItem): { database: string; schema: string; name: string } {
+        // Use item.name directly for the entity name
+        const name = item.name;
+        
+        // Parse parent to get database and schema
+        if (item.parent) {
+            const parentParts = item.parent.split('_');
+            
+            // Handle schema_v2_database_schema format
+            if (parentParts[0] === 'schema' && parentParts[1] === 'v2') {
+                return {
+                    database: parentParts[2],
+                    schema: parentParts.slice(3).join('_'), // Handle underscores in schema
+                    name
+                };
+            }
+            // Handle old schema_database_schema format
+            else if (parentParts[0] === 'schema') {
+                return {
+                    database: parentParts[1],
+                    schema: parentParts.slice(2).join('_'), // Handle underscores in schema
+                    name
+                };
+            }
+        }
+        
+        // Fallback: parse from ID (less reliable for names with underscores)
+        const parts = item.id.split('_');
+        const type = parts[0];
+        
+        if (type === 'schema') {
+            const isV2 = parts[1] === 'v2';
+            return {
+                database: isV2 ? parts[2] : parts[1],
+                schema: isV2 ? parts.slice(3).join('_') : parts.slice(2).join('_'),
+                name
+            };
+        } else {
+            // table, view, function, index, etc.: type_database_schema_name
+            return {
+                database: parts[1],
+                schema: parts[2],
+                name: parts.slice(3).join('_') // Handle underscores in entity name
+            };
+        }
     }
 
     private registerCommands(): void {
@@ -1270,16 +1406,10 @@ export class SchemaViewProvider {
 
         // Parse ID more carefully: table_database_schema_tablename
         // Since table names can contain underscores, we need to split more carefully
-        const parts = item.id.split('_');
-        const type = parts[0]; // 'table' or 'view'
-        const database = parts[1];
-        const schema = parts[2];
-        // The table name is everything after the third underscore
-        const tableName = parts.slice(3).join('_');
+        const { database, schema, name: tableName } = this.parseSchemaItem(item);
         
         // Debug logging
         console.debug('QueryTable - Item ID:', item.id);
-        console.debug('QueryTable - Parts:', parts);
         console.debug('QueryTable - Database:', database, 'Schema:', schema, 'Table:', tableName);
         
         const query = `SELECT *\nFROM ${schema}.${tableName}\nLIMIT 100;`;
@@ -1293,16 +1423,29 @@ export class SchemaViewProvider {
             return;
         }
 
-        // Parse ID: table_database_schema_tablename
-        const parts = item.id.split('_');
-        const database = parts[1];
-        const schema = parts[2];
-        // The table name is everything after the third underscore
-        const tableName = parts.slice(3).join('_');
+        // Parse using parent to handle underscores in schema names correctly
+        let database: string;
+        let schema: string;
+        let tableName: string;
+        
+        if (item.parent) {
+            const parentParts = item.parent.split('_');
+            // parent format: schema_v2_database_schema...
+            database = parentParts[2];
+            schema = parentParts.slice(3).join('_');
+            // Extract table name from ID
+            const prefix = `table_${database}_${schema}_`;
+            tableName = item.id.substring(prefix.length);
+        } else {
+            // Fallback to old parsing
+            const parts = item.id.split('_');
+            database = parts[1];
+            schema = parts[2];
+            tableName = parts.slice(3).join('_');
+        }
         
         // Debug logging
         console.debug('ViewTableData - Item ID:', item.id);
-        console.debug('ViewTableData - Parts:', parts);
         console.debug('ViewTableData - Database:', database, 'Schema:', schema, 'Table:', tableName);
         
         TableDataPanel.createOrShow(this.context, this.stateService, schema, tableName, database);
@@ -1348,10 +1491,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
 
             // Show confirmation dialog
             const confirmMessage = `Are you sure you want to truncate table "${schema}.${tableName}"? This action will remove all data from the table and cannot be undone.`;
@@ -1391,10 +1531,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse table ID: table_database_schema_tablename  
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
 
             // Show confirmation dialog with stronger warning
             const confirmMessage = `Are you sure you want to DROP table "${schema}.${tableName}"? This action will permanently delete the table and all its data. This cannot be undone.`;
@@ -1410,7 +1547,7 @@ export class SchemaViewProvider {
             }
 
             // Execute drop command
-            const query = `DROP TABLE ${schema}.${tableName}`;
+            const query = `DROP TABLE "${schema}"."${tableName}"`;
             await this.schemaService.testConnection(database); // Ensure connection
             
             // Use the schema service connection pool to execute the drop
@@ -1467,15 +1604,8 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
-
-            // Open the edit table panel
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
             EditTablePanel.createOrShow(this.context, this.stateService, schema, tableName, database);
-            
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to open edit table dialog: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -1570,12 +1700,20 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
-                // Called from table
-            // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-                database = parts[1];
-                schema = parts[2];
-                tableName = parts.slice(3).join('_');
+                // Called from table - parse using parent to handle underscores in schema names
+                if (item.parent) {
+                    const parentParts = item.parent.split('_');
+                    database = parentParts[2];
+                    schema = parentParts.slice(3).join('_');
+                    const prefix = `table_${database}_${schema}_`;
+                    tableName = item.id.substring(prefix.length);
+                } else {
+                    // Fallback
+                    const parts = item.id.split('_');
+                    database = parts[1];
+                    schema = parts[2];
+                    tableName = parts.slice(3).join('_');
+                }
             }
 
             await IndexManagementPanel.createIndex(this.context, this.stateService, schema, tableName, database);
@@ -1591,10 +1729,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
 
             await IndexManagementPanel.manageIndexes(this.context, this.stateService, schema, tableName, database);
         } catch (error) {
@@ -1614,13 +1749,14 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse index ID: index_database_schema_tablename_indexname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            // Find where index name starts - everything after schema
-            const idWithoutPrefix = item.id.substring(`index_${database}_${schema}_`.length);
+            // Use metadata which includes schema, database, and tableName
+            const database = item.metadata?.database;
+            const schema = item.metadata?.schema;
             const indexName = item.name; // Use the name directly as it's the index name
+            
+            if (!database || !schema) {
+                throw new Error('Unable to determine database and schema for index');
+            }
 
             // Confirm before dropping
             const confirm = await vscode.window.showWarningMessage(
@@ -1645,11 +1781,14 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse index ID: index_database_schema_tablename_indexname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
+            // Use metadata which includes schema, database, and tableName
+            const database = item.metadata?.database;
+            const schema = item.metadata?.schema;
             const indexName = item.name; // Use the name directly as it's the index name
+            
+            if (!database || !schema) {
+                throw new Error('Unable to determine database and schema for index');
+            }
 
             await IndexManagementPanel.reindexIndex(this.context, this.stateService, schema, indexName, database);
         } catch (error) {
@@ -1694,10 +1833,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse view ID: view_database_schema_viewname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const viewName = parts.slice(3).join('_');
+            const { database, schema, name: viewName } = this.parseSchemaItem(item);
 
             await ViewManagementPanel.editView(this.context, this.stateService, schema, viewName, database);
         } catch (error) {
@@ -1712,10 +1848,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse view ID: view_database_schema_viewname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const viewName = parts.slice(3).join('_');
+            const { database, schema, name: viewName } = this.parseSchemaItem(item);
 
             // Check if it's a materialized view
             const isMaterialized = item.metadata?.is_materialized || false;
@@ -1747,10 +1880,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse view ID: view_database_schema_viewname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const viewName = parts.slice(3).join('_');
+            const { database, schema, name: viewName } = this.parseSchemaItem(item);
 
             // Check if it's a materialized view
             if (!item.metadata?.is_materialized) {
@@ -1803,10 +1933,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
 
             await DataImportExportPanel.showImport(this.context, this.stateService, schema, tableName, database);
         } catch (error) {
@@ -1821,10 +1948,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
 
             await DataImportExportPanel.showExport(this.context, this.stateService, schema, tableName, database);
         } catch (error) {
@@ -1869,10 +1993,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse function ID: function_database_schema_functionname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const functionName = parts.slice(3).join('_');
+            const { database, schema, name: functionName } = this.parseSchemaItem(item);
 
             await FunctionManagementPanel.editFunction(this.context, this.stateService, schema, functionName, database);
         } catch (error) {
@@ -1887,10 +2008,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse function ID: function_database_schema_functionname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const functionName = parts.slice(3).join('_');
+            const { database, schema, name: functionName } = this.parseSchemaItem(item);
 
             // Confirmation dialog
             const confirmation = await vscode.window.showWarningMessage(
@@ -2290,10 +2408,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
 
             await ForeignKeyManagementPanel.createForeignKey(this.context, this.stateService, schema, tableName, database);
         } catch (error) {
@@ -2308,10 +2423,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse foreign key ID: foreignkey_database_schema_tablename_fkname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
             const fkName = parts.slice(4).join('_');
 
             await ForeignKeyManagementPanel.viewForeignKeyProperties(this.context, this.stateService, schema, tableName, fkName, database);
@@ -2327,10 +2439,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse foreign key ID: foreignkey_database_schema_tablename_fkname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
             const fkName = parts.slice(4).join('_');
 
             // Confirmation dialog
@@ -2366,11 +2475,20 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
-                // Called from table
-                const parts = item.id.split('_');
-                database = parts[1];
-                schema = parts[2];
-                tableName = parts.slice(3).join('_');
+                // Called from table - parse using parent to handle underscores in schema names
+                if (item.parent) {
+                    const parentParts = item.parent.split('_');
+                    database = parentParts[2];
+                    schema = parentParts.slice(3).join('_');
+                    const prefix = `table_${database}_${schema}_`;
+                    tableName = item.id.substring(prefix.length);
+                } else {
+                    // Fallback
+                    const parts = item.id.split('_');
+                    database = parts[1];
+                    schema = parts[2];
+                    tableName = parts.slice(3).join('_');
+                }
             }
 
             await ConstraintManagementPanel.createConstraint(this.context, this.stateService, schema, tableName, database);
@@ -2385,12 +2503,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse constraint ID: constraint_database_schema_tablename_constraintname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const constraintName = parts.slice(4).join('_');
+            // Get metadata from constraint item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const constraintName = item.name;
 
             // Confirmation dialog
             const confirmation = await vscode.window.showWarningMessage(
@@ -2417,12 +2534,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse constraint ID: constraint_database_schema_tablename_constraintname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const constraintName = parts.slice(4).join('_');
+            // Get metadata from constraint item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const constraintName = item.name;
 
             await ConstraintManagementPanel.editConstraint(this.context, this.stateService, schema, tableName, constraintName, database);
         } catch (error) {
@@ -2431,16 +2547,27 @@ export class SchemaViewProvider {
     }
 
     private async createTrigger(item: SchemaItem): Promise<void> {
-        if (item.type !== 'table') {
+        if (item.type !== 'table' && item.type !== 'container') {
             return;
         }
 
         try {
-            // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            let database: string;
+            let schema: string;
+            let tableName: string;
+
+            if (item.type === 'container') {
+                // Called from triggers container
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.metadata?.tableName || '';
+            } else {
+                // Called from table item
+                const parsed = this.parseSchemaItem(item);
+                database = parsed.database;
+                schema = parsed.schema;
+                tableName = parsed.name;
+            }
 
             await TriggerManagementPanel.createTrigger(this.context, this.stateService, schema, tableName, database);
         } catch (error) {
@@ -2454,12 +2581,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse trigger ID: trigger_database_schema_tablename_triggername
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const triggerName = parts.slice(4).join('_');
+            // Get metadata from trigger item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const triggerName = item.name;
 
             await TriggerManagementPanel.viewTriggerProperties(this.context, this.stateService, schema, tableName, triggerName, database);
         } catch (error) {
@@ -2473,12 +2599,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse trigger ID: trigger_database_schema_tablename_triggername
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const triggerName = parts.slice(4).join('_');
+            // Get metadata from trigger item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const triggerName = item.name;
 
             await TriggerManagementPanel.editTrigger(this.context, this.stateService, schema, tableName, triggerName, database);
         } catch (error) {
@@ -2492,12 +2617,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse trigger ID: trigger_database_schema_tablename_triggername
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const triggerName = parts.slice(4).join('_');
+            // Get metadata from trigger item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const triggerName = item.name;
 
             await TriggerManagementPanel.toggleTrigger(this.context, this.stateService, schema, tableName, triggerName, true, database);
         } catch (error) {
@@ -2511,12 +2635,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse trigger ID: trigger_database_schema_tablename_triggername
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const triggerName = parts.slice(4).join('_');
+            // Get metadata from trigger item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const triggerName = item.name;
 
             await TriggerManagementPanel.toggleTrigger(this.context, this.stateService, schema, tableName, triggerName, false, database);
         } catch (error) {
@@ -2530,12 +2653,11 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse trigger ID: trigger_database_schema_tablename_triggername
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const triggerName = parts.slice(4).join('_');
+            // Get metadata from trigger item
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
+            const tableName = item.metadata?.tableName || '';
+            const triggerName = item.name;
 
             // Confirmation dialog
             const confirmation = await vscode.window.showWarningMessage(
@@ -2572,11 +2694,20 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
-                // Called from table
-                const parts = item.id.split('_');
-                database = parts[1];
-                schema = parts[2];
-                tableName = parts.slice(3).join('_');
+                // Called from table - parse using parent to handle underscores in schema names
+                if (item.parent) {
+                    const parentParts = item.parent.split('_');
+                    database = parentParts[2];
+                    schema = parentParts.slice(3).join('_');
+                    const prefix = `table_${database}_${schema}_`;
+                    tableName = item.id.substring(prefix.length);
+                } else {
+                    // Fallback
+                    const parts = item.id.split('_');
+                    database = parts[1];
+                    schema = parts[2];
+                    tableName = parts.slice(3).join('_');
+                }
             }
 
             await PolicyManagementPanel.createPolicy(this.context, this.stateService, schema, tableName, database);
@@ -2592,10 +2723,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse policy ID: policy_database_schema_tablename_policyname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
             const policyName = parts.slice(4).join('_');
 
             await PolicyManagementPanel.editPolicy(this.context, this.stateService, schema, tableName, policyName, database);
@@ -2611,10 +2739,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse policy ID: policy_database_schema_tablename_policyname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
             const policyName = parts.slice(4).join('_');
 
             // Confirmation dialog
@@ -2651,11 +2776,20 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema;
                 tableName = item.metadata?.tableName;
             } else {
-                // Parse table/view ID: table_database_schema_tablename
-                const parts = item.id.split('_');
-                database = parts[1];
-                schema = parts[2];
-                tableName = parts.slice(3).join('_');
+                // Parse table/view ID - use parent to handle underscores in schema names
+                if (item.parent) {
+                    const parentParts = item.parent.split('_');
+                    database = parentParts[2];
+                    schema = parentParts.slice(3).join('_');
+                    const prefix = `${item.type}_${database}_${schema}_`;
+                    tableName = item.id.substring(prefix.length);
+                } else {
+                    // Fallback
+                    const parts = item.id.split('_');
+                    database = parts[1];
+                    schema = parts[2];
+                    tableName = parts.slice(3).join('_');
+                }
             }
 
             await ColumnManagementPanel.createColumn(this.context, this.stateService, schema, tableName, database);
@@ -2670,12 +2804,15 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse column ID: column_database_schema_tablename_columnname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const columnName = parts.slice(4).join('_');
+            // Use metadata which includes schema, database, and tableName
+            const database = item.metadata?.database;
+            const schema = item.metadata?.schema;
+            const tableName = item.metadata?.tableName;
+            const columnName = item.name;
+            
+            if (!database || !schema || !tableName) {
+                throw new Error('Unable to determine database, schema, and table for column');
+            }
 
             await ColumnManagementPanel.editColumn(this.context, this.stateService, schema, tableName, columnName, database);
         } catch (error) {
@@ -2689,12 +2826,15 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse column ID: column_database_schema_tablename_columnname
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts[3];
-            const columnName = parts.slice(4).join('_');
+            // Use metadata which includes schema, database, and tableName
+            const database = item.metadata?.database;
+            const schema = item.metadata?.schema;
+            const tableName = item.metadata?.tableName;
+            const columnName = item.name;
+            
+            if (!database || !schema || !tableName) {
+                throw new Error('Unable to determine database, schema, and table for column');
+            }
 
             await ColumnManagementPanel.dropColumn(this.context, this.stateService, schema, tableName, columnName, database);
         } catch (error) {
@@ -2709,10 +2849,7 @@ export class SchemaViewProvider {
 
         try {
             // Parse table ID: table_database_schema_tablename
-            const parts = item.id.split('_');
-            const database = parts[1];
-            const schema = parts[2];
-            const tableName = parts.slice(3).join('_');
+            const { database, schema, name: tableName } = this.parseSchemaItem(item);
 
             await ModelGeneratorPanel.generateModelFromTable(
                 this.context,
@@ -2772,14 +2909,8 @@ export class SchemaViewProvider {
             case 'table':
                 actions.push(
                     { label: '$(edit) Edit Table', command: 'neonLocal.schema.editTable', description: 'Modify table structure' },
-                    { label: '$(symbol-key) Create Index', command: 'neonLocal.schema.createIndex', description: 'Add an index' },
-                    { label: '$(gear) Manage Indexes', command: 'neonLocal.schema.manageIndexes', description: 'View and manage indexes' },
-                    { label: '$(link) Create Foreign Key', command: 'neonLocal.schema.createForeignKey', description: 'Add foreign key constraint' },
-                    { label: '$(shield) Create Constraint', command: 'neonLocal.schema.createConstraint', description: 'Add CHECK, UNIQUE, or EXCLUSION constraint' },
-                    { label: '$(zap) Create Trigger', command: 'neonLocal.schema.createTrigger', description: 'Add trigger' },
-                    { label: '$(file-code) Generate Model', command: 'neonLocal.orm.generateModel', description: 'Generate ORM model code' },
                     { label: '$(export) Import Data', command: 'neonLocal.schema.importData', description: 'Import CSV/JSON' },
-                    { label: '$(import) Export Data', command: 'neonLocal.schema.exportData', description: 'Export to CSV/JSON/SQL' },
+                    { label: '$(desktop-download) Export Data', command: 'neonLocal.schema.exportData', description: 'Export to CSV/JSON/SQL' },
                     { label: '$(clear-all) Truncate Table', command: 'neonLocal.schema.truncateTable', description: 'Delete all rows' },
                     { label: '$(trash) Drop Table', command: 'neonLocal.schema.dropTable', description: 'Delete table' }
                 );
@@ -2808,8 +2939,6 @@ export class SchemaViewProvider {
             case 'sequence':
                 actions.push(
                     { label: '$(edit) Edit Sequence', command: 'neonLocal.schema.alterSequence', description: 'Modify sequence settings' },
-                    { label: '$(debug-restart) Restart Sequence', command: 'neonLocal.schema.restartSequence', description: 'Reset to start value or specified value' },
-                    { label: '$(symbol-numeric) Set Current Value', command: 'neonLocal.schema.setSequenceValue', description: 'Set the current sequence value' },
                     { label: '$(trash) Drop Sequence', command: 'neonLocal.schema.dropSequence', description: 'Delete sequence' }
                 );
                 break;
@@ -2845,11 +2974,17 @@ export class SchemaViewProvider {
 
             case 'trigger':
                 actions.push(
-                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewTriggerProperties', description: 'Show trigger details' },
-                    { label: '$(edit) Edit Trigger', command: 'neonLocal.schema.editTrigger', description: 'Modify trigger definition' },
-                    { label: '$(check) Enable Trigger', command: 'neonLocal.schema.enableTrigger', description: 'Enable trigger' },
-                    { label: '$(circle-slash) Disable Trigger', command: 'neonLocal.schema.disableTrigger', description: 'Disable trigger' },
-                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
+                    { label: '$(edit) Edit Trigger', command: 'neonLocal.schema.editTrigger', description: 'Modify trigger definition' }
+                );
+                
+                // Show Enable or Disable based on current status
+                if (item.metadata?.is_enabled) {
+                    actions.push({ label: '$(circle-slash) Disable Trigger', command: 'neonLocal.schema.disableTrigger', description: 'Disable trigger' });
+                } else {
+                    actions.push({ label: '$(check) Enable Trigger', command: 'neonLocal.schema.enableTrigger', description: 'Enable trigger' });
+                }
+                
+                actions.push(
                     { label: '$(trash) Drop Trigger', command: 'neonLocal.schema.dropTrigger', description: 'Delete trigger' }
                 );
                 break;
