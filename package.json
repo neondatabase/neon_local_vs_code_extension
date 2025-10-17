@@ -608,7 +608,7 @@
       "view/item/context": [
         {
           "command": "neonLocal.schema.showContextMenu",
-          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == view || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == triggerEnabled || viewItem == triggerDisabled || viewItem == role || viewItem == container || viewItem == column || viewItem == index || viewItem == constraint || viewItem == policy)",
+          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == regularView || viewItem == materializedView || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == triggerEnabled || viewItem == triggerDisabled || viewItem == regularRole || viewItem == neonSuperuserRole || viewItem == container || viewItem == column || viewItem == index || viewItem == constraint || viewItem == policy)",
           "group": "inline"
         },
         {
@@ -658,7 +658,7 @@
         },
         {
           "command": "neonLocal.schema.queryTable",
-          "when": "view == neonLocalSchema && (viewItem == table || viewItem == view)",
+          "when": "view == neonLocalSchema && (viewItem == table || viewItem == regularView || viewItem == materializedView)",
           "group": "inline"
         },
         {
@@ -668,7 +668,7 @@
         },
         {
           "command": "neonLocal.schema.openSqlQuery",
-          "when": "view == neonLocalSchema && viewItem != table && viewItem != connection && viewItem != database && viewItem != triggerEnabled && viewItem != triggerDisabled",
+          "when": "view == neonLocalSchema && viewItem == foreignkey",
           "group": "4_query"
         },
         {
@@ -723,23 +723,28 @@
         },
         {
           "command": "neonLocal.schema.editView",
-          "when": "view == neonLocalSchema && viewItem == view",
+          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
           "group": "2_view_modify"
         },
         {
           "command": "neonLocal.schema.refreshMaterializedView",
-          "when": "view == neonLocalSchema && viewItem == view",
+          "when": "view == neonLocalSchema && viewItem == materializedView",
           "group": "2_view_modify"
         },
         {
           "command": "neonLocal.schema.dropView",
-          "when": "view == neonLocalSchema && viewItem == view",
+          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
           "group": "9_view_delete"
         },
         {
           "command": "neonLocal.schema.createDatabase",
           "when": "view == neonLocalSchema && viewItem == connection",
           "group": "1_database"
+        },
+        {
+          "command": "neonLocal.schema.launchPsql",
+          "when": "view == neonLocalSchema && viewItem == database",
+          "group": "1_database_operations"
         },
         {
           "command": "neonLocal.schema.dropDatabase",
@@ -790,16 +795,6 @@
           "command": "neonLocal.schema.alterSequence",
           "when": "view == neonLocalSchema && viewItem == sequence",
           "group": "2_sequence_modify"
-        },
-        {
-          "command": "neonLocal.schema.restartSequence",
-          "when": "view == neonLocalSchema && viewItem == sequence",
-          "group": "3_sequence_operations"
-        },
-        {
-          "command": "neonLocal.schema.setSequenceValue",
-          "when": "view == neonLocalSchema && viewItem == sequence",
-          "group": "3_sequence_operations"
         },
         {
           "command": "neonLocal.schema.dropSequence",
@@ -933,27 +928,27 @@
         },
         {
           "command": "neonLocal.schema.editRole",
-          "when": "view == neonLocalSchema && viewItem == role",
+          "when": "view == neonLocalSchema && viewItem == regularRole",
           "group": "1_role_info"
         },
         {
           "command": "neonLocal.schema.changePassword",
-          "when": "view == neonLocalSchema && viewItem == role",
+          "when": "view == neonLocalSchema && viewItem == regularRole",
           "group": "2_role_modify"
         },
         {
           "command": "neonLocal.schema.resetRolePassword",
-          "when": "view == neonLocalSchema && viewItem == role",
+          "when": "view == neonLocalSchema && viewItem == neonSuperuserRole",
           "group": "2_role_modify"
         },
         {
           "command": "neonLocal.schema.manageRolePermissions",
-          "when": "view == neonLocalSchema && viewItem == role",
+          "when": "view == neonLocalSchema && viewItem == regularRole",
           "group": "3_role_permissions"
         },
         {
           "command": "neonLocal.schema.dropRole",
-          "when": "view == neonLocalSchema && viewItem == role",
+          "when": "view == neonLocalSchema && (viewItem == regularRole || viewItem == neonSuperuserRole)",
           "group": "9_role_delete"
         },
         {

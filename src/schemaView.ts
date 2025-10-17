@@ -71,6 +71,14 @@ export class SchemaTreeItem extends vscode.TreeItem {
         } else if (item.type === 'trigger') {
             // Set context value based on trigger enabled status
             this.contextValue = item.metadata?.is_enabled ? 'triggerEnabled' : 'triggerDisabled';
+        } else if (item.type === 'role') {
+            // Set context value based on whether role is a neon_superuser
+            const memberOf = item.metadata?.member_of || [];
+            const isNeonSuperuser = Array.isArray(memberOf) && memberOf.includes('neon_superuser');
+            this.contextValue = isNeonSuperuser ? 'neonSuperuserRole' : 'regularRole';
+        } else if (item.type === 'view') {
+            // Set context value based on whether view is materialized
+            this.contextValue = item.metadata?.is_materialized ? 'materializedView' : 'regularView';
         } else {
             this.contextValue = item.type;
         }
@@ -111,8 +119,7 @@ export class SchemaTreeItem extends vscode.TreeItem {
             case 'index':
                 const index = item.metadata;
                 let indexTooltip = `Index: ${item.name}`;
-                if (index?.is_primary) indexTooltip += ' - PRIMARY';
-                else if (index?.is_unique) indexTooltip += ' - UNIQUE';
+                if (index?.is_unique) indexTooltip += ' - UNIQUE';
                 return indexTooltip;
             case 'function':
                 const func = item.metadata;
@@ -192,7 +199,6 @@ export class SchemaTreeItem extends vscode.TreeItem {
             case 'view':
                 return item.metadata?.table_type?.toUpperCase();
             case 'index':
-                if (item.metadata?.is_primary) return 'PRIMARY';
                 if (item.metadata?.is_unique) return 'UNIQUE';
                 break;
             case 'constraint':
@@ -1385,8 +1391,7 @@ export class SchemaViewProvider {
             case 'index':
                 const idx = item.metadata;
                 let indexDetails = `Index: ${item.name}`;
-                if (idx?.is_primary) indexDetails += '\nType: Primary Key';
-                else if (idx?.is_unique) indexDetails += '\nType: Unique';
+                if (idx?.is_unique) indexDetails += '\nType: Unique';
                 else indexDetails += '\nType: Regular';
                 if (idx?.definition) indexDetails += `\nDefinition: ${idx.definition}`;
                 return indexDetails;
@@ -1747,12 +1752,6 @@ export class SchemaViewProvider {
 
     private dropIndex = async (item: SchemaItem): Promise<void> => {
         if (item.type !== 'index') {
-            return;
-        }
-
-        // Don't allow dropping primary key indexes
-        if (item.metadata?.is_primary) {
-            vscode.window.showErrorMessage('Cannot drop primary key indexes. Drop the primary key constraint from the table instead.');
             return;
         }
 
@@ -2956,17 +2955,10 @@ export class SchemaViewProvider {
                 break;
 
             case 'index':
-                // Primary key indexes can only be rebuilt, not dropped
-                if (item.metadata?.is_primary) {
-                    actions.push(
-                        { label: '$(sync) Rebuild Index', command: 'neonLocal.schema.reindexIndex', description: 'Rebuild this index' }
-                    );
-                } else {
-                    actions.push(
-                        { label: '$(sync) Rebuild Index', command: 'neonLocal.schema.reindexIndex', description: 'Rebuild this index' },
-                        { label: '$(trash) Drop Index', command: 'neonLocal.schema.dropIndex', description: 'Delete index' }
-                    );
-                }
+                actions.push(
+                    { label: '$(sync) Rebuild Index', command: 'neonLocal.schema.reindexIndex', description: 'Rebuild this index' },
+                    { label: '$(trash) Drop Index', command: 'neonLocal.schema.dropIndex', description: 'Delete index' }
+                );
                 break;
 
             case 'foreignkey':

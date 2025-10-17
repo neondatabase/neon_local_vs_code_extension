@@ -402,12 +402,16 @@ export class SchemaService {
                 SELECT 
                     i.indexname as name,
                     i.indexdef,
-                    CASE WHEN c.contype = 'p' THEN true ELSE false END as is_primary,
                     CASE WHEN i.indexdef LIKE '%UNIQUE%' THEN true ELSE false END as is_unique
                 FROM pg_indexes i
-                LEFT JOIN pg_constraint c ON c.conname = i.indexname
+                LEFT JOIN pg_constraint c ON c.conindid = (
+                    SELECT oid FROM pg_class 
+                    WHERE relname = i.indexname 
+                    AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = i.schemaname)
+                )
                 WHERE i.schemaname = $1 AND i.tablename = $2
-                ORDER BY is_primary DESC, is_unique DESC, i.indexname
+                    AND c.contype IS NULL
+                ORDER BY is_unique DESC, i.indexname
             `, [schema, table], database);
 
             return result.rows.map((row) => ({
@@ -417,7 +421,6 @@ export class SchemaService {
                 parent: `table_${database}_${schema}_${table}`,
                 metadata: {
                     definition: row.indexdef,
-                    is_primary: row.is_primary,
                     is_unique: row.is_unique,
                     schema: schema,
                     database: database,
