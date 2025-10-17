@@ -666,7 +666,7 @@ export class DataImportExportPanel {
                     <input type="checkbox" id="truncateFirst" />
                     <label for="truncateFirst" style="margin: 0;">Truncate table before import</label>
                 </div>
-                <div class="info-text">⚠️ This will delete all existing data in the table</div>
+                <div class="info-text">Warning: This will delete all existing data in the table</div>
             </div>
         </div>
 

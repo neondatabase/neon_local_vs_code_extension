@@ -883,7 +883,7 @@ export class SchemaManagementPanel {
 
             // Confirm the operation with strong warning
             const warningMessage = dropMode.value === 'CASCADE'
-                ? `⚠️ WARNING: This will permanently delete schema "${schemaName}" and ALL of its contents (tables, views, functions, etc.). This action CANNOT be undone!`
+                ? `WARNING: This will permanently delete schema "${schemaName}" and ALL of its contents (tables, views, functions, etc.). This action CANNOT be undone!`
                 : `Are you sure you want to drop schema "${schemaName}"? This operation will fail if the schema is not empty.`;
 
             const confirm = await vscode.window.showErrorMessage(

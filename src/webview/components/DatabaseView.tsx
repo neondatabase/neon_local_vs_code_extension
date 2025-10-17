@@ -95,7 +95,7 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({ vscode }) => {
                 onClick={() => handleCopy(state.connectionInfo, 'connection')}
               >
                 {copySuccess === 'connection' ? (
-                  <span>✓</span>
+                  <span>Copied</span>
                 ) : (
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M10.75 1.75H4.25C3.97386 1.75 3.75 1.97386 3.75 2.25V11.25C3.75 11.5261 3.97386 11.75 4.25 11.75H10.75C11.0261 11.75 11.25 11.5261 11.25 11.25V2.25C11.25 1.97386 11.0261 1.75 10.75 1.75Z" stroke="currentColor" strokeWidth="1.5"/>
@@ -121,7 +121,7 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({ vscode }) => {
               onClick={() => handleCopy(`import { neonConfig } from '@neondatabase/serverless';\n\n// For http connections\nneonConfig.fetchEndpoint = 'http://localhost:${state.port}/sql';\nneonConfig.poolQueryViaFetch = true;\n\n// For web socket connections\n// neonConfig.wsProxy = () => 'localhost:${state.port}';\n// neonConfig.useSecureWebSocket = false;\n// neonConfig.pipelineConnect = false;\n// neonConfig.poolQueryViaFetch = false;`, 'endpoint')}
             >
               {copySuccess === 'endpoint' ? (
-                <span>✓</span>
+                <span>Copied</span>
               ) : (
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M10.75 1.75H4.25C3.97386 1.75 3.75 1.97386 3.75 2.25V11.25C3.75 11.5261 3.97386 11.75 4.25 11.75H10.75C11.0261 11.75 11.25 11.5261 11.25 11.25V2.25C11.25 1.97386 11.0261 1.75 10.75 1.75Z" stroke="currentColor" strokeWidth="1.5"/>

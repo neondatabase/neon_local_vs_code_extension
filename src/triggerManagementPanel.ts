@@ -839,8 +839,8 @@ export class TriggerManagementPanel {
     private static getViewTriggerPropertiesHtml(trigger: any): string {
         const isEnabled = trigger.is_enabled === 'O' || trigger.is_enabled === 't';
         const statusBadge = isEnabled 
-            ? '<span style="color: var(--vscode-testing-iconPassed);">✓ Enabled</span>'
-            : '<span style="color: var(--vscode-errorForeground);">✗ Disabled</span>';
+            ? '<span style="color: var(--vscode-testing-iconPassed);">Enabled</span>'
+            : '<span style="color: var(--vscode-errorForeground);">Disabled</span>';
         
         return `<!DOCTYPE html>
 <html lang="en">

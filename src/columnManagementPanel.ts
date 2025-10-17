@@ -788,7 +788,7 @@ export class ColumnManagementPanel {
                         <option value="BYTEA">BYTEA</option>
                     </optgroup>
                 </select>
-                <div class="info-text">⚠️ Changing data type may require data migration</div>
+                <div class="info-text">Warning: Changing data type may require data migration</div>
             </div>
 
             <div class="form-group" id="lengthGroup" style="display: none;">

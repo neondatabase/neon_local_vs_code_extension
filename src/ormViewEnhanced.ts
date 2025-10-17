@@ -83,20 +83,20 @@ export class ORMTreeItemUI extends vscode.TreeItem {
             const model = item.model as DjangoModel | PrismaModel;
             let tip = `Model: ${model.name}\nTable: ${model.tableName}\n`;
             if (item.status === 'synced') {
-                tip += '✓ Synced with database';
+                tip += 'Synced with database';
             } else if (item.status === 'changed') {
-                tip += '⚠️ Schema has changes';
+                tip += 'Schema has changes';
             } else if (item.status === 'missing') {
-                tip += '❌ Table does not exist in database';
+                tip += 'Table does not exist in database';
             }
             return tip;
         } else if (item.type === 'migration') {
             const migration = item.migration as DjangoMigration | PrismaMigration;
             let tip = `Migration: ${migration.name}\n`;
             if (item.status === 'applied') {
-                tip += '✓ Applied to database';
+                tip += 'Applied to database';
             } else if (item.status === 'pending') {
-                tip += '⏳ Pending - not applied yet';
+                tip += 'Pending - not applied yet';
             }
             return tip;
         } else if (item.type === 'action') {

@@ -882,8 +882,8 @@ export class IndexManagementPanel {
         </div>
 
         <div class="toolbar">
-            <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh</button>
-            <button class="btn" id="reindexBtn">♻️ Reindex Table</button>
+            <button class="btn btn-secondary" id="refreshBtn">Refresh</button>
+            <button class="btn" id="reindexBtn">Reindex Table</button>
             <button class="btn btn-secondary" id="closeBtn">Close</button>
         </div>
 

@@ -1558,7 +1558,7 @@ export class UserManagementPanel {
                 
                 // Show notification
                 vscode.window.showInformationMessage(
-                    `✅ Neon role "${userDef.username}" created! Password copied to clipboard: ${password}`
+                    `Neon role "${userDef.username}" created. Password copied to clipboard: ${password}`
                 );
                 
                 // Refresh the schema view to show the new role
@@ -2018,7 +2018,7 @@ export class UserManagementPanel {
         <h1>User & Role Management</h1>
         
         <div class="toolbar">
-            <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh</button>
+            <button class="btn btn-secondary" id="refreshBtn">Refresh</button>
         </div>
 
         <table class="user-table">

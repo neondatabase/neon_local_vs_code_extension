@@ -373,113 +373,6 @@
         "command": "neonLocal.schema.dropColumn",
         "title": "Drop Column",
         "icon": "$(trash)"
-      },
-      {
-        "command": "neonLocal.migrations.refresh",
-        "title": "Refresh Migrations",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "neonLocal.migrations.openFile",
-        "title": "Open Migration File"
-      },
-      {
-        "command": "neonLocal.migrations.runFile",
-        "title": "Execute Migration",
-        "icon": "$(play)"
-      },
-      {
-        "command": "neonLocal.migrations.runFolder",
-        "title": "Execute All Migrations",
-        "icon": "$(run-all)"
-      },
-      {
-        "command": "neonLocal.orm.refresh",
-        "title": "Refresh ORM Detection",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "neonLocal.orm.testDetection",
-        "title": "Test ORM Detection",
-        "icon": "$(search)"
-      },
-      {
-        "command": "neonLocal.orm.django.makemigrations",
-        "title": "Django: Make Migrations"
-      },
-      {
-        "command": "neonLocal.orm.django.migrate",
-        "title": "Django: Run Migrations"
-      },
-      {
-        "command": "neonLocal.orm.django.showmigrations",
-        "title": "Django: Show Migration Status"
-      },
-      {
-        "command": "neonLocal.orm.django.shell",
-        "title": "Django: Open Shell"
-      },
-      {
-        "command": "neonLocal.orm.django.inspectdb",
-        "title": "Django: Generate Models from DB"
-      },
-      {
-        "command": "neonLocal.orm.django.test",
-        "title": "Django: Run Tests"
-      },
-      {
-        "command": "neonLocal.orm.prisma.pull",
-        "title": "Prisma: Pull Schema from DB"
-      },
-      {
-        "command": "neonLocal.orm.prisma.push",
-        "title": "Prisma: Push Schema to DB"
-      },
-      {
-        "command": "neonLocal.orm.prisma.studio",
-        "title": "Prisma: Open Studio"
-      },
-      {
-        "command": "neonLocal.orm.prisma.generate",
-        "title": "Prisma: Generate Client"
-      },
-      {
-        "command": "neonLocal.orm.prisma.migrate_dev",
-        "title": "Prisma: Create Migration"
-      },
-      {
-        "command": "neonLocal.orm.prisma.migrate_deploy",
-        "title": "Prisma: Deploy Migrations"
-      },
-      {
-        "command": "neonLocal.orm.prisma.validate",
-        "title": "Prisma: Validate Schema"
-      },
-      {
-        "command": "neonLocal.orm.prisma.seed",
-        "title": "Prisma: Seed Database"
-      },
-      {
-        "command": "neonLocal.orm.generateModel",
-        "title": "Generate Model/Entity from Table",
-        "icon": "$(file-code)"
-      },
-      {
-        "command": "neonLocal.orm.openModelFile",
-        "title": "Open Model File",
-        "icon": "$(go-to-file)"
-      },
-      {
-        "command": "neonLocal.orm.openMigrationFile",
-        "title": "Open Migration File"
-      },
-      {
-        "command": "neonLocal.orm.viewModelTable",
-        "title": "View Table in Database"
-      },
-      {
-        "command": "neonLocal.orm.compareModelWithDB",
-        "title": "Compare with Database"
       }
     ],
     "configuration": {
@@ -575,20 +468,6 @@
           "id": "neonLocalSchema",
           "name": "Database Schema",
           "when": "neonLocal.connected"
-        },
-        {
-          "type": "tree",
-          "id": "neonLocalMigrations",
-          "name": "Migrations & Queries",
-          "icon": "$(database)",
-          "contextualTitle": "SQL Migrations & Queries"
-        },
-        {
-          "type": "tree",
-          "id": "neonLocalORM",
-          "name": "ORM Integration",
-          "icon": "$(symbol-class)",
-          "contextualTitle": "ORM Tools & Integration"
         }
       ]
     },
@@ -597,16 +476,6 @@
         {
           "command": "neonLocal.schema.refresh",
           "when": "view == neonLocalSchema",
-          "group": "navigation"
-        },
-        {
-          "command": "neonLocal.migrations.refresh",
-          "when": "view == neonLocalMigrations",
-          "group": "navigation"
-        },
-        {
-          "command": "neonLocal.orm.refresh",
-          "when": "view == neonLocalORM",
           "group": "navigation"
         }
       ],
@@ -980,56 +849,6 @@
           "command": "neonLocal.schema.dropRole",
           "when": "view == neonLocalSchema && (viewItem == regularRole || viewItem == neonSuperuserRole)",
           "group": "9_role_delete"
-        },
-        {
-          "command": "neonLocal.migrations.runFile",
-          "when": "view == neonLocalMigrations && viewItem == file",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.migrations.openFile",
-          "when": "view == neonLocalMigrations && viewItem == file",
-          "group": "1_migration"
-        },
-        {
-          "command": "neonLocal.migrations.runFile",
-          "when": "view == neonLocalMigrations && viewItem == file",
-          "group": "2_migration_run"
-        },
-        {
-          "command": "neonLocal.migrations.runFolder",
-          "when": "view == neonLocalMigrations && viewItem == folder",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.migrations.runFolder",
-          "when": "view == neonLocalMigrations && viewItem == folder",
-          "group": "1_folder_run"
-        },
-        {
-          "command": "neonLocal.orm.openModelFile",
-          "when": "view == neonLocalORM && (viewItem == model_django || viewItem == model_prisma)",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.orm.openModelFile",
-          "when": "view == neonLocalORM && (viewItem == model_django || viewItem == model_prisma)",
-          "group": "1_model"
-        },
-        {
-          "command": "neonLocal.orm.viewModelTable",
-          "when": "view == neonLocalORM && (viewItem == model_django || viewItem == model_prisma)",
-          "group": "2_model_view"
-        },
-        {
-          "command": "neonLocal.orm.compareModelWithDB",
-          "when": "view == neonLocalORM && (viewItem == model_django || viewItem == model_prisma)",
-          "group": "3_model_compare"
-        },
-        {
-          "command": "neonLocal.orm.openMigrationFile",
-          "when": "view == neonLocalORM && (viewItem == migration_django || viewItem == migration_prisma)",
-          "group": "1_migration"
         }
       ]
     }

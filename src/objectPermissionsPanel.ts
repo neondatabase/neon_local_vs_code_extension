@@ -114,18 +114,28 @@ export class ObjectPermissionsPanel {
                             panel
                         );
                         break;
-                    case 'revokePermission':
-                        await ObjectPermissionsPanel.executeRevokePermission(
-                            context,
-                            stateService,
-                            objectType,
-                            objectName,
-                            schema,
-                            message.grantee,
-                            message.privileges,
-                            database,
-                            panel
+                    case 'confirmRevoke':
+                        // Show confirmation dialog in VS Code
+                        const privilegeList = message.privileges.join(', ');
+                        const confirmation = await vscode.window.showWarningMessage(
+                            `Are you sure you want to revoke all permissions for grantee "${message.grantee}"?`,
+                            { modal: true, detail: `This will revoke: ${privilegeList}` },
+                            'Revoke'
                         );
+                        
+                        if (confirmation === 'Revoke') {
+                            await ObjectPermissionsPanel.executeRevokePermission(
+                                context,
+                                stateService,
+                                objectType,
+                                objectName,
+                                schema,
+                                message.grantee,
+                                message.privileges,
+                                database,
+                                panel
+                            );
+                        }
                         break;
                     case 'refresh':
                         const refreshedPermissions = await ObjectPermissionsPanel.getCurrentPermissions(
@@ -803,7 +813,7 @@ export class ObjectPermissionsPanel {
                             <button class="action-btn" onclick="editPermissions('\${group.grantee}')" title="Edit privileges">
                                 <span class="codicon codicon-edit"></span>
                             </button>
-                            <button class="action-btn" onclick="revokePermissions('\${group.grantee}', \${JSON.stringify(group.privileges.map(p => p.type))})" title="Revoke all privileges">
+                            <button class="action-btn" onclick='revokePermissions("\${group.grantee}", \${JSON.stringify(group.privileges.map(p => p.type))})' title="Revoke all privileges">
                                 <span class="codicon codicon-trash"></span>
                             </button>
                         </div>
@@ -874,12 +884,9 @@ export class ObjectPermissionsPanel {
         });
 
         window.revokePermissions = function(grantee, privileges) {
-            if (!confirm(\`Are you sure you want to revoke all permissions for grantee "\${grantee}"?\\n\\nThis will revoke: \${privileges.join(', ')}\`)) {
-                return;
-            }
-            
+            // Send message to extension host to show confirmation dialog
             vscode.postMessage({
-                command: 'revokePermission',
+                command: 'confirmRevoke',
                 grantee: grantee,
                 privileges: privileges
             });

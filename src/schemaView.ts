@@ -128,7 +128,7 @@ export class SchemaTreeItem extends vscode.TreeItem {
             case 'trigger':
                 const trigger = item.metadata;
                 const events = Array.isArray(trigger?.events) ? trigger.events.filter(Boolean).join(', ') : (trigger?.event || 'Unknown');
-                const status = trigger?.is_enabled ? '✓ Enabled' : '✗ Disabled';
+                const status = trigger?.is_enabled ? 'Enabled' : 'Disabled';
                 return `Trigger: ${item.name}\n${trigger?.timing || 'Unknown'} ${events}\nLevel: FOR EACH ${trigger?.level || 'Unknown'}\nFunction: ${trigger?.function_schema}.${trigger?.function_name}()\nStatus: ${status}`;
             case 'policy':
                 const policy = item.metadata;
@@ -2155,7 +2155,7 @@ export class SchemaViewProvider {
             
             // Show notification
             vscode.window.showInformationMessage(
-                `✅ Password reset for "${roleName}"! New password copied to clipboard: ${newPassword}`
+                `Password reset for "${roleName}". New password copied to clipboard: ${newPassword}`
             );
             
         } catch (error) {
