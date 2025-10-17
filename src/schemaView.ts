@@ -21,6 +21,7 @@ import { ForeignKeyManagementPanel } from './foreignKeyManagementPanel';
 import { TriggerManagementPanel } from './triggerManagementPanel';
 import { ModelGeneratorPanel } from './modelGeneratorPanel';
 import { ColumnManagementPanel } from './columnManagementPanel';
+import { ObjectPermissionsPanel } from './objectPermissionsPanel';
 
 export class SchemaTreeItem extends vscode.TreeItem {
     constructor(
@@ -486,27 +487,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     break;
                 case 'table':
                 case 'view':
-                    // Parse using parent to handle underscores in schema names correctly
-                    // Parent format: schema_v2_database_schema (where schema can have underscores)
-                    let tableDatabase: string;
-                    let tableSchema: string;
-                    let tableName: string;
-                    
-                    if (element.parent) {
-                        const parentParts = element.parent.split('_');
-                        // parent format: schema_v2_database_schema...
-                        tableDatabase = parentParts[2];
-                        tableSchema = parentParts.slice(3).join('_');
-                        // Extract table name from ID: remove "table_" or "view_" prefix and the database_schema prefix
-                        const prefix = `${element.type}_${tableDatabase}_${tableSchema}_`;
-                        tableName = element.id.substring(prefix.length);
-                    } else {
-                        // Fallback to old parsing (shouldn't happen with new data structure)
-                        const tableParts = element.id.split('_');
-                        tableDatabase = tableParts[1];
-                        tableSchema = tableParts[2];
-                        tableName = tableParts.slice(3).join('_');
-                    }
+                    // Get database, schema, and table name from metadata
+                    const tableDatabase = element.metadata?.database || 'postgres';
+                    const tableSchema = element.metadata?.schema || 'public';
+                    const tableName = element.name;
                     
                     children = await this.getTableContainers(tableDatabase, tableSchema, tableName, element.type);
                     break;
@@ -621,10 +605,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
 
     private async getSchemaContainers(schemaItem: SchemaItem): Promise<SchemaItem[]> {
         // Create container nodes for organizing schema objects
-        // Parse ID format: schema_v2_database_schema OR schema_database_schema
-        const parts = schemaItem.id.split('_');
-        const database = parts[1] === 'v2' ? parts[2] : parts[1];
-        const schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+        // Get database from parent (format: db_${database})
+        // Get schema from name (this is the actual schema name)
+        const database = schemaItem.parent ? schemaItem.parent.substring('db_'.length) : 'postgres';
+        const schema = schemaItem.name;
         const baseId = `${database}_${schema}`;
 
         return [
@@ -922,9 +906,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     // For each schema, load container structure
                     for (const schema of schemas) {
                         try {
-                            const parts = schema.id.split('_');
-                            const dbName = parts[1] === 'v2' ? parts[2] : parts[1];
-                            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+                            // Get database from parent (format: db_${database})
+                            // Get schema from name (this is the actual schema name)
+                            const dbName = schema.parent ? schema.parent.substring('db_'.length) : database;
+                            const schemaName = schema.name;
                             
                             // Cache schema containers (Tables, Views, Functions, Sequences)
                             const containers = await this.getSchemaContainers(schema);
@@ -982,21 +967,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                                         let tableSchema: string;
                                         let tableName: string;
                                         
-                                        if (tableItem.parent) {
-                                            const parentParts = tableItem.parent.split('_');
-                                            // parent format: schema_v2_database_schema...
-                                            tableDatabase = parentParts[2];
-                                            tableSchema = parentParts.slice(3).join('_');
-                                            // Extract table name from ID
-                                            const prefix = `${tableItem.type}_${tableDatabase}_${tableSchema}_`;
-                                            tableName = tableItem.id.substring(prefix.length);
-                                        } else {
-                                            // Fallback to old parsing
-                                            const tableParts = tableItem.id.split('_');
-                                            tableDatabase = tableParts[1];
-                                            tableSchema = tableParts[2];
-                                            tableName = tableParts.slice(3).join('_');
-                                        }
+                                        // Get database, schema, and table name from metadata
+                                        tableDatabase = tableItem.metadata?.database || 'postgres';
+                                        tableSchema = tableItem.metadata?.schema || 'public';
+                                        tableName = tableItem.name;
                                         
                                         // Use getTableContainers to get the new container structure
                                         const tableContainers = await this.getTableContainers(tableDatabase, tableSchema, tableName, tableItem.type);
@@ -1071,47 +1045,33 @@ export class SchemaViewProvider {
         // Use item.name directly for the entity name
         const name = item.name;
         
-        // Parse parent to get database and schema
-        if (item.parent) {
-            const parentParts = item.parent.split('_');
-            
-            // Handle schema_v2_database_schema format
-            if (parentParts[0] === 'schema' && parentParts[1] === 'v2') {
-                return {
-                    database: parentParts[2],
-                    schema: parentParts.slice(3).join('_'), // Handle underscores in schema
-                    name
-                };
-            }
-            // Handle old schema_database_schema format
-            else if (parentParts[0] === 'schema') {
-                return {
-                    database: parentParts[1],
-                    schema: parentParts.slice(2).join('_'), // Handle underscores in schema
-                    name
-                };
-            }
-        }
-        
-        // Fallback: parse from ID (less reliable for names with underscores)
-        const parts = item.id.split('_');
-        const type = parts[0];
-        
-        if (type === 'schema') {
-            const isV2 = parts[1] === 'v2';
+        // Try to get database and schema from metadata first (most reliable)
+        if (item.metadata?.database && item.metadata?.schema) {
             return {
-                database: isV2 ? parts[2] : parts[1],
-                schema: isV2 ? parts.slice(3).join('_') : parts.slice(2).join('_'),
+                database: item.metadata.database,
+                schema: item.metadata.schema,
                 name
             };
-        } else {
-            // table, view, function, index, etc.: type_database_schema_name
+        }
+        
+        // For schema items, get database from parent
+        if (item.type === 'schema' && item.parent && item.parent.startsWith('db_')) {
+            const database = item.parent.substring(3); // Remove 'db_' prefix
             return {
-                database: parts[1],
-                schema: parts[2],
-                name: parts.slice(3).join('_') // Handle underscores in entity name
+                database,
+                schema: name,
+                name
             };
         }
+        
+        // Fallback: For other items, return defaults
+        // This should not happen if metadata is properly set
+        console.warn(`parseSchemaItem: Could not parse item ${item.id} from metadata, using fallback`);
+        return {
+            database: 'postgres',
+            schema: 'public',
+            name
+        };
     }
 
     private registerCommands(): void {
@@ -1153,6 +1113,9 @@ export class SchemaViewProvider {
             }),
             vscode.commands.registerCommand('neonLocal.schema.editTable', (item: SchemaItem) => {
                 this.editTable(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.manageObjectPermissions', (item: SchemaItem) => {
+                this.manageObjectPermissions(item);
             }),
             vscode.commands.registerCommand('neonLocal.schema.createSchema', (item: SchemaItem) => {
                 this.createSchema(item);
@@ -1441,21 +1404,10 @@ export class SchemaViewProvider {
         let schema: string;
         let tableName: string;
         
-        if (item.parent) {
-            const parentParts = item.parent.split('_');
-            // parent format: schema_v2_database_schema...
-            database = parentParts[2];
-            schema = parentParts.slice(3).join('_');
-            // Extract table name from ID
-            const prefix = `table_${database}_${schema}_`;
-            tableName = item.id.substring(prefix.length);
-        } else {
-            // Fallback to old parsing
-            const parts = item.id.split('_');
-            database = parts[1];
-            schema = parts[2];
-            tableName = parts.slice(3).join('_');
-        }
+        // Get database, schema, and table name from metadata
+        database = item.metadata?.database || 'postgres';
+        schema = item.metadata?.schema || 'public';
+        tableName = item.name;
         
         // Debug logging
         console.debug('ViewTableData - Item ID:', item.id);
@@ -1593,10 +1545,10 @@ export class SchemaViewProvider {
                 database = item.metadata?.database || 'postgres';
                 schema = item.metadata?.schema || 'public';
             } else if (item.type === 'schema') {
-                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-                const parts = item.id.split('_');
-                database = parts[1] === 'v2' ? parts[2] : parts[1];
-                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+                // Get database from parent (format: db_${database})
+                // Get schema from name (this is the actual schema name)
+                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                schema = item.name;
             } else {
                 // For database, default to public schema
                 database = item.name;
@@ -1621,6 +1573,59 @@ export class SchemaViewProvider {
             EditTablePanel.createOrShow(this.context, this.stateService, schema, tableName, database);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to open edit table dialog: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async manageObjectPermissions(item: SchemaItem): Promise<void> {
+        try {
+            let objectType: 'TABLE' | 'VIEW' | 'FUNCTION' | 'SEQUENCE' | 'SCHEMA';
+            let objectName: string;
+            let schema: string;
+            let database: string;
+
+            if (item.type === 'schema') {
+                objectType = 'SCHEMA';
+                const parsed = this.parseSchemaItem(item);
+                database = parsed.database;
+                schema = parsed.name;
+                objectName = parsed.name;
+            } else if (item.type === 'table') {
+                objectType = 'TABLE';
+                const parsed = this.parseSchemaItem(item);
+                database = parsed.database;
+                schema = parsed.schema;
+                objectName = parsed.name;
+            } else if (item.type === 'view') {
+                objectType = 'VIEW';
+                const parsed = this.parseSchemaItem(item);
+                database = parsed.database;
+                schema = parsed.schema;
+                objectName = parsed.name;
+            } else if (item.type === 'function') {
+                objectType = 'FUNCTION';
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                objectName = item.name;
+            } else if (item.type === 'sequence') {
+                objectType = 'SEQUENCE';
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                objectName = item.name;
+            } else {
+                vscode.window.showErrorMessage('Cannot manage permissions for this object type');
+                return;
+            }
+
+            await ObjectPermissionsPanel.manageObjectPermissions(
+                this.context,
+                this.stateService,
+                objectType,
+                objectName,
+                schema,
+                database
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open permissions manager: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -1652,10 +1657,10 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-            const parts = item.id.split('_');
-            const database = parts[1] === 'v2' ? parts[2] : parts[1];
-            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+            // Get database from parent (format: db_${database})
+            // Get schema from name (this is the actual schema name)
+            const database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+            const schemaName = item.name;
 
             await SchemaManagementPanel.editSchema(this.context, this.stateService, schemaName, database);
         } catch (error) {
@@ -1669,10 +1674,10 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-            const parts = item.id.split('_');
-            const database = parts[1] === 'v2' ? parts[2] : parts[1];
-            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+            // Get database from parent (format: db_${database})
+            // Get schema from name (this is the actual schema name)
+            const database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+            const schemaName = item.name;
 
             await SchemaManagementPanel.dropSchema(this.context, this.stateService, schemaName, database);
         } catch (error) {
@@ -1686,10 +1691,10 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-            const parts = item.id.split('_');
-            const database = parts[1] === 'v2' ? parts[2] : parts[1];
-            const schemaName = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+            // Get database from parent (format: db_${database})
+            // Get schema from name (this is the actual schema name)
+            const database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+            const schemaName = item.name;
 
             await SchemaManagementPanel.showSchemaProperties(this.context, this.stateService, schemaName, database);
         } catch (error) {
@@ -1713,20 +1718,10 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
-                // Called from table - parse using parent to handle underscores in schema names
-                if (item.parent) {
-                    const parentParts = item.parent.split('_');
-                    database = parentParts[2];
-                    schema = parentParts.slice(3).join('_');
-                    const prefix = `table_${database}_${schema}_`;
-                    tableName = item.id.substring(prefix.length);
-                } else {
-                    // Fallback
-                    const parts = item.id.split('_');
-                    database = parts[1];
-                    schema = parts[2];
-                    tableName = parts.slice(3).join('_');
-                }
+                // Get database, schema, and table name from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.name;
             }
 
             await IndexManagementPanel.createIndex(this.context, this.stateService, schema, tableName, database);
@@ -1817,10 +1812,10 @@ export class SchemaViewProvider {
                 database = item.metadata?.database || 'postgres';
                 schema = item.metadata?.schema || 'public';
             } else if (item.type === 'schema') {
-                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-                const parts = item.id.split('_');
-                database = parts[1] === 'v2' ? parts[2] : parts[1];
-                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+                // Get database from parent (format: db_${database})
+                // Get schema from name (this is the actual schema name)
+                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                schema = item.name;
             } else {
                 // Database selected, use public schema by default
                 database = item.name;
@@ -1981,10 +1976,10 @@ export class SchemaViewProvider {
                 database = item.name;
                 schema = 'public';
             } else {
-                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-            const parts = item.id.split('_');
-                database = parts[1] === 'v2' ? parts[2] : parts[1];
-                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+                // Get database from parent (format: db_${database})
+                // Get schema from name (this is the actual schema name)
+                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                schema = item.name;
             }
 
             await FunctionManagementPanel.createFunction(this.context, this.stateService, schema, database);
@@ -2306,10 +2301,10 @@ export class SchemaViewProvider {
                 database = item.name;
                 schema = 'public';
             } else {
-                // Parse schema ID: schema_v2_database_schemaname or schema_database_schemaname (old format)
-                const parts = item.id.split('_');
-                database = parts[1] === 'v2' ? parts[2] : parts[1];
-                schema = parts[1] === 'v2' ? parts.slice(3).join('_') : parts.slice(2).join('_');
+                // Get database from parent (format: db_${database})
+                // Get schema from name (this is the actual schema name)
+                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                schema = item.name;
             }
 
             await SequenceManagementPanel.createSequence(this.context, this.stateService, schema, database);
@@ -2324,10 +2319,9 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse parent schema ID to get database and schema
-            const parentParts = item.parent?.split('_') || [];
-            const database = parentParts[2]; // schema_v2_database_schema...
-            const schema = parentParts.slice(3).join('_');
+            // Get database and schema from metadata
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
             await SequenceManagementPanel.alterSequence(this.context, this.stateService, schema, sequenceName, database);
@@ -2343,10 +2337,9 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse parent schema ID to get database and schema
-            const parentParts = item.parent?.split('_') || [];
-            const database = parentParts[2]; // schema_v2_database_schema...
-            const schema = parentParts.slice(3).join('_');
+            // Get database and schema from metadata
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
             // Confirmation dialog
@@ -2376,10 +2369,9 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse parent schema ID to get database and schema
-            const parentParts = item.parent?.split('_') || [];
-            const database = parentParts[2]; // schema_v2_database_schema...
-            const schema = parentParts.slice(3).join('_');
+            // Get database and schema from metadata
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
             await SequenceManagementPanel.restartSequence(this.context, this.stateService, schema, sequenceName, database);
@@ -2395,10 +2387,9 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Parse parent schema ID to get database and schema
-            const parentParts = item.parent?.split('_') || [];
-            const database = parentParts[2]; // schema_v2_database_schema...
-            const schema = parentParts.slice(3).join('_');
+            // Get database and schema from metadata
+            const database = item.metadata?.database || 'postgres';
+            const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
             await SequenceManagementPanel.setNextValue(this.context, this.stateService, schema, sequenceName, database);
@@ -2482,20 +2473,10 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
-                // Called from table - parse using parent to handle underscores in schema names
-                if (item.parent) {
-                    const parentParts = item.parent.split('_');
-                    database = parentParts[2];
-                    schema = parentParts.slice(3).join('_');
-                    const prefix = `table_${database}_${schema}_`;
-                    tableName = item.id.substring(prefix.length);
-                } else {
-                    // Fallback
-                    const parts = item.id.split('_');
-                    database = parts[1];
-                    schema = parts[2];
-                    tableName = parts.slice(3).join('_');
-                }
+                // Get database, schema, and table name from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.name;
             }
 
             await ConstraintManagementPanel.createConstraint(this.context, this.stateService, schema, tableName, database);
@@ -2701,20 +2682,10 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
-                // Called from table - parse using parent to handle underscores in schema names
-                if (item.parent) {
-                    const parentParts = item.parent.split('_');
-                    database = parentParts[2];
-                    schema = parentParts.slice(3).join('_');
-                    const prefix = `table_${database}_${schema}_`;
-                    tableName = item.id.substring(prefix.length);
-                } else {
-                    // Fallback
-                    const parts = item.id.split('_');
-                    database = parts[1];
-                    schema = parts[2];
-                    tableName = parts.slice(3).join('_');
-                }
+                // Get database, schema, and table name from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.name;
             }
 
             await PolicyManagementPanel.createPolicy(this.context, this.stateService, schema, tableName, database);
@@ -2787,20 +2758,10 @@ export class SchemaViewProvider {
                 schema = item.metadata?.schema;
                 tableName = item.metadata?.tableName;
             } else {
-                // Parse table/view ID - use parent to handle underscores in schema names
-                if (item.parent) {
-                    const parentParts = item.parent.split('_');
-                    database = parentParts[2];
-                    schema = parentParts.slice(3).join('_');
-                    const prefix = `${item.type}_${database}_${schema}_`;
-                    tableName = item.id.substring(prefix.length);
-                } else {
-                    // Fallback
-                    const parts = item.id.split('_');
-                    database = parts[1];
-                    schema = parts[2];
-                    tableName = parts.slice(3).join('_');
-                }
+                // Get database, schema, and table name from metadata
+                database = item.metadata?.database || 'postgres';
+                schema = item.metadata?.schema || 'public';
+                tableName = item.name;
             }
 
             await ColumnManagementPanel.createColumn(this.context, this.stateService, schema, tableName, database);
@@ -2913,6 +2874,7 @@ export class SchemaViewProvider {
             case 'schema':
                 actions.push(
                     { label: '$(edit) Edit Schema', command: 'neonLocal.schema.editSchema' },
+                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(trash) Drop Schema', command: 'neonLocal.schema.dropSchema' }
                 );
                 break;
@@ -2922,6 +2884,7 @@ export class SchemaViewProvider {
                     { label: '$(edit) Edit Table', command: 'neonLocal.schema.editTable', description: 'Modify table structure' },
                     { label: '$(export) Import Data', command: 'neonLocal.schema.importData', description: 'Import CSV/JSON' },
                     { label: '$(desktop-download) Export Data', command: 'neonLocal.schema.exportData', description: 'Export to CSV/JSON/SQL' },
+                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(clear-all) Truncate Table', command: 'neonLocal.schema.truncateTable', description: 'Delete all rows' },
                     { label: '$(trash) Drop Table', command: 'neonLocal.schema.dropTable', description: 'Delete table' }
                 );
@@ -2936,6 +2899,7 @@ export class SchemaViewProvider {
                     actions.push({ label: '$(refresh) Refresh Materialized View', command: 'neonLocal.schema.refreshMaterializedView', description: 'Refresh data' });
                 }
                 actions.push(
+                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(trash) Drop View', command: 'neonLocal.schema.dropView', description: 'Delete view' }
                 );
                 break;
@@ -2943,6 +2907,7 @@ export class SchemaViewProvider {
             case 'function':
                 actions.push(
                     { label: '$(edit) Edit Function', command: 'neonLocal.schema.editFunction', description: 'Modify function code' },
+                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(trash) Drop Function', command: 'neonLocal.schema.dropFunction', description: 'Delete function' }
                 );
                 break;
@@ -2950,6 +2915,7 @@ export class SchemaViewProvider {
             case 'sequence':
                 actions.push(
                     { label: '$(edit) Edit Sequence', command: 'neonLocal.schema.alterSequence', description: 'Modify sequence settings' },
+                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(trash) Drop Sequence', command: 'neonLocal.schema.dropSequence', description: 'Delete sequence' }
                 );
                 break;

@@ -115,6 +115,11 @@
         "icon": "$(edit)"
       },
       {
+        "command": "neonLocal.schema.manageObjectPermissions",
+        "title": "Manage Permissions",
+        "icon": "$(shield)"
+      },
+      {
         "command": "neonLocal.schema.createSchema",
         "title": "Create Schema",
         "icon": "$(add)"
@@ -692,6 +697,11 @@
           "group": "5_modify"
         },
         {
+          "command": "neonLocal.schema.manageObjectPermissions",
+          "when": "view == neonLocalSchema && viewItem == table",
+          "group": "5_modify"
+        },
+        {
           "command": "neonLocal.schema.createSchema",
           "when": "view == neonLocalSchema && viewItem == database",
           "group": "2_schema"
@@ -703,6 +713,11 @@
         },
         {
           "command": "neonLocal.schema.editSchema",
+          "when": "view == neonLocalSchema && viewItem == schema",
+          "group": "6_schema_modify"
+        },
+        {
+          "command": "neonLocal.schema.manageObjectPermissions",
           "when": "view == neonLocalSchema && viewItem == schema",
           "group": "6_schema_modify"
         },
@@ -729,6 +744,11 @@
         {
           "command": "neonLocal.schema.refreshMaterializedView",
           "when": "view == neonLocalSchema && viewItem == materializedView",
+          "group": "2_view_modify"
+        },
+        {
+          "command": "neonLocal.schema.manageObjectPermissions",
+          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
           "group": "2_view_modify"
         },
         {
@@ -782,6 +802,11 @@
           "group": "2_function_modify"
         },
         {
+          "command": "neonLocal.schema.manageObjectPermissions",
+          "when": "view == neonLocalSchema && viewItem == function",
+          "group": "2_function_modify"
+        },
+        {
           "command": "neonLocal.schema.dropFunction",
           "when": "view == neonLocalSchema && viewItem == function",
           "group": "9_function_delete"
@@ -793,6 +818,11 @@
         },
         {
           "command": "neonLocal.schema.alterSequence",
+          "when": "view == neonLocalSchema && viewItem == sequence",
+          "group": "2_sequence_modify"
+        },
+        {
+          "command": "neonLocal.schema.manageObjectPermissions",
           "when": "view == neonLocalSchema && viewItem == sequence",
           "group": "2_sequence_modify"
         },

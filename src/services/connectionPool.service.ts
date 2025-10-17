@@ -56,6 +56,13 @@ export class ConnectionPoolService {
     }
 
     private createPool(config: ConnectionConfig): Pool {
+        console.log(`[CONNECTION POOL] Creating pool with config:`, {
+            host: config.host,
+            port: config.port,
+            database: config.database,
+            user: config.user
+        });
+        
         const pool = new Pool({
             ...config,
             max: 5, // Maximum number of clients in the pool
@@ -73,11 +80,23 @@ export class ConnectionPoolService {
             this.handlePoolError(poolKey);
         });
 
+        // Add connection listener to verify database
+        pool.on('connect', (client) => {
+            console.log(`[CONNECTION POOL] New client connected to pool for database: ${config.database}`);
+            client.query('SELECT current_database() as db').then((result) => {
+                console.log(`[CONNECTION POOL] Client connected to database: ${result.rows[0].db} (expected: ${config.database})`);
+            }).catch((err) => {
+                console.error(`[CONNECTION POOL] Error checking current database:`, err);
+            });
+        });
+
         return pool;
     }
 
     async getConnection(database?: string): Promise<ManagedClient> {
         const config = await this.getConnectionConfig(database);
+        
+        console.log(`[CONNECTION POOL] Getting connection for database: ${config.database} (requested: ${database})`);
         
         // Quick proxy check first
         const isProxyReachable = await this.checkProxyStatus(config);
@@ -87,6 +106,8 @@ export class ConnectionPoolService {
         
         const poolKey = this.getPoolKey(config.database);
         const poolState = this.poolStates.get(poolKey);
+        
+        console.log(`[CONNECTION POOL] Pool key: ${poolKey}, state: ${poolState}`);
 
         // If pool is ending or ended, wait or create new one
         if (poolState === 'ending') {
@@ -103,8 +124,11 @@ export class ConnectionPoolService {
                 this.poolStates.delete(poolKey);
             }
             
+            console.log(`[CONNECTION POOL] Creating new pool for database: ${config.database}`);
             pool = this.createPool(config);
             this.pools.set(poolKey, pool);
+        } else {
+            console.log(`[CONNECTION POOL] Reusing existing pool for database: ${config.database}`);
         }
 
         try {
@@ -241,7 +265,13 @@ export class ConnectionPoolService {
         let client: ManagedClient | null = null;
         
         try {
+            console.log(`[CONNECTION POOL] executeQuery called with database: ${database}`);
             client = await this.getConnection(database);
+            
+            // Verify current database before executing query
+            const dbCheck = await client.query('SELECT current_database() as db');
+            console.log(`[CONNECTION POOL] About to execute query on database: ${dbCheck.rows[0].db} (requested: ${database})`);
+            
             const result = await client.query(query, params);
             return {
                 rows: result.rows,

@@ -92,13 +92,18 @@ export class SchemaService {
 
     async getSchemas(database: string): Promise<SchemaItem[]> {
         try {
+            console.log(`[SCHEMA SERVICE] Fetching schemas for database: ${database}`);
             const result = await this.connectionPool.executeQuery(`
                 SELECT 
-                    schema_name as name
+                    schema_name as name,
+                    current_database() as connected_db
                 FROM information_schema.schemata 
                 WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'pg_toast_temp_1')
                 ORDER BY schema_name
             `, [], database);
+
+            console.log(`[SCHEMA SERVICE] Query returned ${result.rows.length} schemas for database: ${database}, actually connected to: ${result.rows[0]?.connected_db}`);
+            console.log(`[SCHEMA SERVICE] Schema names:`, result.rows.map(r => r.name));
 
             return result.rows.map((row) => ({
                 id: `schema_v2_${database}_${row.name}`,  // v2: container structure
@@ -119,14 +124,16 @@ export class SchemaService {
             const result = await this.connectionPool.executeQuery(`
                 SELECT 
                     table_name as name,
-                    table_type
+                    table_type,
+                    current_database() as connected_db
                 FROM information_schema.tables 
                 WHERE table_schema = $1
                     AND table_type = 'BASE TABLE'
                 ORDER BY table_name
             `, [schema], database);
 
-            console.log(`[SCHEMA SERVICE] Query returned ${result.rows.length} tables:`, result.rows.map(r => r.name));
+            console.log(`[SCHEMA SERVICE] Query returned ${result.rows.length} tables for ${database}.${schema}, actually connected to: ${result.rows[0]?.connected_db}`);
+            console.log(`[SCHEMA SERVICE] Table names:`, result.rows.map(r => r.name));
             
             const tables = result.rows.map((row) => ({
                 id: `table_${database}_${schema}_${row.name}`,
@@ -134,12 +141,14 @@ export class SchemaService {
                 type: 'table' as const,
                 parent: `schema_v2_${database}_${schema}`,
                 metadata: {
+                    database,
+                    schema,
                     table_type: row.table_type,
                     is_materialized: false
                 }
             }));
             
-            console.log(`[SCHEMA SERVICE] Mapped to ${tables.length} SchemaItems with parent IDs:`, tables.map(t => ({ name: t.name, parent: t.parent })));
+            console.log(`[SCHEMA SERVICE] Mapped to ${tables.length} SchemaItems`);
             return tables;
         } catch (error) {
             console.error('Error fetching tables:', error);
@@ -173,6 +182,8 @@ export class SchemaService {
                 type: 'view' as const,
                 parent: `schema_v2_${database}_${schema}`,
                 metadata: {
+                    database,
+                    schema,
                     table_type: row.table_type,
                     is_materialized: row.table_type === 'MATERIALIZED VIEW'
                 }
@@ -208,6 +219,8 @@ export class SchemaService {
                 type: 'sequence' as const,
                 parent: `schema_v2_${database}_${schema}`,
                 metadata: {
+                    database,
+                    schema,
                     data_type: row.data_type,
                     start_value: row.start_value,
                     increment: row.increment,
@@ -452,6 +465,8 @@ export class SchemaService {
                 type: 'function' as const,
                 parent: `schema_v2_${database}_${schema}`,
                 metadata: {
+                    database,
+                    schema,
                     return_type: row.return_type || 'unknown'
                 }
             }));
