@@ -1,27 +1,26 @@
 import * as vscode from 'vscode';
-import { SchemaService, SchemaItem } from './services/schema.service';
-import { StateService } from './services/state.service';
-import { AuthManager } from './auth/authManager';
-import { SqlQueryPanel } from './sqlQueryPanel';
-import { TableDataPanel } from './tableDataPanel';
-import { DockerService } from './services/docker.service';
-import { CreateTablePanel } from './createTablePanel';
-import { EditTablePanel } from './editTablePanel';
-import { SchemaManagementPanel } from './schemaManagementPanel';
-import { IndexManagementPanel } from './indexManagementPanel';
-import { ConstraintManagementPanel } from './constraintManagementPanel';
-import { PolicyManagementPanel } from './policyManagementPanel';
-import { ViewManagementPanel } from './viewManagementPanel';
-import { UserManagementPanel } from './userManagementPanel';
-import { DataImportExportPanel } from './dataImportExportPanel';
-import { FunctionManagementPanel } from './functionManagementPanel';
-import { DatabaseManagementPanel } from './databaseManagementPanel';
-import { SequenceManagementPanel } from './sequenceManagementPanel';
-import { ForeignKeyManagementPanel } from './foreignKeyManagementPanel';
-import { TriggerManagementPanel } from './triggerManagementPanel';
-import { ModelGeneratorPanel } from './modelGeneratorPanel';
-import { ColumnManagementPanel } from './columnManagementPanel';
-import { ObjectPermissionsPanel } from './objectPermissionsPanel';
+import { SchemaService, SchemaItem } from '../services/schema.service';
+import { StateService } from '../services/state.service';
+import { AuthManager } from '../auth/authManager';
+import { SqlQueryPanel } from '../panels/sqlQueryPanel';
+import { TableDataPanel } from '../panels/tableDataPanel';
+import { CreateTablePanel } from '../panels/createTablePanel';
+import { EditTablePanel } from '../panels/editTablePanel';
+import { SchemaManagementPanel } from '../panels/schemaManagementPanel';
+import { IndexManagementPanel } from '../panels/indexManagementPanel';
+import { ConstraintManagementPanel } from '../panels/constraintManagementPanel';
+import { PolicyManagementPanel } from '../panels/policyManagementPanel';
+import { ViewManagementPanel } from '../panels/viewManagementPanel';
+import { UserManagementPanel } from '../panels/userManagementPanel';
+import { DataImportExportPanel } from '../panels/dataImportExportPanel';
+import { FunctionManagementPanel } from '../panels/functionManagementPanel';
+import { DatabaseManagementPanel } from '../panels/databaseManagementPanel';
+import { SequenceManagementPanel } from '../panels/sequenceManagementPanel';
+import { ForeignKeyManagementPanel } from '../panels/foreignKeyManagementPanel';
+import { TriggerManagementPanel } from '../panels/triggerManagementPanel';
+import { ModelGeneratorPanel } from '../panels/modelGeneratorPanel';
+import { ColumnManagementPanel } from '../panels/columnManagementPanel';
+import { ObjectPermissionsPanel } from '../panels/objectPermissionsPanel';
 
 export class SchemaTreeItem extends vscode.TreeItem {
     constructor(
@@ -328,15 +327,12 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
     readonly onDidChangeTreeData: vscode.Event<SchemaItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private schemaCache = new Map<string, SchemaItem[]>();
-    public containerReadyCache: { isReady: boolean; timestamp: number } | null = null;
-    private readonly CONTAINER_CHECK_CACHE_DURATION = 10000; // 10 seconds
     private isPreloading = false;
 
     constructor(
         private schemaService: SchemaService,
         private stateService: StateService,
-        private authManager: AuthManager,
-        private dockerService: DockerService
+        private authManager: AuthManager
     ) {
         // Listen for authentication state changes
         this.authManager.onDidChangeAuthentication((isAuthenticated) => {
@@ -355,7 +351,6 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
 
     public clearCache(): void {
         this.schemaCache.clear();
-        this.containerReadyCache = null;
         this.isPreloading = false;
         console.debug('Schema view: All caches cleared');
     }
@@ -368,28 +363,6 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
         setTimeout(() => {
             this._onDidChangeTreeData.fire();
         }, 50);
-    }
-
-    private async checkContainerReadyWithCache(): Promise<boolean> {
-        const now = Date.now();
-        
-        // Return cached result if still valid
-        if (this.containerReadyCache && 
-            (now - this.containerReadyCache.timestamp) < this.CONTAINER_CHECK_CACHE_DURATION) {
-            return this.containerReadyCache.isReady;
-        }
-        
-        // Check container readiness
-        try {
-            const isReady = await this.dockerService.checkContainerReady();
-            this.containerReadyCache = { isReady, timestamp: now };
-            return isReady;
-        } catch (error) {
-            console.error('Error checking container readiness:', error);
-            // Cache negative result for shorter duration
-            this.containerReadyCache = { isReady: false, timestamp: now - (this.CONTAINER_CHECK_CACHE_DURATION - 2000) };
-            return false;
-        }
     }
 
     getTreeItem(element: SchemaItem): vscode.TreeItem {
@@ -423,14 +396,6 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
             // Check if connected
             const viewData = await this.stateService.getViewData();
             if (!viewData.connected) {
-                return [];
-            }
-
-            // Check if proxy container is ready before loading data (with caching)
-            const isContainerReady = await this.checkContainerReadyWithCache();
-            if (!isContainerReady) {
-                console.warn('Schema view: Proxy container is not ready yet');
-                vscode.window.showWarningMessage('Database proxy is not ready yet. Please wait for the container to start completely.');
                 return [];
             }
 
@@ -488,7 +453,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                 case 'table':
                 case 'view':
                     // Get database, schema, and table name from metadata
-                    const tableDatabase = element.metadata?.database || 'postgres';
+                    const tableDatabase = element.metadata?.database || this.getFirstAvailableDatabase();
                     const tableSchema = element.metadata?.schema || 'public';
                     const tableName = element.name;
                     
@@ -522,7 +487,9 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
         
         const projectName = viewData.connection?.selectedProjectName || 'Unknown Project';
         const orgName = viewData.connection?.selectedOrgName || 'Unknown Organization';
-        const selectedDatabase = viewData.selectedDatabase || 'postgres';
+        // Get the first available database from branch connection info
+        const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+        const selectedDatabase = viewData.selectedDatabase || branchConnectionInfos?.[0]?.database || 'neondb';
         const port = viewData.port || 5432;
 
         console.debug('Schema view: Creating connection root', {
@@ -607,7 +574,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
         // Create container nodes for organizing schema objects
         // Get database from parent (format: db_${database})
         // Get schema from name (this is the actual schema name)
-        const database = schemaItem.parent ? schemaItem.parent.substring('db_'.length) : 'postgres';
+        const database = schemaItem.parent ? schemaItem.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
         const schema = schemaItem.name;
         const baseId = `${database}_${schema}`;
 
@@ -707,9 +674,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
         try {
             // Get current database for connection (roles are cluster-wide, so any DB works)
             const viewData = await this.stateService.getViewData();
-            const database = viewData.selectedDatabase || 'postgres';
+            const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+            const database = viewData.selectedDatabase || branchConnectionInfos?.[0]?.database || 'neondb';
             
-            const sqlService = new (require('./services/sqlQuery.service').SqlQueryService)(this.stateService, (this as any).context);
+            const sqlService = new (require('../services/sqlQuery.service').SqlQueryService)(this.stateService, (this as any).context);
             const result = await sqlService.executeQuery(`
                 SELECT 
                     r.rolname as name,
@@ -968,7 +936,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                                         let tableName: string;
                                         
                                         // Get database, schema, and table name from metadata
-                                        tableDatabase = tableItem.metadata?.database || 'postgres';
+                                        tableDatabase = tableItem.metadata?.database || this.getFirstAvailableDatabase();
                                         tableSchema = tableItem.metadata?.schema || 'public';
                                         tableName = tableItem.name;
                                         
@@ -1022,11 +990,10 @@ export class SchemaViewProvider {
     constructor(
         private context: vscode.ExtensionContext,
         private stateService: StateService,
-        private authManager: AuthManager,
-        private dockerService: DockerService
+        private authManager: AuthManager
     ) {
         this.schemaService = new SchemaService(stateService, context);
-        this.treeDataProvider = new SchemaTreeProvider(this.schemaService, stateService, authManager, dockerService);
+        this.treeDataProvider = new SchemaTreeProvider(this.schemaService, stateService, authManager);
         
         this.treeView = vscode.window.createTreeView('neonLocalSchema', {
             treeDataProvider: this.treeDataProvider,
@@ -1035,6 +1002,47 @@ export class SchemaViewProvider {
 
         this.registerCommands();
         this.setupEventListeners();
+    }
+
+    /**
+     * Get the first available database from the branch connection info
+     * Used as a fallback when database is not specified
+     */
+    private async getAvailableDatabase(requestedDatabase?: string): Promise<string> {
+        const viewData = await this.stateService.getViewData();
+        const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+        
+        if (!branchConnectionInfos || branchConnectionInfos.length === 0) {
+            // Fallback to neondb if no connection info
+            return 'neondb';
+        }
+        
+        // If a specific database is requested and exists, use it
+        if (requestedDatabase) {
+            const found = branchConnectionInfos.find(info => info.database === requestedDatabase);
+            if (found) {
+                return requestedDatabase;
+            }
+        }
+        
+        // Otherwise use the first available database
+        return branchConnectionInfos[0].database;
+    }
+
+    /**
+     * Synchronous version - gets first available database from connection info
+     * Used in contexts where we can't await (like setting default values)
+     */
+    private getFirstAvailableDatabase(): string {
+        const branchConnectionInfos = this.stateService.getBranchConnectionInfos();
+        
+        if (!branchConnectionInfos || branchConnectionInfos.length === 0) {
+            // Fallback to neondb if no connection info
+            return 'neondb';
+        }
+        
+        // Use the first available database
+        return branchConnectionInfos[0].database;
     }
 
     /**
@@ -1068,7 +1076,7 @@ export class SchemaViewProvider {
         // This should not happen if metadata is properly set
         console.warn(`parseSchemaItem: Could not parse item ${item.id} from metadata, using fallback`);
         return {
-            database: 'postgres',
+            database: this.getFirstAvailableDatabase(),
             schema: 'public',
             name
         };
@@ -1114,6 +1122,12 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.editTable', (item: SchemaItem) => {
                 this.editTable(item);
             }),
+            vscode.commands.registerCommand('neonLocal.schema.createDatabase', (item: SchemaItem) => {
+                this.createDatabase(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.dropDatabase', (item: SchemaItem) => {
+                this.dropDatabase(item);
+            }),
             vscode.commands.registerCommand('neonLocal.schema.manageObjectPermissions', (item: SchemaItem) => {
                 this.manageObjectPermissions(item);
             }),
@@ -1152,12 +1166,6 @@ export class SchemaViewProvider {
             }),
             vscode.commands.registerCommand('neonLocal.schema.refreshMaterializedView', (item: SchemaItem) => {
                 this.refreshMaterializedView(item);
-            }),
-            vscode.commands.registerCommand('neonLocal.schema.createDatabase', (item: SchemaItem) => {
-                this.createDatabase(item);
-            }),
-            vscode.commands.registerCommand('neonLocal.schema.dropDatabase', (item: SchemaItem) => {
-                this.dropDatabase(item);
             }),
             vscode.commands.registerCommand('neonLocal.schema.showUsers', (item: SchemaItem) => {
                 this.showUsers(item);
@@ -1300,10 +1308,17 @@ export class SchemaViewProvider {
                 // Handle connection state changes
                 if (isConnectedNow && (!wasConnectedBefore || branchChanged)) {
                     console.debug('Schema view: New connection or branch change - forcing aggressive refresh');
+                    // Close all existing connection pools to ensure fresh connections to new branch
+                    if (branchChanged) {
+                        console.debug('Schema view: Branch changed - closing all connection pools');
+                        await this.schemaService.cleanup();
+                    }
                     // Use force refresh to ensure complete cache clear and tree update
                     this.treeDataProvider.forceRefresh();
                 } else if (wasConnectedBefore && !isConnectedNow) {
-                    console.debug('Schema view: Connection lost - clearing all caches');
+                    console.debug('Schema view: Connection lost - clearing all caches and closing pools');
+                    // Close all connection pools when disconnecting
+                    await this.schemaService.cleanup();
                     this.treeDataProvider.clearCache();
                     this.treeDataProvider.refresh();
                 }
@@ -1405,7 +1420,7 @@ export class SchemaViewProvider {
         let tableName: string;
         
         // Get database, schema, and table name from metadata
-        database = item.metadata?.database || 'postgres';
+        database = item.metadata?.database || this.getFirstAvailableDatabase();
         schema = item.metadata?.schema || 'public';
         tableName = item.name;
         
@@ -1427,21 +1442,63 @@ export class SchemaViewProvider {
         }
 
         try {
-            // Get the current view data to get proxy port
+            // Get the current view data
             const viewData = await this.stateService.getViewData();
             
             if (!viewData.connected) {
                 throw new Error('Database is not connected. Please connect first.');
             }
 
-            const database = item.name;
-            const port = viewData.port;
+            const connectionInfos = viewData.connection.branchConnectionInfos;
             
-            // Use the local proxy credentials (from ConnectionPoolService)
-            const connectionString = `postgres://neon:npg@localhost:${port}/${database}`;
+            if (!connectionInfos || connectionInfos.length === 0) {
+                throw new Error('No connection information available. Please reconnect.');
+            }
 
-            // Launch PSQL with the local proxy connection string
-            const terminal = vscode.window.createTerminal(`Neon PSQL - ${database}`);
+            // Use the clicked database (user selected from tree view)
+            const selectedDatabase = item.name;
+
+            // Get roles for the selected database
+            const rolesForDatabase = connectionInfos
+                .filter(info => info.database === selectedDatabase)
+                .map(info => info.user);
+
+            const uniqueRoles = Array.from(new Set(rolesForDatabase));
+
+            if (uniqueRoles.length === 0) {
+                throw new Error(`No roles found for database ${selectedDatabase}`);
+            }
+
+            // Prompt for role selection
+            const selectedRole = await vscode.window.showQuickPick(
+                uniqueRoles.map(role => ({
+                    label: role,
+                    description: undefined
+                })),
+                {
+                    placeHolder: 'Select a role to connect as',
+                    title: `Select Role for ${selectedDatabase}`
+                }
+            );
+
+            if (!selectedRole) {
+                return; // User cancelled
+            }
+
+            // Find the connection info for the selected database and role
+            const connectionInfo = connectionInfos.find(
+                info => info.database === selectedDatabase && info.user === selectedRole.label
+            );
+
+            if (!connectionInfo) {
+                throw new Error(`No connection info found for database ${selectedDatabase} and role ${selectedRole.label}`);
+            }
+
+            // Build the direct Neon connection string
+            const connectionString = `postgresql://${connectionInfo.user}:${connectionInfo.password}@${connectionInfo.host}/${connectionInfo.database}?sslmode=require`;
+
+            // Launch PSQL with the direct Neon connection string
+            const terminal = vscode.window.createTerminal(`Neon PSQL - ${selectedDatabase} (${selectedRole.label})`);
             terminal.show();
             terminal.sendText(`psql "${connectionString}"`);
         } catch (error) {
@@ -1542,12 +1599,12 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // For container (Tables node), get from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
             } else if (item.type === 'schema') {
                 // Get database from parent (format: db_${database})
                 // Get schema from name (this is the actual schema name)
-                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                database = item.parent ? item.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
                 schema = item.name;
             } else {
                 // For database, default to public schema
@@ -1560,6 +1617,81 @@ export class SchemaViewProvider {
             
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to open create table dialog: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async createDatabase(item: SchemaItem): Promise<void> {
+        try {
+            await DatabaseManagementPanel.createDatabase(this.context, this.stateService);
+            
+            // Refresh connection info to include the new database
+            try {
+                const apiService = new (require('../services/api.service').NeonApiService)(this.context);
+                const projectId = await this.stateService.getCurrentProjectId();
+                const branchId = await this.stateService.currentlyConnectedBranch;
+                
+                if (projectId && branchId) {
+                    const [connectionInfos, databases, roles] = await Promise.all([
+                        apiService.getBranchConnectionInfo(projectId, branchId),
+                        apiService.getDatabases(projectId, branchId),
+                        apiService.getRoles(projectId, branchId)
+                    ]);
+                    
+                    await this.stateService.setBranchConnectionInfos(connectionInfos);
+                    await this.stateService.setDatabases(databases);
+                    await this.stateService.setRoles(roles);
+                    console.debug('✅ Refreshed connection info after database creation');
+                }
+            } catch (refreshError) {
+                console.error('Error refreshing connection info after database creation:', refreshError);
+                // Don't fail the operation, just log the error
+            }
+            
+            // Refresh the schema view to show the new database
+            this.treeDataProvider.refresh();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create database: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async dropDatabase(item: SchemaItem): Promise<void> {
+        if (item.type !== 'database') {
+            return;
+        }
+
+        try {
+            // Parse database ID: db_databasename
+            const parts = item.id.split('_');
+            const database = parts.slice(1).join('_');
+            await DatabaseManagementPanel.dropDatabase(this.context, this.stateService, database);
+            
+            // Refresh connection info to remove the dropped database
+            try {
+                const apiService = new (require('../services/api.service').NeonApiService)(this.context);
+                const projectId = await this.stateService.getCurrentProjectId();
+                const branchId = await this.stateService.currentlyConnectedBranch;
+                
+                if (projectId && branchId) {
+                    const [connectionInfos, databases, roles] = await Promise.all([
+                        apiService.getBranchConnectionInfo(projectId, branchId),
+                        apiService.getDatabases(projectId, branchId),
+                        apiService.getRoles(projectId, branchId)
+                    ]);
+                    
+                    await this.stateService.setBranchConnectionInfos(connectionInfos);
+                    await this.stateService.setDatabases(databases);
+                    await this.stateService.setRoles(roles);
+                    console.debug('✅ Refreshed connection info after database deletion');
+                }
+            } catch (refreshError) {
+                console.error('Error refreshing connection info after database deletion:', refreshError);
+                // Don't fail the operation, just log the error
+            }
+            
+            // Refresh the schema view to reflect the removal
+            this.treeDataProvider.refresh();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to drop database: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -1603,12 +1735,12 @@ export class SchemaViewProvider {
                 objectName = parsed.name;
             } else if (item.type === 'function') {
                 objectType = 'FUNCTION';
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 objectName = item.name;
             } else if (item.type === 'sequence') {
                 objectType = 'SEQUENCE';
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 objectName = item.name;
             } else {
@@ -1659,7 +1791,7 @@ export class SchemaViewProvider {
         try {
             // Get database from parent (format: db_${database})
             // Get schema from name (this is the actual schema name)
-            const database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+            const database = item.parent ? item.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
             const schemaName = item.name;
 
             await SchemaManagementPanel.editSchema(this.context, this.stateService, schemaName, database);
@@ -1676,7 +1808,7 @@ export class SchemaViewProvider {
         try {
             // Get database from parent (format: db_${database})
             // Get schema from name (this is the actual schema name)
-            const database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+            const database = item.parent ? item.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
             const schemaName = item.name;
 
             await SchemaManagementPanel.dropSchema(this.context, this.stateService, schemaName, database);
@@ -1693,7 +1825,7 @@ export class SchemaViewProvider {
         try {
             // Get database from parent (format: db_${database})
             // Get schema from name (this is the actual schema name)
-            const database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+            const database = item.parent ? item.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
             const schemaName = item.name;
 
             await SchemaManagementPanel.showSchemaProperties(this.context, this.stateService, schemaName, database);
@@ -1714,12 +1846,12 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // Called from indexes container
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
                 // Get database, schema, and table name from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.name;
             }
@@ -1809,12 +1941,12 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // For container (Views node), get from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
             } else if (item.type === 'schema') {
                 // Get database from parent (format: db_${database})
                 // Get schema from name (this is the actual schema name)
-                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                database = item.parent ? item.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
                 schema = item.name;
             } else {
                 // Database selected, use public schema by default
@@ -1969,7 +2101,7 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // For container (Functions node), get from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
             } else if (item.type === 'database') {
                 // For database, default to public schema
@@ -1978,7 +2110,7 @@ export class SchemaViewProvider {
             } else {
                 // Get database from parent (format: db_${database})
                 // Get schema from name (this is the actual schema name)
-                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                database = item.parent ? item.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
                 schema = item.name;
             }
 
@@ -2033,29 +2165,6 @@ export class SchemaViewProvider {
 
     getSchemaService(): SchemaService {
         return this.schemaService;
-    }
-
-    private async createDatabase(item: SchemaItem): Promise<void> {
-        try {
-            await DatabaseManagementPanel.createDatabase(this.context, this.stateService);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to create database: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private async dropDatabase(item: SchemaItem): Promise<void> {
-        if (item.type !== 'database') {
-            return;
-        }
-
-        try {
-            // Parse database ID: database_databasename
-            const parts = item.id.split('_');
-            const database = parts.slice(1).join('_');
-            await DatabaseManagementPanel.dropDatabase(this.context, this.stateService, database);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to drop database: ${error instanceof Error ? error.message : String(error)}`);
-        }
     }
 
     private async dropUser(item: SchemaItem): Promise<void> {
@@ -2130,7 +2239,7 @@ export class SchemaViewProvider {
 
         try {
             // Get project and branch IDs
-            const apiService = new (require('./services/api.service').NeonApiService)(this.context);
+            const apiService = new (require('../services/api.service').NeonApiService)(this.context);
             
             let projectId = await this.stateService.getCurrentProjectId();
             let branchId = await this.stateService.getCurrentBranchId();
@@ -2218,7 +2327,7 @@ export class SchemaViewProvider {
         try {
             if (isNeonSuperuser) {
                 // Use Neon API for neon_superuser roles
-                const apiService = new (require('./services/api.service').NeonApiService)(this.context);
+                const apiService = new (require('../services/api.service').NeonApiService)(this.context);
                 
                 let projectId = await this.stateService.getCurrentProjectId();
                 let branchId = await this.stateService.getCurrentBranchId();
@@ -2238,8 +2347,9 @@ export class SchemaViewProvider {
                 await apiService.deleteRole(projectId, branchId, roleName);
             } else {
                 // Use SQL for non-neon_superuser roles
-                const sqlService = new (require('./services/sqlQuery.service').SqlQueryService)(this.stateService, this.context);
-                const database = 'postgres'; // Roles are cluster-wide, use any database
+                const sqlService = new (require('../services/sqlQuery.service').SqlQueryService)(this.stateService, this.context);
+                // Roles are cluster-wide, use any available database from the branch
+                const database = await this.getAvailableDatabase();
                 
                 // Properly quote the role name to handle special characters and reserved words
                 await sqlService.executeQuery(`DROP ROLE IF EXISTS "${roleName}"`, database);
@@ -2294,7 +2404,7 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // For container (Sequences node), get from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
             } else if (item.type === 'database') {
                 // For database, default to public schema
@@ -2303,7 +2413,7 @@ export class SchemaViewProvider {
             } else {
                 // Get database from parent (format: db_${database})
                 // Get schema from name (this is the actual schema name)
-                database = item.parent ? item.parent.substring('db_'.length) : 'postgres';
+                database = item.parent ? item.parent.substring('db_'.length) : this.getFirstAvailableDatabase();
                 schema = item.name;
             }
 
@@ -2320,7 +2430,7 @@ export class SchemaViewProvider {
 
         try {
             // Get database and schema from metadata
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
@@ -2338,7 +2448,7 @@ export class SchemaViewProvider {
 
         try {
             // Get database and schema from metadata
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
@@ -2370,7 +2480,7 @@ export class SchemaViewProvider {
 
         try {
             // Get database and schema from metadata
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
@@ -2388,7 +2498,7 @@ export class SchemaViewProvider {
 
         try {
             // Get database and schema from metadata
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const sequenceName = item.name;
 
@@ -2469,12 +2579,12 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // Called from constraints container
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
                 // Get database, schema, and table name from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.name;
             }
@@ -2492,7 +2602,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from constraint item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const constraintName = item.name;
@@ -2523,7 +2633,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from constraint item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const constraintName = item.name;
@@ -2546,7 +2656,7 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // Called from triggers container
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
@@ -2570,7 +2680,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from trigger item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const triggerName = item.name;
@@ -2588,7 +2698,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from trigger item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const triggerName = item.name;
@@ -2606,7 +2716,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from trigger item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const triggerName = item.name;
@@ -2624,7 +2734,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from trigger item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const triggerName = item.name;
@@ -2642,7 +2752,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from trigger item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const triggerName = item.name;
@@ -2678,12 +2788,12 @@ export class SchemaViewProvider {
 
             if (item.type === 'container') {
                 // Called from policies container
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.metadata?.tableName || '';
             } else {
                 // Get database, schema, and table name from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.name;
             }
@@ -2701,7 +2811,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from policy item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const policyName = item.name;
@@ -2719,7 +2829,7 @@ export class SchemaViewProvider {
 
         try {
             // Get metadata from policy item
-            const database = item.metadata?.database || 'postgres';
+            const database = item.metadata?.database || this.getFirstAvailableDatabase();
             const schema = item.metadata?.schema || 'public';
             const tableName = item.metadata?.tableName || '';
             const policyName = item.name;
@@ -2759,7 +2869,7 @@ export class SchemaViewProvider {
                 tableName = item.metadata?.tableName;
             } else {
                 // Get database, schema, and table name from metadata
-                database = item.metadata?.database || 'postgres';
+                database = item.metadata?.database || this.getFirstAvailableDatabase();
                 schema = item.metadata?.schema || 'public';
                 tableName = item.name;
             }

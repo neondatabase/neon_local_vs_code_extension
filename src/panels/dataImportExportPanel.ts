@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
-import { SchemaService } from './services/schema.service';
-import { getStyles } from './templates/styles';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { SchemaService } from '../services/schema.service';
+import { getStyles } from '../templates/styles';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -91,7 +91,7 @@ export class DataImportExportPanel {
         try {
             // Get table columns
             const schemaService = new SchemaService(stateService, context);
-            const columns = await schemaService.getColumns(database || 'postgres', schema, tableName);
+            const columns = await schemaService.getColumns(database || 'neondb', schema, tableName);
             
             panel.webview.html = DataImportExportPanel.getImportHtml(
                 schema,

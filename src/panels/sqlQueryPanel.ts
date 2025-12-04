@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
-import { SqlQueryService, QueryResult, QueryError } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
+import { SqlQueryService, QueryResult, QueryError } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
 
 export class SqlQueryPanel {
     public static currentPanel: SqlQueryPanel | undefined;
@@ -18,27 +18,10 @@ export class SqlQueryPanel {
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
 
-        // If we already have a panel, show it
-        if (SqlQueryPanel.currentPanel) {
-            SqlQueryPanel.currentPanel.panel.reveal(column);
-            if (initialQuery) {
-                SqlQueryPanel.currentPanel.setQuery(initialQuery);
-            }
-            // Update the database context if provided
-            if (database) {
-                SqlQueryPanel.currentPanel.database = database;
-                SqlQueryPanel.currentPanel.sendMessage({
-                    command: 'updateDatabase',
-                    database: database
-                });
-            }
-            return;
-        }
-
-        // Otherwise, create a new panel
+        // Always create a new panel
         const panel = vscode.window.createWebviewPanel(
             'sqlQuery',
-            'SQL Editor',
+            database ? `SQL Editor - ${database}` : 'SQL Editor',
             column || vscode.ViewColumn.One,
             {
                 enableScripts: true,
@@ -170,9 +153,9 @@ export class SqlQueryPanel {
             };
 
             // Get database schema using the schema service
-            const schemaService = new (require('./services/schema.service').SchemaService)(
+            const schemaService = new (require('../services/schema.service').SchemaService)(
                 this.stateService, 
-                new (require('./services/api.service').NeonApiService)(this.context)
+                new (require('../services/api.service').NeonApiService)(this.context)
             );
 
             // Get tables and their columns

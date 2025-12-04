@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import { ORMDetectorService, ORMConfig, ORMType } from './services/orm.detector.service';
-import { DjangoIntegrationService } from './services/django.integration.service';
-import { PrismaIntegrationService } from './services/prisma.integration.service';
-import { StateService } from './services/state.service';
-import { SchemaService } from './services/schema.service';
+import { ORMDetectorService, ORMConfig, ORMType } from '../services/orms_and_migrations/orm.detector.service';
+import { DjangoIntegrationService } from '../services/orms_and_migrations/django.integration.service';
+import { PrismaIntegrationService } from '../services/orms_and_migrations/prisma.integration.service';
+import { StateService } from '../services/state.service';
+import { SchemaService } from '../services/schema.service';
 import { ORMTreeProviderEnhanced } from './ormViewEnhanced';
 
 interface ORMTreeItem {

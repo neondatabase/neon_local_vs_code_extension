@@ -1,14 +1,13 @@
 import * as vscode from 'vscode';
-import { ConfigurationManager, Logger } from './utils';
-import { DEBOUNCE_DELAY, VIEW_TYPES } from './constants';
-import { ViewData, WebviewMessage, NeonOrg, NeonProject, NeonBranch } from './types';
+import { ConfigurationManager, Logger } from '../utils';
+import { DEBOUNCE_DELAY, VIEW_TYPES } from '../constants';
+import { ViewData, WebviewMessage, NeonOrg, NeonProject, NeonBranch } from '../types';
 import * as path from 'path';
-import { WebViewService } from './services/webview.service';
-import { StateService } from './services/state.service';
-import { DockerService } from './services/docker.service';
-import { NeonApiService } from './services/api.service';
-import { SignInView } from './views/SignInView';
-import { AuthManager } from './auth/authManager';
+import { WebViewService } from '../services/webview.service';
+import { StateService } from '../services/state.service';
+import { NeonApiService } from '../services/api.service';
+import { SignInView } from './SignInView';
+import { AuthManager } from '../auth/authManager';
 
 export class ConnectViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = VIEW_TYPES.CONNECT;
@@ -20,7 +19,6 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
     private readonly _extensionUri: vscode.Uri;
     private readonly _webviewService: WebViewService;
     private readonly _stateService: StateService;
-    private readonly _dockerService: DockerService;
     private readonly _extensionContext: vscode.ExtensionContext;
     private _lastUpdateData?: ViewData;
     private _signInView?: SignInView;
@@ -32,13 +30,11 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
         extensionUri: vscode.Uri,
         webviewService: WebViewService,
         stateService: StateService,
-        dockerService: DockerService,
         extensionContext: vscode.ExtensionContext
     ) {
         this._extensionUri = extensionUri;
         this._webviewService = webviewService;
         this._stateService = stateService;
-        this._dockerService = dockerService;
         this._extensionContext = extensionContext;
         this._authManager = AuthManager.getInstance(extensionContext);
 
@@ -132,7 +128,9 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
 
         try {
             // Fetch organizations first
+            console.debug('initializeViewData: About to call getOrgs()');
             const orgs = await apiService.getOrgs();
+            console.debug('initializeViewData: getOrgs() returned', { orgCount: orgs.length });
             
             // Check if organizations have changed (indicating different user)
             const currentViewData = await this._stateService.getViewData();
@@ -189,7 +187,15 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
         } catch (error) {
             console.error('Error fetching organizations:', error);
             if (error instanceof Error) {
-                vscode.window.showErrorMessage(`Failed to fetch organizations: ${error.message}`);
+                const errorMessage = error.message;
+                vscode.window.showErrorMessage(`Failed to fetch organizations: ${errorMessage}`);
+                
+                // If timeout, suggest checking network
+                if (errorMessage.includes('timeout')) {
+                    vscode.window.showWarningMessage(
+                        'The request to Neon API timed out. Please check your network connection or try again later.'
+                    );
+                }
             }
         }
 
@@ -503,37 +509,47 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                             cancellable: false
                         }, async (progress) => {
                             try {
-                                // Get the current state before starting the proxy
+                                // Get the current state before connecting
                                 const currentState = await this._stateService.getViewData();
                                 
-                                progress.report({ message: "Starting local proxy..." });
+                                progress.report({ message: "Fetching connection information..." });
                                 
-                                // Start the container
-                                await this._dockerService.startContainer({
-                                    branchId: message.isExisting ? message.branchId : message.parentBranchId,
-                                    driver: message.driver,
-                                    isExisting: message.isExisting,
-                                    context: this._extensionContext,
-                                    projectId: this._stateService.currentProject,
-                                    port: currentState.port
-                                });
+                                // Get branch ID from message
+                                const branchId = message.branchId;
+                                const projectId = this._stateService.currentProject;
+                                
+                                console.debug('🔍 Connecting to branch:', branchId, 'project:', projectId);
+
+                                // Set currently connected branch and current branch
+                                await this._stateService.setCurrentlyConnectedBranch(branchId);
+                                await this._stateService.setCurrentBranch(message.branchId);
+
+                                // Fetch connection info, databases, and roles from Neon API
+                                const apiService = new NeonApiService(this._extensionContext);
+                                console.debug('🔍 Fetching connection info, databases, and roles...');
+                                
+                                const [connectionInfos, databases, roles] = await Promise.all([
+                                    apiService.getBranchConnectionInfo(projectId, branchId),
+                                    apiService.getDatabases(projectId, branchId),
+                                    apiService.getRoles(projectId, branchId)
+                                ]);
+
+                                console.debug('✅ Fetched connection info:', connectionInfos);
+                                console.debug('✅ Fetched databases:', databases);
+                                console.debug('✅ Fetched roles:', roles);
+
+                                // Store connection info in state
+                                await this._stateService.setBranchConnectionInfos(connectionInfos);
+
+                                // Build connection string for display (using first database)
+                                const firstConnection = connectionInfos[0];
+                                const connectionString = firstConnection 
+                                    ? `postgresql://${firstConnection.user}:${firstConnection.password}@${firstConnection.host}/${firstConnection.database}?sslmode=require`
+                                    : '';
 
                                 progress.report({ message: "Updating connection state..." });
 
-                                // Only set currentlyConnectedBranch if it's not already set from .branches files
-                                const currentlyConnectedBranch = await this._stateService.currentlyConnectedBranch;
-                                if (!currentlyConnectedBranch) {
-                                    const branchToConnect = message.isExisting ? message.branchId : message.parentBranchId;
-                                    await this._stateService.setCurrentlyConnectedBranch(branchToConnect);
-                                }
-
-                                if (message.isExisting) {
-                                    await this._stateService.setCurrentBranch(message.branchId);
-                                } else {
-                                    await this._stateService.setParentBranchId(message.parentBranchId);
-                                }
-
-                                // Preserve the current state
+                                // Update the connection state
                                 const currentFullState = await this._stateService.getViewData();
                                 await this._stateService.updateState({
                                     selection: {
@@ -551,83 +567,35 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                                     },
                                     connection: {
                                         ...currentFullState.connection,
-                                        connectedOrgId: currentState.selectedOrgId || '',
-                                        connectedOrgName: currentState.selectedOrgName || '',
-                                        connectedProjectId: currentState.selectedProjectId || '',
-                                        connectedProjectName: currentState.selectedProjectName || '',
-                                        databases: currentFullState.connection.databases || [],
-                                        roles: currentFullState.connection.roles || []
-                                    }
-                                });
-
-                                progress.report({ message: "Fetching database information..." });
-
-                                // For ephemeral branches, we need to get the actual branch ID from the .branches file
-                                let actualBranchId: string;
-                                if (message.isExisting) {
-                                    // For existing branches, use the selected branch ID
-                                    actualBranchId = message.branchId;
-                                    console.debug('🔍 Using existing branch ID for API calls:', actualBranchId);
-                                } else {
-                                    // For ephemeral branches, get the branch ID from the .branches file
-                                    console.debug('🔍 Getting ephemeral branch ID from .branches file...');
-                                    const ephemeralBranchId = await this._dockerService.checkBranchesFile(this._extensionContext);
-                                    if (!ephemeralBranchId) {
-                                        throw new Error('Failed to get ephemeral branch ID from .branches file');
-                                    }
-                                    actualBranchId = ephemeralBranchId;
-                                    console.debug('✅ Using ephemeral branch ID for API calls:', actualBranchId);
-                                }
-
-                                // Fetch and update databases and roles
-                                const apiService = new NeonApiService(this._extensionContext);
-                                const projectId = this._stateService.currentProject;
-                                console.debug('🔍 Making API calls with projectId:', projectId, 'branchId:', actualBranchId);
-                                
-                                const [databases, roles] = await Promise.all([
-                                    apiService.getDatabases(projectId, actualBranchId),
-                                    apiService.getRoles(projectId, actualBranchId)
-                                ]);
-
-                                // Update the connection state with databases and roles
-                                await this._stateService.updateState({
-                                    connection: {
-                                        ...currentFullState.connection,
+                                        connected: true,
+                                        connectionInfo: connectionString,
                                         databases,
                                         roles,
                                         connectedOrgId: currentState.selectedOrgId || '',
                                         connectedOrgName: currentState.selectedOrgName || '',
                                         connectedProjectId: currentState.selectedProjectId || '',
-                                        connectedProjectName: currentState.selectedProjectName || ''
+                                        connectedProjectName: currentState.selectedProjectName || '',
+                                        branchConnectionInfos: connectionInfos,
+                                        selectedDatabase: databases.length > 0 ? databases[0].name : ''
                                     }
                                 });
 
-                                // Update the view to reflect the new databases and roles
+                                // Mark as connected
+                                await this._stateService.setIsProxyRunning(true);
+
+                                // Update the view to reflect the connection
                                 await this.updateView();
+                                
+                                vscode.window.showInformationMessage('Successfully connected to Neon database!');
                             } catch (progressError) {
                                 // Re-throw the error to be handled by the outer catch block
                                 throw progressError;
                             }
                         });
                     } catch (error) {
-                        console.error('Error starting proxy:', error);
+                        console.error('Error connecting to database:', error);
                         if (error instanceof Error) {
-                            // Detect Docker not running errors across different operating systems (Unix & Windows)
-                            const dockerNotRunningPattern = /connect ENOENT.*(docker\.sock|docker_engine|pipe)/i;
-                            
-                            // Detect port collision errors (works for any port number)
-                            const portCollisionPattern = /Bind for 0\.0\.0\.0:\d+ failed: port is already allocated/i;
-                            
-                            let errorMessage: string;
-                            if (dockerNotRunningPattern.test(error.message)) {
-                                errorMessage = 'Make sure that Docker is installed and running before trying to connect.';
-                            } else if (portCollisionPattern.test(error.message)) {
-                                errorMessage = 'The selected database port is already in use on your system, select a different port and try to connect again';
-                            } else {
-                                errorMessage = error.message;
-                            }
-                            
-                            vscode.window.showErrorMessage(`Failed to start proxy: ${errorMessage}`);
+                            vscode.window.showErrorMessage(`Failed to connect: ${error.message}`);
                         }
                     } finally {
                         await this._stateService.setIsStarting(false);
@@ -635,9 +603,15 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 case 'stopProxy':
-                    await this._dockerService.stopContainer();
+                    // Clear connection state
+                    await this._stateService.setBranchConnectionInfos([]);
                     await this._stateService.setIsProxyRunning(false);
+                    await this._stateService.setCurrentlyConnectedBranch('');
                     await this.updateView();
+                    vscode.window.showInformationMessage('Disconnected from Neon database');
+                    break;
+                case 'selectConnectionDatabaseRole':
+                    await this.handleSelectConnectionDatabaseRole(message.currentDatabase, message.currentRole);
                     break;
                 case 'updateConnectionType':
                     console.debug('ConnectViewProvider: Handling connection type update:', {
@@ -751,6 +725,72 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
             clearTimeout(this._connectionTypeUpdateTimeout);
         }
         this._authStateChangeDisposable?.dispose();
+    }
+
+    private async handleSelectConnectionDatabaseRole(currentDatabase: string, currentRole: string): Promise<void> {
+        try {
+            const viewData = await this._stateService.getViewData();
+            const connectionInfos = viewData.connection.branchConnectionInfos;
+
+            if (!connectionInfos || connectionInfos.length === 0) {
+                vscode.window.showWarningMessage('No connection information available');
+                return;
+            }
+
+            // Get unique databases
+            const databases = Array.from(new Set(connectionInfos.map(info => info.database)));
+
+            // Show database picker
+            const selectedDatabase = await vscode.window.showQuickPick(
+                databases.map(db => ({
+                    label: db,
+                    description: db === currentDatabase ? '(Current)' : undefined
+                })),
+                {
+                    placeHolder: 'Select a database',
+                    title: 'Select Database'
+                }
+            );
+
+            if (!selectedDatabase) {
+                return; // User cancelled
+            }
+
+            // Get roles for the selected database
+            const rolesForDatabase = connectionInfos
+                .filter(info => info.database === selectedDatabase.label)
+                .map(info => info.user);
+
+            const uniqueRoles = Array.from(new Set(rolesForDatabase));
+
+            // Show role picker
+            const selectedRole = await vscode.window.showQuickPick(
+                uniqueRoles.map(role => ({
+                    label: role,
+                    description: role === currentRole && selectedDatabase.label === currentDatabase ? '(Current)' : undefined
+                })),
+                {
+                    placeHolder: 'Select a role',
+                    title: 'Select Role'
+                }
+            );
+
+            if (!selectedRole) {
+                return; // User cancelled
+            }
+
+            // Send the selected database and role back to the webview
+            if (this._view) {
+                this._view.webview.postMessage({
+                    command: 'updateConnectionDatabaseRole',
+                    database: selectedDatabase.label,
+                    role: selectedRole.label
+                });
+            }
+        } catch (error) {
+            console.error('Error selecting database/role:', error);
+            vscode.window.showErrorMessage(`Failed to select database/role: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
 
     private getWebviewContent(webview: vscode.Webview): string {

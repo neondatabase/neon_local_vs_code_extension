@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { TableDataService, TableDataResult, TableRow, ColumnDefinition, InsertRowData, UpdateRowData } from './services/tableData.service';
-import { StateService } from './services/state.service';
+import { TableDataService, TableDataResult, TableRow, ColumnDefinition, InsertRowData, UpdateRowData } from '../services/tableData.service';
+import { StateService } from '../services/state.service';
 
 export class TableDataPanel {
     public static currentPanels = new Map<string, TableDataPanel>();
@@ -247,7 +247,8 @@ export class TableDataPanel {
             }
 
             // Use the database from the table data panel context
-            const database = this.database || viewData.selectedDatabase || 'postgres';
+            const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+            const database = this.database || viewData.selectedDatabase || branchConnectionInfos?.[0]?.database || 'neondb';
             
             // Construct the Neon console URL for the specific table
             // The URL pattern might be different for specific tables, using the general tables view with filters

@@ -33,6 +33,13 @@ export interface NeonRole {
     updated_at: string;
 }
 
+export interface BranchConnectionInfo {
+    host: string;
+    database: string;
+    user: string;
+    password: string;
+}
+
 export interface ViewData {
     connection: {
         connected: boolean;
@@ -55,6 +62,7 @@ export interface ViewData {
         parentBranchName?: string;
         persistentApiToken?: string;
         port: number;
+        branchConnectionInfos?: BranchConnectionInfo[];
     };
     connected: boolean;
     isStarting: boolean;

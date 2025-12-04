@@ -486,6 +486,11 @@
           "group": "inline"
         },
         {
+          "command": "neonLocal.schema.createDatabase",
+          "when": "view == neonLocalSchema && viewItem == databasesContainer",
+          "group": "inline"
+        },
+        {
           "command": "neonLocal.schema.createUser",
           "when": "view == neonLocalSchema && viewItem == rolesContainer",
           "group": "inline"
@@ -619,6 +624,16 @@
           "command": "neonLocal.schema.dropView",
           "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
           "group": "9_view_delete"
+        },
+        {
+          "command": "neonLocal.schema.createDatabase",
+          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == databasesContainer)",
+          "group": "1_database"
+        },
+        {
+          "command": "neonLocal.schema.dropDatabase",
+          "when": "view == neonLocalSchema && viewItem == database",
+          "group": "9_database_delete"
         },
         {
           "command": "neonLocal.schema.launchPsql",

@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
-import { SchemaService } from './services/schema.service';
-import { getStyles } from './templates/styles';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { SchemaService } from '../services/schema.service';
+import { getStyles } from '../templates/styles';
 
 export interface ConstraintDefinition {
     constraintName: string;
@@ -82,7 +82,7 @@ export class ConstraintManagementPanel {
 
         try {
             const schemaService = new SchemaService(stateService, context);
-            const columns = await schemaService.getColumns(database || 'postgres', schema, tableName);
+            const columns = await schemaService.getColumns(database || 'neondb', schema, tableName);
             
             panel.webview.html = ConstraintManagementPanel.getCreateConstraintHtml(
                 schema,
@@ -231,7 +231,7 @@ export class ConstraintManagementPanel {
             
             // Get table columns
             const schemaService = new SchemaService(stateService, context);
-            const columns = await schemaService.getColumns(database || 'postgres', schema, tableName);
+            const columns = await schemaService.getColumns(database || 'neondb', schema, tableName);
             
             panel.webview.html = ConstraintManagementPanel.getEditConstraintHtml(
                 schema,

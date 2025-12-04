@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
-import { getStyles } from './templates/styles';
-import { NeonApiService } from './services/api.service';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { getStyles } from '../templates/styles';
+import { NeonApiService } from '../services/api.service';
 
 export interface UserDefinition {
     roleType?: 'neon' | 'sql';
@@ -27,6 +27,30 @@ export interface PermissionGrant {
 }
 
 export class UserManagementPanel {
+    /**
+     * Get the first available database from the branch connection info
+     * Roles are cluster-wide, so we can connect to any database to query them
+     */
+    private static async getAvailableDatabase(stateService: StateService, requestedDatabase?: string): Promise<string> {
+        const viewData = await stateService.getViewData();
+        const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+        
+        if (!branchConnectionInfos || branchConnectionInfos.length === 0) {
+            throw new Error('No connection information available. Please reconnect.');
+        }
+        
+        // If a specific database is requested and exists, use it
+        if (requestedDatabase) {
+            const found = branchConnectionInfos.find(info => info.database === requestedDatabase);
+            if (found) {
+                return requestedDatabase;
+            }
+        }
+        
+        // Otherwise use the first available database
+        return branchConnectionInfos[0].database;
+    }
+
     private static extractErrorMessage(error: any): string {
         // Handle PostgreSQL error objects
         if (error && typeof error === 'object' && 'message' in error) {
@@ -84,8 +108,8 @@ export class UserManagementPanel {
         try {
             const sqlService = new SqlQueryService(stateService, context);
             
-            // Get all users/roles - users are global, so use 'postgres' database if no database specified
-            const targetDb = database || 'postgres';
+            // Get all users/roles - users are global, so use any available database from the branch
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
             const usersResult = await sqlService.executeQuery(`
                 SELECT 
                     rolname as username,
@@ -189,9 +213,9 @@ export class UserManagementPanel {
         });
 
         try {
-            // Get existing roles for membership - users are global, so use 'postgres' database if no database specified
+            // Get existing roles for membership - users are global, so use any available database from the branch
             const sqlService = new SqlQueryService(stateService, context);
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
             const rolesResult = await sqlService.executeQuery(`
                 SELECT rolname
                 FROM pg_catalog.pg_roles
@@ -282,7 +306,7 @@ export class UserManagementPanel {
 
         try {
             const sqlService = new SqlQueryService(stateService, context);
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
             
             // Get current permissions
             const permsResult = await sqlService.executeQuery(`
@@ -453,7 +477,7 @@ export class UserManagementPanel {
         try {
             panel.webview.html = UserManagementPanel.getAddPermissionsHtml(username, schemas);
 
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -521,7 +545,7 @@ export class UserManagementPanel {
             const sql = `DROP ROLE ${username};`;
             
             const sqlService = new SqlQueryService(stateService, context);
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
             await sqlService.executeQuery(sql, targetDb);
 
             vscode.window.showInformationMessage(`User/role "${username}" dropped successfully!`);
@@ -592,7 +616,7 @@ export class UserManagementPanel {
             const sql = `ALTER ROLE "${username}" WITH PASSWORD '${password.replace(/'/g, "''")}';`;
             
             const sqlService = new SqlQueryService(stateService, context);
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
             await sqlService.executeQuery(sql, targetDb);
 
             vscode.window.showInformationMessage(`Password for "${username}" changed successfully!`);
@@ -872,7 +896,7 @@ export class UserManagementPanel {
 
         try {
             const sqlService = new SqlQueryService(stateService, context);
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
 
             // Fetch current role details
             const roleResult = await sqlService.executeQuery(`
@@ -1630,7 +1654,7 @@ export class UserManagementPanel {
         try {
             const sql = UserManagementPanel.generateGrantSql(username, grant);
             const sqlService = new SqlQueryService(stateService, context);
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
             await sqlService.executeQuery(sql, targetDb);
 
             // Refresh permissions data
@@ -1714,7 +1738,7 @@ export class UserManagementPanel {
         try {
             const sql = UserManagementPanel.generateRevokeSql(username, revoke);
             const sqlService = new SqlQueryService(stateService, context);
-            const targetDb = database || 'postgres';
+            const targetDb = await UserManagementPanel.getAvailableDatabase(stateService, database);
             await sqlService.executeQuery(sql, targetDb);
 
             // Refresh permissions data

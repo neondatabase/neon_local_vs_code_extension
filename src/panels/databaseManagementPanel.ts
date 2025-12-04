@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
-import { getStyles } from './templates/styles';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { getStyles } from '../templates/styles';
 
 export interface DatabaseDefinition {
     name: string;

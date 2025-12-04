@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { CONFIG } from './constants';
-import type { NeonConfiguration } from './types';
-import { SecureTokenStorage } from './services/secureTokenStorage';
+import { CONFIG } from '../constants';
+import type { NeonConfiguration } from '../types';
+import { SecureTokenStorage } from '../services/secureTokenStorage';
 
 export class ConfigurationManager {
     private static getConfig(): vscode.WorkspaceConfiguration {

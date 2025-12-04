@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { StateService } from './services/state.service';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { getStyles } from './templates/styles';
+import { StateService } from '../services/state.service';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { getStyles } from '../templates/styles';
 
 export class ObjectPermissionsPanel {
     private static extractErrorMessage(error: any): string {

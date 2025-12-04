@@ -101,7 +101,9 @@ export class NeonApiService {
     // OAuth token did not yield valid credentials. This prevents infinite retry loops.
     private async makeRequest<T>(path: string, method: string = 'GET', data?: any, attempt: number = 0): Promise<T> {
         try {
+            console.debug(`makeRequest: Starting request to ${path} (attempt ${attempt})`);
             const token = await this.getToken();
+            console.debug('makeRequest: Token retrieved', { hasToken: !!token, tokenLength: token?.length });
             if (!token) {
                 throw new Error('No authentication token available');
             }
@@ -120,12 +122,18 @@ export class NeonApiService {
             console.debug('Making request:', {
                 method,
                 path: `/api/v2${path}`,
-                headers: options.headers,
+                hostname: options.hostname,
+                hasToken: !!token,
+                tokenLength: token?.length,
                 data
             });
 
             return new Promise((resolve, reject) => {
                 const req = https.request(options, async (res) => {
+                    console.debug('Response started:', {
+                        statusCode: res.statusCode,
+                        headers: res.headers
+                    });
                     let responseData = '';
                     res.on('data', (chunk) => {
                         responseData += chunk;
@@ -209,6 +217,13 @@ export class NeonApiService {
                 req.on('error', (error) => {
                     console.error('Request error:', error);
                     reject(new Error(`Request failed: ${error.message}`));
+                });
+
+                // Set a timeout of 30 seconds for the request
+                req.setTimeout(30000, () => {
+                    console.error('Request timeout after 30 seconds');
+                    req.destroy();
+                    reject(new Error('Request timeout after 30 seconds'));
                 });
 
                 if (data) {
@@ -538,6 +553,76 @@ export class NeonApiService {
         } catch (error: unknown) {
             console.error('Error creating API key:', error);
             throw new Error(`Failed to create API key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Get complete connection information for all databases in a branch.
+     * This includes host, database name, user (owner), and password for each database.
+     * Similar to the Python `get_branch_connection_info` method.
+     */
+    public async getBranchConnectionInfo(projectId: string, branchId: string): Promise<Array<{
+        host: string;
+        database: string;
+        user: string;
+        password: string;
+    }>> {
+        try {
+            console.debug(`Fetching connection info for project=${projectId}, branch=${branchId}`);
+            
+            // Get the endpoint host for the branch
+            const host = await this.getBranchEndpoint(projectId, branchId);
+            console.debug(`Endpoint host: ${host}`);
+            
+            // Get all databases in the branch
+            const databases = await this.getDatabases(projectId, branchId);
+            console.debug(`Found ${databases.length} databases`);
+            
+            if (!databases || databases.length === 0) {
+                throw new Error('No databases found in the branch');
+            }
+            
+            // For each database, get the owner's password and build connection info
+            const connectionInfoPromises = databases.map(async (db) => {
+                if (!db.name || !db.owner_name) {
+                    console.warn(`Database ${db.name || 'unknown'} missing name or owner, skipping`);
+                    return null;
+                }
+                
+                try {
+                    const password = await this.getRolePassword(projectId, branchId, db.owner_name);
+                    return {
+                        host,
+                        database: db.name,
+                        user: db.owner_name,
+                        password
+                    };
+                } catch (error) {
+                    console.error(`Failed to get password for ${db.owner_name}:`, error);
+                    return null;
+                }
+            });
+            
+            const connectionInfos = await Promise.all(connectionInfoPromises);
+            
+            // Filter out any null values (databases that failed)
+            const validConnectionInfos = connectionInfos.filter(info => info !== null) as Array<{
+                host: string;
+                database: string;
+                user: string;
+                password: string;
+            }>;
+            
+            if (validConnectionInfos.length === 0) {
+                throw new Error('Failed to get connection info for any database');
+            }
+            
+            console.debug(`Successfully built connection info for ${validConnectionInfos.length} databases`);
+            return validConnectionInfos;
+            
+        } catch (error: unknown) {
+            console.error('Error getting branch connection info:', error);
+            throw new Error(`Failed to get branch connection info: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 }

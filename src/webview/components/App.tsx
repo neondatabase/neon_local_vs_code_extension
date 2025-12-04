@@ -37,9 +37,8 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
   // Ref to synchronously block rapid double-clicks before React state updates
   const processingRef = useRef(false);
-  const [portInputValue, setPortInputValue] = useState<string>('');
-  const [portError, setPortError] = useState<string | null>(null);
-  const [isConfigExpanded, setIsConfigExpanded] = useState<boolean>(false);
+  const [selectedConnectionDatabase, setSelectedConnectionDatabase] = useState<string>('');
+  const [selectedConnectionRole, setSelectedConnectionRole] = useState<string>('');
   
   // Only show connected view if proxy is running AND we have a connection info
   // Add a small delay before showing disconnected state to prevent flicker
@@ -56,16 +55,6 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     });
   }, [state.connection.connected, state.connection.isStarting]);
 
-  // Sync port input value with state
-  useEffect(() => {
-    setPortInputValue(state.connection.port.toString() || '5432');
-  }, [state.connection.port]);
-
-  // Helper function to validate port
-  const isValidPort = (port: number | string): boolean => {
-    const portNum = typeof port === 'string' ? parseInt(port, 10) : port;
-    return !isNaN(portNum) && portNum >= 1024 && portNum <= 65535;
-  };
 
   // Handle messages from the extension
   useEffect(() => {
@@ -97,6 +86,12 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
             // Forward the command to the extension
             vscode.postMessage({ command: 'launchPsql' });
             break;
+
+          case 'updateConnectionDatabaseRole':
+            console.debug('Updating connection database/role:', message.database, message.role);
+            setSelectedConnectionDatabase(message.database);
+            setSelectedConnectionRole(message.role);
+            break;
         }
       };
       
@@ -112,13 +107,6 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     };
   }, [vscode, updateState]);
 
-  const handleConnectionTypeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const type = event.target.value as 'existing' | 'new';
-    vscode.postMessage({
-        command: 'updateConnectionType',
-        connectionType: type
-    });
-  };
 
   const handleImportToken = async () => {
     vscode.postMessage({
@@ -241,23 +229,13 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     const selectedBranch = state.branches.find(branch => branch.id === branchId);
     
     if (selectedBranch) {
-      if (state.connection.type === 'existing') {
-        updateState({
-          connection: {
-            ...state.connection,
-            selectedBranchId: selectedBranch.id,
-            selectedBranchName: selectedBranch.name
-          }
-        });
-      } else {
-        updateState({
-          connection: {
-            ...state.connection,
-            parentBranchId: selectedBranch.id,
-            parentBranchName: selectedBranch.name
-          }
-        });
-      }
+      updateState({
+        connection: {
+          ...state.connection,
+          selectedBranchId: selectedBranch.id,
+          selectedBranchName: selectedBranch.name
+        }
+      });
       
       vscode.postMessage({
         command: 'selectBranch',
@@ -270,55 +248,6 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
 
 
 
-  const handlePortChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value;
-    
-    // Update local input value immediately to allow typing
-    setPortInputValue(value);
-    
-    // Clear any existing error when user starts typing
-    setPortError(null);
-    
-    // If empty, don't validate yet (allow user to type)
-    if (value === '') {
-      return;
-    }
-    
-    const port = parseInt(value, 10);
-    // Update state for any numeric input
-    if (!isNaN(port)) {
-      updateState({ connection: { ...state.connection, port } });
-      
-      // Validate port range and set error if invalid
-      if (!isValidPort(port)) {
-        setPortError('Port must be between 1024 and 65535');
-      }
-      
-      // Only send valid ports to the extension
-      if (isValidPort(port)) {
-        vscode.postMessage({
-          command: 'updatePort',
-          port
-        });
-      }
-    } else {
-      setPortError('Port must be a valid number');
-    }
-  };
-
-  const handlePortBlur = () => {
-    // On blur, validate the current value
-    if (portInputValue === '') {
-      setPortError('Port is required');
-    } else {
-      const port = parseInt(portInputValue, 10);
-      if (isNaN(port)) {
-        setPortError('Port must be a valid number');
-      } else if (!isValidPort(port)) {
-        setPortError('Port must be between 1024 and 65535');
-      }
-    }
-  };
 
   const handleStartProxy = () => {
     // Synchronously block if a start/stop operation is already in progress
@@ -331,11 +260,8 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     vscode.postMessage({
       command: 'startProxy',
       driver: state.connection.driver,
-      isExisting: state.connection.type === 'existing',
       branchId: state.connection.selectedBranchId,
       branchName: state.connection.selectedBranchName,
-      parentBranchId: state.connection.parentBranchId,
-      parentBranchName: state.connection.parentBranchName,
       orgId: state.connection.selectedOrgId,
       orgName: state.connection.selectedOrgName,
       projectId: state.connection.selectedProjectId,
@@ -369,6 +295,23 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     }
   };
 
+  // Build connection string for selected database and role
+  const getConnectionStringForDatabaseRole = (): string => {
+    if (!state.connection.branchConnectionInfos || state.connection.branchConnectionInfos.length === 0) {
+      return '';
+    }
+    
+    const connectionInfo = state.connection.branchConnectionInfos.find(
+      info => info.database === selectedConnectionDatabase && info.user === selectedConnectionRole
+    );
+    
+    if (!connectionInfo) {
+      return '';
+    }
+    
+    return `postgresql://${connectionInfo.user}:${connectionInfo.password}@${connectionInfo.host}/${connectionInfo.database}?sslmode=require`;
+  };
+
   // Clear the processing lock ONLY when the extension reports that it is no longer
   // in the "starting" phase.  This prevents the Connect button from being
   // re-enabled too early (while the container is still launching).
@@ -379,6 +322,16 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     }
   }, [state.connection.isStarting, state.connection.connected]);
 
+  // Initialize connection string selector with first available database/role
+  useEffect(() => {
+    if (state.connection.branchConnectionInfos && state.connection.branchConnectionInfos.length > 0) {
+      if (!selectedConnectionDatabase) {
+        setSelectedConnectionDatabase(state.connection.branchConnectionInfos[0].database);
+        setSelectedConnectionRole(state.connection.branchConnectionInfos[0].user);
+      }
+    }
+  }, [state.connection.branchConnectionInfos]);
+
   console.debug('state', state.connection);
   return (
     <div className="app">
@@ -387,7 +340,7 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
           <div className="connection-status">
             <div className="status-indicator connected">
               <span className="status-dot"></span>
-              Connected to {state.connection.type === 'new' ? 'ephemeral' : ''} branch
+              Connected to branch
             </div>
           </div>
 
@@ -403,27 +356,19 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
             <div className="detail-row">
               <div className="detail-label">Branch</div>
               <div className="detail-value">
-                {state.connection.type === 'new' 
-                  ? (state.connection.currentlyConnectedBranch || 'Not selected')
-                  : (state.connection.selectedBranchName || state.connection.selectedBranchId || 'Not selected')}
+                {state.connection.selectedBranchName || state.connection.selectedBranchId || 'Not selected'}
               </div>
             </div>
-            {state.connection.type === 'new' && (
-              <div className="detail-row">
-                <div className="detail-label">Parent Branch</div>
-                <div className="detail-value">{state.connection.parentBranchName || state.connection.parentBranchId || 'Not selected'}</div>
-              </div>
-            )}
 
-            {state.connectionInfo && (
-              <div>
+            {state.connection.branchConnectionInfos && state.connection.branchConnectionInfos.length > 0 && (
+              <>
                 <div className="detail-row">
                   <div className="detail-label-container">
-                    <div className="detail-label">Local Connection String</div>
+                    <div className="detail-label">Connection String</div>
                     <button
                       className="copy-button"
                       title="Copy connection string"
-                      onClick={() => handleCopy(state.connectionInfo, 'connection')}
+                      onClick={() => handleCopy(getConnectionStringForDatabaseRole(), 'connection')}
                     >
                       {copySuccess === 'connection' ? (
                         <span>Copied</span>
@@ -431,72 +376,36 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path d="M10.75 1.75H4.25C3.97386 1.75 3.75 1.97386 3.75 2.25V11.25C3.75 11.5261 3.97386 11.75 4.25 11.75H10.75C11.0261 11.75 11.25 11.5261 11.25 11.25V2.25C11.25 1.97386 11.0261 1.75 10.75 1.75Z" stroke="currentColor" strokeWidth="1.5"/>
                           <path d="M12.25 4.25H13.75V13.75H5.75V12.25" stroke="currentColor" strokeWidth="1.5"/>
-                      </svg>
+                        </svg>
                       )}
                     </button>
                   </div>
                   <div className="detail-value connection-string-container">
-                    <div className="connection-string">{state.connectionInfo}</div>
+                    <div className="connection-string">{getConnectionStringForDatabaseRole()}</div>
                   </div>
                 </div>
-              </div>
-            )}
-            {state.selectedDriver === 'serverless' && (
-              <div>
-                <div className="detail-row">
-                  <div className="detail-label-container">
-                    <div className="label-with-help">
-                      <div className="detail-label">Neon Serverless Driver Config</div>
-                      <HelpIcon 
-                        tooltip="When connecting to your app using the Neon serverless driver, you need to add these configuration settings to your app's code."
-                      />
-                    </div>
-                    <button
-                      className="copy-button"
-                      title="Copy serverless driver configuration"
-                      onClick={() => handleCopy(`import { neonConfig } from '@neondatabase/serverless';\n\n// For http connections\nneonConfig.fetchEndpoint = 'http://localhost:${state.port}/sql';\nneonConfig.poolQueryViaFetch = true;\n\n// For web socket connections\n// neonConfig.wsProxy = () => 'localhost:${state.port}';\n// neonConfig.useSecureWebSocket = false;\n// neonConfig.pipelineConnect = false;\n// neonConfig.poolQueryViaFetch = false;`, 'endpoint')}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M10.75 1.75H4.25C3.97386 1.75 3.75 1.97386 3.75 2.25V11.25C3.75 11.5261 3.97386 11.75 4.25 11.75H10.75C11.0261 11.75 11.25 11.5261 11.25 11.25V2.25C11.25 1.97386 11.0261 1.75 10.75 1.75Z" stroke="currentColor" strokeWidth="1.5"/>
-                        <path d="M12.25 4.25H13.75V13.75H5.75V12.25" stroke="currentColor" strokeWidth="1.5"/>
-                      </svg>
-                      <span className={`copy-success ${copySuccess === 'endpoint' ? 'visible' : ''}`}>
-                        Copied!
-                      </span>
-                    </button>
-                  </div>
-                  <div className="detail-value connection-string-container">
-                    <div className={`connection-string ${!isConfigExpanded ? 'truncated' : ''}`}>
-                      {!isConfigExpanded ? (
-                        <>
-                          import {'{'} neonConfig {'}'} from '@neondatabase/serverless';<br />
-                          neonConfig.fetchEndpoint = 'http://localhost:{state.port}/sql';<br />
-                          <span style={{ opacity: 0.6 }}>...</span>
-                        </>
-                      ) : (
-                        <>
-                          import {'{'} neonConfig {'}'} from '@neondatabase/serverless';<br /><br />
-                          // For http connections<br />
-                          neonConfig.fetchEndpoint = 'http://localhost:{state.port}/sql';<br />
-                          neonConfig.poolQueryViaFetch = true;<br /><br />
-                          // For web socket connections<br />
-                          // neonConfig.wsProxy = () =&gt; 'localhost:{state.port}';<br />
-                          // neonConfig.useSecureWebSocket = false;<br />
-                          // neonConfig.pipelineConnect = false;<br />
-                          // neonConfig.poolQueryViaFetch = false;
-                        </>
-                      )}
-                    </div>
-                    <button
-                      className="expand-button"
-                      onClick={() => setIsConfigExpanded(!isConfigExpanded)}
-                      title={isConfigExpanded ? 'Show less' : 'Show more'}
-                    >
-                      {isConfigExpanded ? '▲ Show less' : '▼ Show more'}
-                    </button>
-                  </div>
+                <div style={{ marginTop: '4px', marginBottom: '8px' }}>
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      vscode.postMessage({
+                        command: 'selectConnectionDatabaseRole',
+                        currentDatabase: selectedConnectionDatabase,
+                        currentRole: selectedConnectionRole
+                      });
+                    }}
+                    style={{
+                      color: 'var(--vscode-textLink-foreground)',
+                      textDecoration: 'none',
+                      fontSize: '12px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Change Database/Role
+                  </a>
                 </div>
-              </div>
+              </>
             )}
           </div>
 
@@ -515,147 +424,70 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
         <>
           <div className="form-content">
             <div className="section">
-              <div className="label-with-help">
-                <label htmlFor="connection-type">Connection Type</label>
-                <HelpIcon 
-                  tooltip="Connect to an existing Neon branch or a new ephemeral branch that will be automatically deleted when you disconnect."
-                  className="tooltip-below"
-                />
-              </div>
+              <label htmlFor="org">Organization</label>
               <select
-                id="connection-type"
-                value={state.connection.type}
-                onChange={handleConnectionTypeChange}
+                id="org"
+                value={state.connection.selectedOrgId ?? 'personal_account'}
+                onChange={handleOrgSelection}
               >
-                <option value="existing">Connect to Neon branch</option>
-                <option value="new">Connect to ephemeral Neon branch</option>
+                <option value="" disabled>Select an organization</option>
+                {state.orgs.map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name}
+                  </option>
+                ))}
               </select>
             </div>
 
-            {state.connection.type === 'new' && !state.connection.persistentApiToken ? (
-              <div className="token-requirement">
-                <p>Ephemeral branches require a persistent API token. Generate a persistent API token and import it to connect to ephemeral Neon branches.</p>
-                <div className="token-actions">
-                  <button onClick={handleGenerateToken} className="token-button">
-                    Create API Key
-                  </button>
-                  <button onClick={handleImportToken} className="token-button">
-                    Import API Key
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="section">
-                  <label htmlFor="org">Organization</label>
-                  <select
-                    id="org"
-                    value={state.connection.selectedOrgId ?? 'personal_account'}
-                    onChange={handleOrgSelection}
-                  >
-                    <option value="" disabled>Select an organization</option>
-                    {state.orgs.map((org) => (
-                      <option key={org.id} value={org.id}>
-                        {org.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            <div className="section">
+              <label htmlFor="project">Project</label>
+              <select
+                id="project"
+                value={state.connection.selectedProjectId || ""}
+                onChange={handleProjectSelection}
+                disabled={!state.connection.selectedOrgId || state.connection.selectedOrgId === ""}
+              >
+                <option value="" disabled>Select a project</option>
+                {state.projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-                <div className="section">
-                  <label htmlFor="project">Project</label>
-                  <select
-                    id="project"
-                    value={state.connection.selectedProjectId || ""}
-                    onChange={handleProjectSelection}
-                    disabled={!state.connection.selectedOrgId || state.connection.selectedOrgId === ""}
-                  >
-                    <option value="" disabled>Select a project</option>
-                    {state.projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            <div className="section">
+              <label htmlFor="branch">Branch</label>
+              <select
+                id="branch"
+                value={state.connection.selectedBranchId || ""}
+                onChange={handleBranchSelection}
+                disabled={!state.connection.selectedProjectId}
+              >
+                <option value="" disabled>Select a branch</option>
+                {state.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+                <option value="create_new">Create new branch...</option>
+              </select>
+            </div>
 
-                {state.connection.type === 'existing' ? (
-                  <div className="section">
-                    <label htmlFor="branch">Branch</label>
-                    <select
-                      id="branch"
-                      value={state.connection.selectedBranchId || ""}
-                      onChange={handleBranchSelection}
-                      disabled={!state.connection.selectedProjectId}
-                    >
-                      <option value="" disabled>Select a branch</option>
-                      {state.branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                      <option value="create_new">Create new branch...</option>
-                    </select>
-                  </div>
-                ) : (
-                  <div className="section">
-                    <label htmlFor="parent-branch">Parent Branch</label>
-                    <select
-                      id="parent-branch"
-                      value={state.connection.parentBranchId || ""}
-                      onChange={handleBranchSelection}
-                      disabled={!state.connection.selectedProjectId}
-                    >
-                      <option value="" disabled>Select a parent branch</option>
-                      {state.branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-
-
-                <div className="section">
-                  <div className="label-with-help">
-                    <label htmlFor="port">Database Port</label>
-                    <HelpIcon 
-                      tooltip="Local port for the database proxy container. Default is 5432. Must be between 1024-65535."
-                    />
-                  </div>
-                  <input
-                    type="number"
-                    id="port"
-                    min="1024"
-                    max="65535"
-                    value={portInputValue}
-                    onChange={handlePortChange}
-                    onBlur={handlePortBlur}
-                    className={portError ? 'error' : ''}
-                  />
-                  {portError && (
-                    <div className="field-error">
-                      {portError}
-                    </div>
-                  )}
-                </div>
-
-                <div className="section proxy-buttons">
-                  <button
-                    onClick={handleStartProxy}
-                    disabled={isProcessingCommand || !state.connection.selectedProjectId || (state.connection.type === 'existing' ? !state.connection.selectedBranchId : !state.connection.parentBranchId) || !!portError || !isValidPort(portInputValue)}
-                    className="start-button"
-                  >
-                    {isProcessingCommand ? 'Connecting...' : 'Connect'}
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="section proxy-buttons">
+              <button
+                onClick={handleStartProxy}
+                disabled={isProcessingCommand || !state.connection.selectedProjectId || !state.connection.selectedBranchId}
+                className="start-button"
+              >
+                {isProcessingCommand ? 'Connecting...' : 'Connect'}
+              </button>
+            </div>
           </div>
         </>
       )}
     </div>
   );
 }; 
+
+

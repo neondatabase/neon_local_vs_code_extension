@@ -62,6 +62,18 @@ export class SchemaService {
 
     async getDatabases(): Promise<SchemaItem[]> {
         try {
+            // Get the first available database from the branch connection info
+            const viewData = await this.stateService.getViewData();
+            const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+            
+            if (!branchConnectionInfos || branchConnectionInfos.length === 0) {
+                throw new Error('No connection information available. Please reconnect.');
+            }
+            
+            // Use the first available database to query for all databases
+            const queryDatabase = branchConnectionInfos[0].database;
+            console.debug(`Using database "${queryDatabase}" to query for all databases in the cluster`);
+            
             const result = await this.connectionPool.executeQuery(`
                 SELECT 
                     datname as name,
@@ -70,7 +82,7 @@ export class SchemaService {
                 WHERE datistemplate = false 
                     AND datname NOT IN ('postgres', 'template0', 'template1')
                 ORDER BY datname
-            `, [], 'postgres'); // Connect to postgres database to list all databases
+            `, [], queryDatabase);
 
             return result.rows.map((row, index) => ({
                 id: `db_${row.name}`,

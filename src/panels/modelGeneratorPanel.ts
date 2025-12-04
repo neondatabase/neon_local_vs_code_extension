@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { StateService } from './services/state.service';
-import { SchemaService } from './services/schema.service';
-import { ORMDetectorService, ORMType } from './services/orm.detector.service';
+import { StateService } from '../services/state.service';
+import { SchemaService } from '../services/schema.service';
+import { ORMDetectorService, ORMType } from '../services/orms_and_migrations/orm.detector.service';
 
 export class ModelGeneratorPanel {
     /**

@@ -457,4 +457,12 @@ export class SqlQueryService {
         
         return totalBytes;
     }
+
+    async cleanup(): Promise<void> {
+        try {
+            await this.connectionPool.closeAll();
+        } catch (error) {
+            console.error('Error during SQL query service cleanup:', error);
+        }
+    }
 }

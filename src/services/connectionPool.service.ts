@@ -37,23 +37,43 @@ export class ConnectionPoolService {
     }
 
     private async getConnectionConfig(database?: string): Promise<ConnectionConfig> {
-        const viewData = await this.stateService.getViewData();
-        
-        if (!viewData.connected) {
-            throw new Error('Database is not connected. Please connect first.');
-        }
+    const viewData = await this.stateService.getViewData();
 
-        return {
-            host: 'localhost',
-            port: viewData.port,
-            database: database || viewData.selectedDatabase || 'postgres',
-            user: 'neon',
-            password: 'npg',
-            ssl: {
-                rejectUnauthorized: false
-            }
-        };
+    if (!viewData.connected) {
+        throw new Error('Database is not connected. Please connect first.');
     }
+
+    const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+    if (!branchConnectionInfos || branchConnectionInfos.length === 0) {
+        throw new Error('No connection information available. Please reconnect.');
+    }
+
+    // Find connection info for the requested database
+    const requestedDatabase = database || viewData.connection.selectedDatabase;
+    let connectionInfo = branchConnectionInfos.find(info => info.database === requestedDatabase);
+    
+    // If not found, use the first available database from the branch
+    if (!connectionInfo) {
+        if (requestedDatabase) {
+            console.debug(`Database "${requestedDatabase}" not found in branch, using first available database: "${branchConnectionInfos[0].database}"`);
+        }
+        connectionInfo = branchConnectionInfos[0];
+    }
+
+    // Always use the database from the connection info (only connect to databases that exist in the branch)
+    const databaseToUse = connectionInfo.database;
+
+    return {
+        host: connectionInfo.host,
+        port: 5432, // Neon always uses 5432
+        database: databaseToUse,
+        user: connectionInfo.user,
+        password: connectionInfo.password,
+        ssl: {
+            rejectUnauthorized: false
+        }
+    };
+}
 
     private createPool(config: ConnectionConfig): Pool {
         console.log(`[CONNECTION POOL] Creating pool with config:`, {
@@ -97,12 +117,6 @@ export class ConnectionPoolService {
         const config = await this.getConnectionConfig(database);
         
         console.log(`[CONNECTION POOL] Getting connection for database: ${config.database} (requested: ${database})`);
-        
-        // Quick proxy check first
-        const isProxyReachable = await this.checkProxyStatus(config);
-        if (!isProxyReachable) {
-            throw new Error(`Unable to connect to database proxy at ${config.host}:${config.port}. Please ensure the Neon proxy container is running and accessible.`);
-        }
         
         const poolKey = this.getPoolKey(config.database);
         const poolState = this.poolStates.get(poolKey);

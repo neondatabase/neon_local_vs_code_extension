@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
-import { SchemaService } from './services/schema.service';
-import { getStyles } from './templates/styles';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { SchemaService } from '../services/schema.service';
+import { getStyles } from '../templates/styles';
 
 export interface ViewDefinition {
     viewName: string;
@@ -74,7 +74,7 @@ export class ViewManagementPanel {
             // Load tables from schema for reference
             const sqlService = new SqlQueryService(stateService, context);
             const schemaService = new SchemaService(stateService, context);
-            const tables = await schemaService.getTables(database || 'postgres', schema);
+            const tables = await schemaService.getTables(database || 'neondb', schema);
             
             // Get roles from database (excluding system roles and neon-specific roles)
             const rolesQuery = `
@@ -190,7 +190,7 @@ export class ViewManagementPanel {
 
             const viewData = result.rows[0];
             const schemaService = new SchemaService(stateService, context);
-            const tables = await schemaService.getTables(database || 'postgres', schema);
+            const tables = await schemaService.getTables(database || 'neondb', schema);
             
             // Get roles from database (excluding system roles and neon-specific roles)
             const rolesQuery = `

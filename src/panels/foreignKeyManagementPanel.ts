@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { StateService } from './services/state.service';
-import { SqlQueryService } from './services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { SqlQueryService } from '../services/sqlQuery.service';
 
 export class ForeignKeyManagementPanel {
     private static extractErrorMessage(error: any): string {

@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { MigrationScannerService, MigrationFile, MigrationFolder } from './services/migration.scanner.service';
-import { StateService } from './services/state.service';
-import { SqlQueryService } from './services/sqlQuery.service';
+import { MigrationScannerService, MigrationFile, MigrationFolder } from '../services/orms_and_migrations/migration.scanner.service';
+import { StateService } from '../services/state.service';
+import { SqlQueryService } from '../services/sqlQuery.service';
 
 interface MigrationTreeItem {
     id: string;

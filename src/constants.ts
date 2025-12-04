@@ -28,8 +28,5 @@ export const OAUTH = {
 
 export const VIEW_TYPES = {
     CONNECT: 'neonLocalConnect',
-    DATABASE: 'neonLocalDatabase',
-    ACTIONS: 'neonLocalActions',
-    SCHEMA: 'neonLocalSchema',
-    SIGN_IN: 'neonLocal.signIn'
+    SCHEMA: 'neonLocalSchema'
 } as const; 

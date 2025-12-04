@@ -1,13 +1,10 @@
 import * as vscode from 'vscode';
 import { WebViewService } from './services/webview.service';
 import { StateService } from './services/state.service';
-import { ConnectViewProvider } from './connectView';
-import { DatabaseViewProvider } from './databaseView';
-import { ActionsViewProvider } from './actionsView';
-import { SchemaViewProvider } from './schemaView';
-// import { MigrationsViewProvider } from './migrationsView';
-// import { ORMViewProvider } from './ormView';
-import { DockerService } from './services/docker.service';
+import { ConnectViewProvider } from './views/connectView';
+import { SchemaViewProvider } from './views/schemaView';
+// import { MigrationsViewProvider } from './views/migrationsView';
+// import { ORMViewProvider } from './views/ormView';
 import { ViewData } from './types';
 import { NeonApiService } from './services/api.service';
 import { SchemaService } from './services/schema.service';
@@ -18,7 +15,6 @@ export async function activate(context: vscode.ExtensionContext) {
   const stateService = new StateService(context);
   const apiService = new NeonApiService(context);
   const webviewService = new WebViewService(context, stateService);
-  const dockerService = new DockerService(context, stateService);
   const authManager = AuthManager.getInstance(context);
 
   // Initialize webview service
@@ -39,111 +35,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Check initial container status
-  try {
-    const isRunning = await dockerService.checkContainerStatus();
-    if (isRunning) {
-      console.debug('Container is already running, checking if it is ready...');
-      
-      // Check if the container is ready by looking at the logs
-      const isReady = await dockerService.checkContainerReady();
-      if (!isReady) {
-        console.debug('Container is not ready (no ready message found), stopping it...');
-        try {
-          await dockerService.stopContainer();
-          console.debug('Container stopped successfully');
-        } catch (stopError) {
-          console.error('Error stopping unready container:', stopError);
-        }
-        
-        // Ensure the UI shows disconnected state
-        await stateService.setIsProxyRunning(false);
-        await stateService.setCurrentlyConnectedBranch('');
-        await stateService.setDatabases([]);
-        await stateService.setRoles([]);
-        console.debug('State reset to disconnected after stopping unready container');
-      } else {
-        console.debug('Container is ready, updating state...');
-        
-        // First try to get branch ID from .branches file
-        const branchId = await dockerService.checkBranchesFile(context);
-        
-        if (branchId) {
-          console.debug('✅ Using branch ID from .branches file:', branchId);
-          await stateService.setIsProxyRunning(true);
-          await stateService.setCurrentlyConnectedBranch(branchId);
-
-          // Fetch and update databases and roles
-          try {
-            const projectId = await stateService.getCurrentProjectId();
-            console.debug('🔍 Extension startup - projectId:', projectId, 'branchId:', branchId);
-            
-            if (projectId) {
-              console.debug('📊 Fetching databases and roles for startup...');
-              const [databases, roles] = await Promise.all([
-                apiService.getDatabases(projectId, branchId),
-                apiService.getRoles(projectId, branchId)
-              ]);
-              await Promise.all([
-                stateService.setDatabases(databases),
-                stateService.setRoles(roles)
-              ]);
-              console.debug('✅ Updated databases and roles on startup');
-            } else {
-              console.warn('⚠️  No projectId found during startup');
-            }
-          } catch (error) {
-            console.error('❌ Error fetching databases and roles on startup:', error);
-          }
-        } else {
-          // Fallback to container info if .branches file doesn't have the ID
-          console.debug('⚠️  No branch ID in .branches file, falling back to container info...');
-          const containerInfo = await dockerService.getContainerInfo();
-          if (containerInfo) {
-            console.debug('✅ Using branch ID from container info:', containerInfo.branchId);
-            await stateService.setIsProxyRunning(true);
-            await stateService.setCurrentlyConnectedBranch(containerInfo.branchId);
-
-            // Fetch and update databases and roles
-            try {
-              const projectId = containerInfo.projectId;
-              console.debug('🔍 Extension startup (container fallback) - projectId:', projectId, 'branchId:', containerInfo.branchId);
-              
-              if (projectId) {
-                console.debug('📊 Fetching databases and roles for startup (from container info)...');
-                const [databases, roles] = await Promise.all([
-                  apiService.getDatabases(projectId, containerInfo.branchId),
-                  apiService.getRoles(projectId, containerInfo.branchId)
-                ]);
-                await Promise.all([
-                  stateService.setDatabases(databases),
-                  stateService.setRoles(roles)
-                ]);
-                console.debug('✅ Updated databases and roles on startup (from container info)');
-              } else {
-                console.warn('⚠️  No projectId found in container info during startup');
-              }
-            } catch (error) {
-              console.error('❌ Error fetching databases and roles on startup (container fallback):', error);
-            }
-          } else {
-            console.warn('⚠️  No container info available for fallback');
-          }
-        }
-        
-        // Start the status check to keep state in sync
-        await dockerService.startStatusCheck();
-        console.debug('Started status check for existing container');
-      }
-    } else {
-      console.debug('No running container found on startup');
-      await stateService.setIsProxyRunning(false);
-    }
-  } catch (error) {
-    console.error('Error checking initial container status:', error);
-    await stateService.setIsProxyRunning(false);
-  }
-
   // Register commands
   let disposables: vscode.Disposable[] = [];
 
@@ -152,25 +43,12 @@ export async function activate(context: vscode.ExtensionContext) {
     context.extensionUri,
     webviewService,
     stateService,
-    dockerService,
     context
-  );
-  const databaseViewProvider = new DatabaseViewProvider(
-    context.extensionUri,
-    webviewService,
-    stateService,
-    context
-  );
-  const actionsViewProvider = new ActionsViewProvider(
-    context.extensionUri,
-    webviewService,
-    stateService
   );
   const schemaViewProvider = new SchemaViewProvider(
     context,
     stateService,
-    authManager,
-    dockerService
+    authManager
   );
   // Migrations and ORM views temporarily disabled for this release
   // const migrationsViewProvider = new MigrationsViewProvider(
@@ -194,9 +72,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('neon-local-connect.showPanel', () => {
       webviewService.showPanel(context);
-    }),
-    vscode.commands.registerCommand('neon-local-connect.stopProxy', async () => {
-      await dockerService.stopContainer();
     }),
     vscode.commands.registerCommand('neonLocal.importApiToken', async () => {
       const token = await vscode.window.showInputBox({
@@ -410,35 +285,31 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('neon-local-connect.launchPsql', async () => {
       try {
-        // Get the current project and branch IDs
-        const projectId = await stateService.getCurrentProjectId();
+        // Get the current view data
         const viewData = await stateService.getViewData();
-        const branchId = viewData.connectionType === 'new' ? viewData.currentlyConnectedBranch : await stateService.getCurrentBranchId();
         
-        if (!projectId || !branchId) {
-          throw new Error('Project ID or Branch ID not found');
+        if (!viewData.connected) {
+          throw new Error('Database is not connected. Please connect first.');
         }
 
-        // Get available databases and roles
-        const databases = await stateService.getDatabases();
-        const roles = await stateService.getRoles();
-        if (!databases || databases.length === 0) {
-          throw new Error('No databases available');
+        const connectionInfos = viewData.connection.branchConnectionInfos;
+        
+        if (!connectionInfos || connectionInfos.length === 0) {
+          throw new Error('No connection information available. Please reconnect.');
         }
-        if (!roles || roles.length === 0) {
-          throw new Error('No roles available');
-        }
+
+        // Get unique databases
+        const databases = Array.from(new Set(connectionInfos.map(info => info.database)));
 
         // Prompt user to select a database
         const selectedDatabase = await vscode.window.showQuickPick(
           databases.map(db => ({
-            label: db.name,
-            description: `Owner: ${db.owner_name}`,
-            detail: db.created_at ? `Created: ${new Date(db.created_at).toLocaleString()}` : undefined
+            label: db,
+            description: undefined
           })),
           {
             placeHolder: 'Select a database to connect to',
-            ignoreFocusOut: true
+            title: 'Select Database for PSQL'
           }
         );
 
@@ -446,15 +317,22 @@ export async function activate(context: vscode.ExtensionContext) {
           return; // User cancelled
         }
 
+        // Get roles for the selected database
+        const rolesForDatabase = connectionInfos
+          .filter(info => info.database === selectedDatabase.label)
+          .map(info => info.user);
+
+        const uniqueRoles = Array.from(new Set(rolesForDatabase));
+
         // Prompt user to select a role
         const selectedRole = await vscode.window.showQuickPick(
-          roles.map(role => ({
-            label: role.name,
-            description: role.protected ? 'Protected' : undefined
+          uniqueRoles.map(role => ({
+            label: role,
+            description: undefined
           })),
           {
             placeHolder: 'Select a role to connect as',
-            ignoreFocusOut: true
+            title: 'Select Role for PSQL'
           }
         );
 
@@ -462,17 +340,20 @@ export async function activate(context: vscode.ExtensionContext) {
           return; // User cancelled
         }
 
-        // Get the role password and compute endpoint
-        const [password, endpoint] = await Promise.all([
-          apiService.getRolePassword(projectId, branchId, selectedRole.label),
-          apiService.getBranchEndpoint(projectId, branchId)
-        ]);
+        // Find the connection info for the selected database and role
+        const connectionInfo = connectionInfos.find(
+          info => info.database === selectedDatabase.label && info.user === selectedRole.label
+        );
 
-        // Create the connection string
-        const connectionString = `postgres://${selectedRole.label}:${password}@${endpoint}/${selectedDatabase.label}?sslmode=require`;
+        if (!connectionInfo) {
+          throw new Error(`No connection info found for database ${selectedDatabase.label} and role ${selectedRole.label}`);
+        }
 
-        // Launch PSQL with the connection string
-        const terminal = vscode.window.createTerminal('Neon PSQL');
+        // Build the direct Neon connection string
+        const connectionString = `postgresql://${connectionInfo.user}:${connectionInfo.password}@${connectionInfo.host}/${connectionInfo.database}?sslmode=require`;
+
+        // Launch PSQL with the direct Neon connection string
+        const terminal = vscode.window.createTerminal(`Neon PSQL - ${selectedDatabase.label} (${selectedRole.label})`);
         terminal.show();
         terminal.sendText(`psql "${connectionString}"`);
       } catch (error) {
@@ -481,25 +362,18 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('neon-local-connect.resetFromParent', async () => {
         try {
-            const containerInfo = await dockerService.getContainerInfo();
-            
-            if (!containerInfo) {
-                throw new Error('Container info not found. Make sure the container is running.');
-            }
-            
-            const projectId = containerInfo.projectId;
+            // Get project and branch IDs from state
+            const projectId = await stateService.getCurrentProjectId();
             const branchId = await stateService.currentlyConnectedBranch;
             const viewData = await stateService.getViewData();
-            const connectionType = viewData.connectionType;
-            const branchName = connectionType === 'existing' ? viewData.selectedBranchName : branchId;
+            const branchName = viewData.connection.selectedBranchName || branchId;
             
             console.debug('Reset from parent - Project ID:', projectId);
             console.debug('Reset from parent - Branch ID:', branchId);
             console.debug('Reset from parent - Branch Name:', branchName);
-            console.debug('Reset from parent - Connection Type:', connectionType);
             
             if (!projectId || !branchId) {
-                throw new Error('Project ID or Branch ID not found');
+                throw new Error('Project ID or Branch ID not found. Please ensure you are connected to a branch.');
             }
 
             // Check if the branch has a parent
@@ -509,10 +383,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // Add confirmation dialog with appropriate branch identifier
-            const confirmMessage = connectionType === 'existing' 
-                ? `Are you sure you want to reset branch "${branchName}" to its parent state? This action cannot be undone.`
-                : `Are you sure you want to reset branch "${branchId}" to its parent state? This action cannot be undone.`;
+            // Add confirmation dialog
+            const confirmMessage = `Are you sure you want to reset branch "${branchName}" to its parent state? This action cannot be undone.`;
 
             const answer = await vscode.window.showInformationMessage(
                 confirmMessage,
@@ -527,12 +399,8 @@ export async function activate(context: vscode.ExtensionContext) {
             // Reset the branch using the API service
             await apiService.resetBranchToParent(projectId, branchId);
 
-            // Show success message with appropriate branch identifier
-            const successMessage = connectionType === 'existing'
-                ? `Branch "${branchName}" reset.`
-                : `Branch "${branchId}" reset.`;
-
-            vscode.window.showInformationMessage(successMessage);
+            // Show success message
+            vscode.window.showInformationMessage(`Branch "${branchName}" reset.`);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to reset branch: ${error}`);
         }
@@ -541,9 +409,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register view providers
   disposables.push(
-    vscode.window.registerWebviewViewProvider('neonLocalConnect', connectViewProvider),
-    vscode.window.registerWebviewViewProvider('neonLocalDatabase', databaseViewProvider),
-    vscode.window.registerWebviewViewProvider('neonLocalActions', actionsViewProvider)
+    vscode.window.registerWebviewViewProvider('neonLocalConnect', connectViewProvider)
   );
 
   // Update context for schema view visibility (requires both authentication and connection)

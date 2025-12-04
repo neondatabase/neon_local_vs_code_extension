@@ -432,4 +432,12 @@ export class TableDataService {
 
         return { isValid: errors.length === 0, errors };
     }
+
+    async cleanup(): Promise<void> {
+        try {
+            await this.connectionPool.closeAll();
+        } catch (error) {
+            console.error('Error during table data service cleanup:', error);
+        }
+    }
 }

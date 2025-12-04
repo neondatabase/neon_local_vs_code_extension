@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
-import { SchemaService } from './services/schema.service';
-import { getStyles } from './templates/styles';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { SchemaService } from '../services/schema.service';
+import { getStyles } from '../templates/styles';
 
 export interface ColumnChange {
     action: 'add' | 'modify' | 'drop';
@@ -92,7 +92,7 @@ export class EditTablePanel {
             const schemaService = new SchemaService(this.stateService, this.context);
             
             // Get columns
-            const columns = await schemaService.getColumns(this.database || 'postgres', this.schema, this.tableName);
+            const columns = await schemaService.getColumns(this.database || 'neondb', this.schema, this.tableName);
             
             // Get current table owner
             const ownerQuery = `

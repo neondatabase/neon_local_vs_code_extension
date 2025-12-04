@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { SqlQueryService } from './services/sqlQuery.service';
-import { StateService } from './services/state.service';
-import { SchemaService } from './services/schema.service';
-import { getStyles } from './templates/styles';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+import { SchemaService } from '../services/schema.service';
+import { getStyles } from '../templates/styles';
 
 export interface IndexDefinition {
     indexName: string;
@@ -76,7 +76,7 @@ export class IndexManagementPanel {
         try {
             // Load table columns
             const schemaService = new SchemaService(stateService, context);
-            const columns = await schemaService.getColumns(database || 'postgres', schema, tableName);
+            const columns = await schemaService.getColumns(database || 'neondb', schema, tableName);
             
             panel.webview.html = IndexManagementPanel.getCreateIndexHtml(
                 schema,
@@ -309,7 +309,7 @@ export class IndexManagementPanel {
 
         try {
             const schemaService = new SchemaService(stateService, context);
-            const indexes = await schemaService.getIndexes(database || 'postgres', schema, tableName);
+            const indexes = await schemaService.getIndexes(database || 'neondb', schema, tableName);
             
             panel.webview.html = IndexManagementPanel.getManageIndexesHtml(
                 schema,
@@ -342,7 +342,7 @@ export class IndexManagementPanel {
                         break;
                     case 'refresh':
                         const refreshedIndexes = await schemaService.getIndexes(
-                            database || 'postgres',
+                            database || 'neondb',
                             schema,
                             tableName
                         );

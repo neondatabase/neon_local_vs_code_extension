@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import { ViewData, NeonBranch, NeonOrg, NeonProject, NeonDatabase, NeonRole } from '../types';
-import { FileService } from './file.service';
+import { ViewData, NeonBranch, NeonOrg, NeonProject, NeonDatabase, NeonRole, BranchConnectionInfo } from '../types';
 import { ConfigurationManager } from '../utils';
 
 interface ConnectionState {
@@ -20,6 +19,7 @@ interface ConnectionState {
     roles: NeonRole[];
     persistentApiToken?: string;
     port: number;
+    branchConnectionInfos?: BranchConnectionInfo[];
 }
 
 interface SelectionState {
@@ -92,12 +92,13 @@ export interface IStateService {
     setDatabases(databases: NeonDatabase[]): Promise<void>;
     setRoles(roles: NeonRole[]): Promise<void>;
     getRoles(): Promise<NeonRole[]>;
+    setBranchConnectionInfos(infos: BranchConnectionInfo[]): Promise<void>;
+    getBranchConnectionInfos(): BranchConnectionInfo[];
 }
 
 export class StateService implements IStateService {
     private readonly context: vscode.ExtensionContext;
     private state: vscode.Memento;
-    private fileService: FileService;
     private _state: State = {
         connection: {
             connected: false,
@@ -140,7 +141,6 @@ export class StateService implements IStateService {
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
         this.state = context.globalState;
-        this.fileService = new FileService(context);
         this.loadState().catch(error => {
             console.error('Error loading initial state:', error);
         });
@@ -435,7 +435,8 @@ export class StateService implements IStateService {
                 parentBranchId: this._state.selection.parentBranchId,
                 parentBranchName: this._state.selection.parentBranchName,
                 persistentApiToken: this._state.connection.persistentApiToken,
-                port: this._state.connection.port
+                port: this._state.connection.port,
+                branchConnectionInfos: this._state.connection.branchConnectionInfos
             },
             connected: this._state.connection.connected,
             isStarting: this._state.connection.isStarting,
@@ -619,5 +620,18 @@ export class StateService implements IStateService {
                 port: value
             }
         });
+    }
+
+    public async setBranchConnectionInfos(infos: BranchConnectionInfo[]): Promise<void> {
+        await this.updateState({
+            connection: {
+                ...this._state.connection,
+                branchConnectionInfos: infos
+            }
+        });
+    }
+
+    public getBranchConnectionInfos(): BranchConnectionInfo[] {
+        return this._state.connection.branchConnectionInfos || [];
     }
 } 

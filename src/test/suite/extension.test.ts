@@ -70,7 +70,6 @@ describe('Extension Test Suite', () => {
         const expectedCommands = [
             'neon-local-connect.configure',
             'neon-local-connect.showPanel',
-            'neon-local-connect.stopProxy',
             'neon-local-connect.clearAuth'
         ];
         
