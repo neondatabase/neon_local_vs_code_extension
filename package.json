@@ -491,11 +491,6 @@
           "group": "inline"
         },
         {
-          "command": "neonLocal.schema.createDatabase",
-          "when": "view == neonLocalSchema && viewItem == databasesContainer",
-          "group": "inline"
-        },
-        {
           "command": "neonLocal.schema.createSchema",
           "when": "view == neonLocalSchema && viewItem == schemasContainer",
           "group": "inline"
@@ -626,19 +621,9 @@
           "group": "9_view_delete"
         },
         {
-          "command": "neonLocal.schema.createDatabase",
-          "when": "view == neonLocalSchema && viewItem == connection",
-          "group": "1_database"
-        },
-        {
           "command": "neonLocal.schema.launchPsql",
           "when": "view == neonLocalSchema && viewItem == database",
           "group": "1_database_operations"
-        },
-        {
-          "command": "neonLocal.schema.dropDatabase",
-          "when": "view == neonLocalSchema && viewItem == database",
-          "group": "9_database_delete"
         },
         {
           "command": "neonLocal.schema.showUsers",
@@ -704,11 +689,6 @@
           "command": "neonLocal.schema.createForeignKey",
           "when": "view == neonLocalSchema && viewItem == table",
           "group": "4_foreignkey"
-        },
-        {
-          "command": "neonLocal.orm.generateModel",
-          "when": "view == neonLocalSchema && viewItem == table",
-          "group": "7_generate"
         },
         {
           "command": "neonLocal.schema.viewForeignKeyProperties",
@@ -804,11 +784,6 @@
           "command": "neonLocal.schema.dropIndex",
           "when": "view == neonLocalSchema && viewItem == index",
           "group": "9_index_delete"
-        },
-        {
-          "command": "neonLocal.schema.createDatabase",
-          "when": "view == neonLocalSchema && viewItem == databasesContainer",
-          "group": "1_database_create"
         },
         {
           "command": "neonLocal.schema.createSchema",

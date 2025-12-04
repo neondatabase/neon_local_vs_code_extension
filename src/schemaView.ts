@@ -2859,15 +2859,17 @@ export class SchemaViewProvider {
         switch (item.type) {
             case 'connection':
                 actions.push(
-                    { label: '$(database) Create Database', command: 'neonLocal.schema.createDatabase' },
+                    // DISABLED: Create Database
+                    // { label: '$(database) Create Database', command: 'neonLocal.schema.createDatabase' },
                     { label: '$(refresh) Reset branch to parent', command: 'neonLocal.schema.resetFromParent' }
                 );
                 break;
 
             case 'database':
                 actions.push(
-                    { label: '$(terminal) Launch psql', command: 'neonLocal.schema.launchPsql', description: 'Open psql terminal' },
-                    { label: '$(trash) Drop Database', command: 'neonLocal.schema.dropDatabase', description: 'Delete this database' }
+                    { label: '$(terminal) Launch psql', command: 'neonLocal.schema.launchPsql', description: 'Open psql terminal' }
+                    // DISABLED: Drop Database
+                    // { label: '$(trash) Drop Database', command: 'neonLocal.schema.dropDatabase', description: 'Delete this database' }
                 );
                 break;
 
@@ -3014,9 +3016,10 @@ export class SchemaViewProvider {
                 // Handle container-specific actions
                 const containerType = item.metadata?.containerType;
                 if (containerType === 'databases') {
-                    actions.push(
-                        { label: '$(add) Create Database', command: 'neonLocal.schema.createDatabase', description: 'Create a new database' }
-                    );
+                    // DISABLED: Create Database
+                    // actions.push(
+                    //     { label: '$(add) Create Database', command: 'neonLocal.schema.createDatabase', description: 'Create a new database' }
+                    // );
                 } else if (containerType === 'schemas') {
                     actions.push(
                         { label: '$(add) Create Schema', command: 'neonLocal.schema.createSchema', description: 'Create a new schema' }

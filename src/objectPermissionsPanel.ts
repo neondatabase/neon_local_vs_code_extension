@@ -328,24 +328,26 @@ export class ObjectPermissionsPanel {
                 params = [schema, objectName];
                 break;
             case 'SCHEMA':
-                // For schemas, we need to query the system catalog directly
-                // Use a CTE to avoid calling aclexplode multiple times
-                // Handle NULL ACLs (default permissions) by using COALESCE with an empty array
+                // For schemas, query the system catalog
+                // Handle both explicit ACLs and default permissions (NULL ACLs)
                 query = `
-                    WITH acl_data AS (
-                        SELECT 
-                            (aclexplode(COALESCE(n.nspacl, ARRAY[]::aclitem[]))).*
-                        FROM pg_namespace n
-                        WHERE n.nspname = $1
-                    )
                     SELECT 
                         COALESCE(r.rolname, 'PUBLIC') as grantee,
                         a.privilege_type,
                         CASE WHEN a.is_grantable THEN 'YES' ELSE 'NO' END as is_grantable,
                         grantor.rolname as grantor
-                    FROM acl_data a
+                    FROM pg_namespace n
+                    CROSS JOIN LATERAL (
+                        SELECT * FROM aclexplode(
+                            CASE 
+                                WHEN n.nspacl IS NULL THEN acldefault('n', n.nspowner)
+                                ELSE n.nspacl
+                            END
+                        )
+                    ) AS a
                     LEFT JOIN pg_roles r ON r.oid = a.grantee
                     LEFT JOIN pg_roles grantor ON grantor.oid = a.grantor
+                    WHERE n.nspname = $1
                     ORDER BY grantee, privilege_type
                 `;
                 params = [schema];
