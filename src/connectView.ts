@@ -642,6 +642,25 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                 case 'requestInitialData':
                     await this.updateView();
                     break;
+                case 'refreshBranches':
+                    if (!message.projectId) {
+                        console.error('No project ID provided for refreshBranches');
+                        return;
+                    }
+                    try {
+                        const apiService = new NeonApiService(this._extensionContext);
+                        const branches = await apiService.getBranches(message.projectId);
+                        await this._stateService.setBranches(branches);
+                        await this._stateService.updateLoadingState({ branches: false });
+                        await this.updateView();
+                    } catch (error) {
+                        console.error('Error refreshing branches:', error);
+                        await this._stateService.updateLoadingState({ branches: false });
+                        if (error instanceof Error) {
+                            vscode.window.showErrorMessage(`Failed to refresh branches: ${error.message}`);
+                        }
+                    }
+                    break;
                 case 'createNewBranch':
                     try {
                         // Show input box for branch name
