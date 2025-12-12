@@ -121,6 +121,30 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     });
   };
 
+  const handleRefreshOrgs = () => {
+    vscode.postMessage({
+      command: 'refreshOrgs'
+    });
+  };
+
+  const handleRefreshProjects = () => {
+    if (state.connection.selectedOrgId) {
+      vscode.postMessage({
+        command: 'refreshProjects',
+        orgId: state.connection.selectedOrgId
+      });
+    }
+  };
+
+  const handleRefreshBranches = () => {
+    if (state.connection.selectedProjectId) {
+      vscode.postMessage({
+        command: 'refreshBranches',
+        projectId: state.connection.selectedProjectId
+      });
+    }
+  };
+
   const handleOrgSelection = (event: React.ChangeEvent<HTMLSelectElement>) => {
     console.debug('Organization selection changed:', event.target.value);
     const orgId = event.target.value;
@@ -424,7 +448,19 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
         <>
           <div className="form-content">
             <div className="section">
-              <label htmlFor="org">Organization</label>
+              <div className="label-with-refresh">
+                <label htmlFor="org">Organization</label>
+                <button 
+                  className="refresh-button" 
+                  onClick={handleRefreshOrgs}
+                  title="Refresh organizations"
+                  type="button"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24l-1.5 1.5L13 7V2l-2 2z"/>
+                  </svg>
+                </button>
+              </div>
               <select
                 id="org"
                 value={state.connection.selectedOrgId ?? 'personal_account'}
@@ -440,7 +476,20 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
             </div>
 
             <div className="section">
-              <label htmlFor="project">Project</label>
+              <div className="label-with-refresh">
+                <label htmlFor="project">Project</label>
+                <button 
+                  className="refresh-button" 
+                  onClick={handleRefreshProjects}
+                  title="Refresh projects"
+                  type="button"
+                  disabled={!state.connection.selectedOrgId || state.connection.selectedOrgId === ""}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24l-1.5 1.5L13 7V2l-2 2z"/>
+                  </svg>
+                </button>
+              </div>
               <select
                 id="project"
                 value={state.connection.selectedProjectId || ""}
@@ -457,7 +506,20 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
             </div>
 
             <div className="section">
-              <label htmlFor="branch">Branch</label>
+              <div className="label-with-refresh">
+                <label htmlFor="branch">Branch</label>
+                <button 
+                  className="refresh-button" 
+                  onClick={handleRefreshBranches}
+                  title="Refresh branches"
+                  type="button"
+                  disabled={!state.connection.selectedProjectId}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24l-1.5 1.5L13 7V2l-2 2z"/>
+                  </svg>
+                </button>
+              </div>
               <select
                 id="branch"
                 value={state.connection.selectedBranchId || ""}

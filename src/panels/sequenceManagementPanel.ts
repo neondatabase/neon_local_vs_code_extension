@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { SqlQueryService } from '../services/sqlQuery.service';
 import { StateService } from '../services/state.service';
-import { getStyles } from '../templates/styles';
 
 export interface SequenceDefinition {
     name: string;
@@ -75,7 +74,8 @@ export class SequenceManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -86,7 +86,8 @@ export class SequenceManagementPanel {
         });
 
         try {
-            panel.webview.html = SequenceManagementPanel.getCreateSequenceHtml(schema);
+            const initialData = { schema };
+            panel.webview.html = SequenceManagementPanel.getCreateWebviewContent(context, panel, initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -138,7 +139,8 @@ export class SequenceManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -157,8 +159,8 @@ export class SequenceManagementPanel {
                     increment_by as increment,
                     min_value as minimum_value,
                     max_value as maximum_value,
-                    CASE WHEN cycle THEN 'YES' ELSE 'NO' END as cycle_option,
-                    cache_size as cache,
+                    cycle,
+                    cache_size as cache_value,
                     start_value,
                     last_value as current_value
                 FROM pg_sequences
@@ -173,11 +175,13 @@ export class SequenceManagementPanel {
 
             const currentProps = propsResult.rows[0];
 
-            panel.webview.html = SequenceManagementPanel.getAlterSequenceHtml(
+            const initialData = {
                 schema,
                 sequenceName,
                 currentProps
-            );
+            };
+
+            panel.webview.html = SequenceManagementPanel.getEditWebviewContent(context, panel, initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -187,16 +191,16 @@ export class SequenceManagementPanel {
                             stateService,
                             schema,
                             sequenceName,
-                            message.changes,
+                            message.seqDef,
                             database,
                             panel
                         );
                         break;
-                    case 'previewSql':
+                    case 'previewAlterSql':
                         const sql = SequenceManagementPanel.generateAlterSequenceSql(
                             schema,
                             sequenceName,
-                            message.changes
+                            message.seqDef
                         );
                         panel.webview.postMessage({ command: 'sqlPreview', sql });
                         break;
@@ -579,424 +583,83 @@ export class SequenceManagementPanel {
     }
 
     /**
-     * Get HTML for create sequence panel
+     * Get webview content for React components (Create Sequence)
      */
-    private static getCreateSequenceHtml(schema: string): string {
+    private static getCreateWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
+    ): string {
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'createSequence.js')
+        );
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Sequence</title>
-    ${getStyles()}
     <style>
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Create Sequence in ${schema}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Sequence Name <span class="required">*</span></label>
-                <input type="text" id="seqName" placeholder="my_sequence" />
-                <div class="info-text">Name must start with a letter and contain only letters, numbers, and underscores</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('optionsSection')">
-                <span class="toggle-icon" id="optionsIcon">▶</span>
-                Sequence Options
-            </div>
-            <div class="collapsible-content" id="optionsSection">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Minimum Value</label>
-                        <input type="number" id="minValue" placeholder="Leave empty for NO MINVALUE" />
-                        <div class="info-text">Minimum value of the sequence (or leave empty)</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Maximum Value</label>
-                        <input type="number" id="maxValue" placeholder="Leave empty for NO MAXVALUE" />
-                        <div class="info-text">Maximum value of the sequence (or leave empty)</div>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Start Value</label>
-                        <input type="number" id="startValue" placeholder="1" />
-                        <div class="info-text">Initial value of the sequence (defaults to 1)</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Increment By</label>
-                        <input type="number" id="incrementBy" value="1" />
-                        <div class="info-text">Value to add to current sequence value (can be negative)</div>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Cache Size</label>
-                    <input type="number" id="cache" value="1" min="1" />
-                    <div class="info-text">Number of sequence values to pre-allocate (improves performance)</div>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="cycle" />
-                    <label for="cycle" style="margin: 0;">Cycle</label>
-                </div>
-                <div class="info-text">Allow sequence to wrap around when reaching max/min value</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- Fill in the sequence name to see the SQL preview</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Create Sequence</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
         const vscode = acquireVsCodeApi();
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        function getSequenceDefinition() {
-            const minVal = document.getElementById('minValue').value;
-            const maxVal = document.getElementById('maxValue').value;
-            const startVal = document.getElementById('startValue').value;
-            
-            return {
-                name: document.getElementById('seqName').value.trim(),
-                schema: '${schema}',
-                startValue: startVal ? parseInt(startVal) : undefined,
-                incrementBy: parseInt(document.getElementById('incrementBy').value),
-                minValue: minVal ? parseInt(minVal) : undefined,
-                maxValue: maxVal ? parseInt(maxVal) : undefined,
-                cache: parseInt(document.getElementById('cache').value),
-                cycle: document.getElementById('cycle').checked
-            };
-        }
-
-        function updatePreview() {
-            const seqName = document.getElementById('seqName').value.trim();
-            
-            if (seqName && /^[a-z_][a-z0-9_]*$/i.test(seqName)) {
-                vscode.postMessage({
-                    command: 'previewSql',
-                    seqDef: getSequenceDefinition()
-                });
-            } else if (seqName) {
-                document.getElementById('sqlPreview').textContent = '-- Invalid sequence name';
-            } else {
-                document.getElementById('sqlPreview').textContent = '-- Fill in the sequence name to see the SQL preview';
-            }
-        }
-
-        function validateSequence() {
-            clearError();
-            
-            const seqName = document.getElementById('seqName').value.trim();
-            if (!seqName) {
-                showError('Sequence name is required');
-                return false;
-            }
-            
-            if (!/^[a-z_][a-z0-9_]*$/i.test(seqName)) {
-                showError('Sequence name must start with a letter or underscore and contain only letters, numbers, and underscores');
-                return false;
-            }
-            
-            const incrementBy = parseInt(document.getElementById('incrementBy').value);
-            if (incrementBy === 0) {
-                showError('Increment cannot be zero');
-                return false;
-            }
-            
-            return true;
-        }
-
-        // Auto-update preview on input changes
-        ['seqName', 'startValue', 'incrementBy', 'minValue', 'maxValue', 'cache', 'cycle'].forEach(id => {
-            const element = document.getElementById(id);
-            element.addEventListener('input', updatePreview);
-            element.addEventListener('change', updatePreview);
-        });
-
-        document.getElementById('createBtn').addEventListener('click', () => {
-            if (!validateSequence()) return;
-            vscode.postMessage({
-                command: 'createSequence',
-                seqDef: getSequenceDefinition()
-            });
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreview').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
-        }
-
-        // Initialize preview
-        updatePreview();
+        window.vscode = vscode;
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
     }
 
     /**
-     * Get HTML for alter sequence panel
+     * Get webview content for React components (Edit Sequence)
      */
-    private static getAlterSequenceHtml(
-        schema: string,
-        sequenceName: string,
-        currentProps: any
+    private static getEditWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
     ): string {
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'editSequence.js')
+        );
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Sequence</title>
-    ${getStyles()}
     <style>
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Edit Sequence</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Schema</label>
-                <input type="text" id="schemaInput" value="${schema}" readonly />
-            </div>
-
-            <div class="form-group">
-                <label>Sequence Name <span class="required">*</span></label>
-                <input type="text" id="sequenceName" value="${sequenceName}" />
-                <div class="info-text">Changing the name will rename the sequence</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('optionsSection')">
-                <span class="toggle-icon expanded" id="optionsIcon">▶</span>
-                Sequence Options
-            </div>
-            <div class="collapsible-content" id="optionsSection" style="display: block;">
-                <div class="form-group">
-                    <label>Current Value</label>
-                    <input type="number" id="currentValue" value="${currentProps.current_value || currentProps.start_value || 1}" />
-                    <div class="info-text">The current value of the sequence (next value to be returned)</div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Minimum Value</label>
-                        <input type="text" id="minValue" value="${currentProps.minimum_value}" />
-                        <div class="info-text">Minimum value of the sequence</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Maximum Value</label>
-                        <input type="text" id="maxValue" value="${currentProps.maximum_value}" />
-                        <div class="info-text">Maximum value of the sequence</div>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Start Value</label>
-                        <input type="text" id="startValue" value="${currentProps.start_value || 1}" readonly />
-                        <div class="info-text">Initial value of the sequence (read-only)</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Increment By</label>
-                        <input type="number" id="incrementBy" value="${currentProps.increment}" />
-                        <div class="info-text">Value to add to current sequence value (can be negative)</div>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Cache Size</label>
-                    <input type="number" id="cache" value="${currentProps.cache || 1}" min="1" />
-                    <div class="info-text">Number of sequence values to pre-allocate (improves performance)</div>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="cycle" ${currentProps.cycle_option === 'YES' ? 'checked' : ''} />
-                    <label for="cycle" style="margin: 0;">Cycle</label>
-                </div>
-                <div class="info-text">Allow sequence to wrap around when reaching max/min value</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- SQL will be generated automatically as you make changes</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="alterBtn">Apply Changes</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
         const vscode = acquireVsCodeApi();
-        const originalSequenceName = '${sequenceName}';
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        function getChanges() {
-            const changes = {};
-            
-            const newSequenceName = document.getElementById('sequenceName').value.trim();
-            if (newSequenceName && newSequenceName !== originalSequenceName) {
-                changes.newSequenceName = newSequenceName;
-            }
-            
-            const currentValue = document.getElementById('currentValue').value;
-            if (currentValue) changes.currentValue = parseInt(currentValue);
-            
-            const incrementBy = document.getElementById('incrementBy').value;
-            if (incrementBy) changes.incrementBy = parseInt(incrementBy);
-            
-            const minValue = document.getElementById('minValue').value;
-            if (minValue) changes.minValue = minValue;
-            
-            const maxValue = document.getElementById('maxValue').value;
-            if (maxValue) changes.maxValue = maxValue;
-            
-            const cache = document.getElementById('cache').value;
-            if (cache) changes.cache = parseInt(cache);
-            
-            changes.cycle = document.getElementById('cycle').checked;
-            
-            return changes;
-        }
-
-        function updatePreview() {
-            const changes = getChanges();
-            vscode.postMessage({
-                command: 'previewSql',
-                changes: changes
-            });
-        }
-
-        // Auto-update preview on input changes
-        ['sequenceName', 'currentValue', 'incrementBy', 'minValue', 'maxValue', 'cache', 'cycle'].forEach(id => {
-            const element = document.getElementById(id);
-            element.addEventListener('input', updatePreview);
-            element.addEventListener('change', updatePreview);
-        });
-
-        document.getElementById('alterBtn').addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'alterSequence',
-                changes: getChanges()
-            });
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreview').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
-        }
-
-        // Initialize preview
-        updatePreview();
+        window.vscode = vscode;
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
     }
+
 }
 
 

@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { StateService } from '../services/state.service';
 import { SqlQueryService } from '../services/sqlQuery.service';
-import { getStyles } from '../templates/styles';
 
 interface ColumnDefinition {
     name: string;
@@ -53,11 +52,18 @@ export class ColumnManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
-        panel.webview.html = this.getCreateColumnHtml(schema, tableName);
+        const initialData = {
+            schema,
+            tableName,
+            mode: 'create'
+        };
+
+        panel.webview.html = this.getWebviewContent(context, panel, 'createColumn', initialData);
 
         panel.webview.onDidReceiveMessage(
             async (message) => {
@@ -104,7 +110,8 @@ export class ColumnManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -153,7 +160,16 @@ export class ColumnManagementPanel {
             }
 
             const currentColumn = result.rows[0];
-            panel.webview.html = this.getEditColumnHtml(schema, tableName, columnName, currentColumn);
+            
+            const initialData = {
+                schema,
+                tableName,
+                columnName,
+                currentColumn,
+                mode: 'edit'
+            };
+
+            panel.webview.html = this.getWebviewContent(context, panel, 'editColumn', initialData);
 
             panel.webview.onDidReceiveMessage(
                 async (message) => {
@@ -465,501 +481,39 @@ export class ColumnManagementPanel {
     }
 
     /**
-     * Get HTML for create column panel
+     * Get webview content for React components
      */
-    private static getCreateColumnHtml(schema: string, tableName: string): string {
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add Column</title>
-    ${getStyles()}
-</head>
-<body>
-    <div class="container">
-        <h1>Add Column to ${schema}.${tableName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Column Name <span class="required">*</span></label>
-                <input type="text" id="columnName" placeholder="my_column" />
-                <div class="info-text">Must start with a letter and contain only letters, numbers, and underscores</div>
-            </div>
-
-            <div class="form-group">
-                <label>Data Type <span class="required">*</span></label>
-                <select id="dataType">
-                    <optgroup label="Numeric Types">
-                        <option value="INTEGER">INTEGER</option>
-                        <option value="BIGINT">BIGINT</option>
-                        <option value="SMALLINT">SMALLINT</option>
-                        <option value="SERIAL">SERIAL</option>
-                        <option value="BIGSERIAL">BIGSERIAL</option>
-                        <option value="NUMERIC">NUMERIC</option>
-                        <option value="DECIMAL">DECIMAL</option>
-                        <option value="REAL">REAL</option>
-                        <option value="DOUBLE PRECISION">DOUBLE PRECISION</option>
-                    </optgroup>
-                    <optgroup label="Text Types">
-                        <option value="VARCHAR">VARCHAR</option>
-                        <option value="CHAR">CHAR</option>
-                        <option value="TEXT">TEXT</option>
-                    </optgroup>
-                    <optgroup label="Date/Time Types">
-                        <option value="DATE">DATE</option>
-                        <option value="TIME">TIME</option>
-                        <option value="TIMESTAMP">TIMESTAMP</option>
-                        <option value="TIMESTAMPTZ">TIMESTAMPTZ</option>
-                    </optgroup>
-                    <optgroup label="Other Types">
-                        <option value="BOOLEAN">BOOLEAN</option>
-                        <option value="UUID">UUID</option>
-                        <option value="JSON">JSON</option>
-                        <option value="JSONB">JSONB</option>
-                        <option value="BYTEA">BYTEA</option>
-                    </optgroup>
-                </select>
-            </div>
-
-            <div class="form-group" id="lengthGroup" style="display: none;">
-                <label>Length</label>
-                <input type="number" id="length" placeholder="255" min="1" />
-                <div class="info-text">Character length for VARCHAR/CHAR types</div>
-            </div>
-
-            <div class="form-group" id="precisionGroup" style="display: none;">
-                <label>Precision</label>
-                <input type="number" id="precision" placeholder="10" min="1" />
-                <div class="info-text">Total number of digits</div>
-            </div>
-
-            <div class="form-group" id="scaleGroup" style="display: none;">
-                <label>Scale</label>
-                <input type="number" id="scale" placeholder="2" min="0" />
-                <div class="info-text">Number of digits after decimal point</div>
-            </div>
-
-            <div class="checkbox-group">
-                <input type="checkbox" id="nullable" checked />
-                <label for="nullable" style="margin: 0;">Allow NULL</label>
-            </div>
-
-            <div class="form-group">
-                <label>Default Value</label>
-                <input type="text" id="defaultValue" placeholder="NULL" />
-                <div class="info-text">Default value expression (e.g., 'default_text', 0, NOW(), NULL)</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('constraintsSection')">
-                <span class="toggle-icon" id="constraintsIcon">▶</span>
-                Constraints
-            </div>
-            <div class="collapsible-content" id="constraintsSection">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="isPrimaryKey" />
-                    <label for="isPrimaryKey" style="margin: 0;">Primary Key</label>
-                </div>
-                <div class="info-text">Make this column the primary key</div>
-
-                <div class="checkbox-group" style="margin-top: 12px;">
-                    <input type="checkbox" id="isUnique" />
-                    <label for="isUnique" style="margin: 0;">Unique</label>
-                </div>
-                <div class="info-text">Ensure all values in this column are unique</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- Fill in the column details to see the SQL preview</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Add Column</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        // Show/hide length, precision, scale fields based on data type
-        document.getElementById('dataType').addEventListener('change', function() {
-            const dataType = this.value.toUpperCase();
-            const lengthGroup = document.getElementById('lengthGroup');
-            const precisionGroup = document.getElementById('precisionGroup');
-            const scaleGroup = document.getElementById('scaleGroup');
-
-            lengthGroup.style.display = 'none';
-            precisionGroup.style.display = 'none';
-            scaleGroup.style.display = 'none';
-
-            if (['VARCHAR', 'CHAR', 'CHARACTER'].includes(dataType)) {
-                lengthGroup.style.display = 'block';
-            } else if (['NUMERIC', 'DECIMAL'].includes(dataType)) {
-                precisionGroup.style.display = 'block';
-                scaleGroup.style.display = 'block';
-            }
-
-            updatePreview();
-        });
-
-        // Primary key implies NOT NULL
-        document.getElementById('isPrimaryKey').addEventListener('change', function() {
-            if (this.checked) {
-                document.getElementById('nullable').checked = false;
-            }
-            updatePreview();
-        });
-
-        function getColumnDefinition() {
-            const dataType = document.getElementById('dataType').value;
-            const columnDef = {
-                name: document.getElementById('columnName').value.trim(),
-                dataType: dataType,
-                nullable: document.getElementById('nullable').checked,
-                isPrimaryKey: document.getElementById('isPrimaryKey').checked,
-                isUnique: document.getElementById('isUnique').checked
-            };
-
-            const lengthVal = document.getElementById('length').value;
-            if (lengthVal) columnDef.length = parseInt(lengthVal);
-
-            const precisionVal = document.getElementById('precision').value;
-            if (precisionVal) columnDef.precision = parseInt(precisionVal);
-
-            const scaleVal = document.getElementById('scale').value;
-            if (scaleVal) columnDef.scale = parseInt(scaleVal);
-
-            const defaultVal = document.getElementById('defaultValue').value.trim();
-            if (defaultVal) columnDef.defaultValue = defaultVal;
-
-            return columnDef;
-        }
-
-        function updatePreview() {
-            const columnDef = getColumnDefinition();
-            vscode.postMessage({
-                command: 'previewSql',
-                columnDef: columnDef
-            });
-        }
-
-        // Auto-update preview on input changes
-        ['columnName', 'dataType', 'length', 'precision', 'scale', 'nullable', 'defaultValue', 'isPrimaryKey', 'isUnique'].forEach(id => {
-            const element = document.getElementById(id);
-            element.addEventListener('input', updatePreview);
-            element.addEventListener('change', updatePreview);
-        });
-
-        document.getElementById('createBtn').addEventListener('click', () => {
-            const columnDef = getColumnDefinition();
-            
-            if (!columnDef.name) {
-                showError('Column name is required');
-                return;
-            }
-
-            vscode.postMessage({
-                command: 'createColumn',
-                columnDef: columnDef
-            });
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreview').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
-        }
-
-        // Initialize preview
-        updatePreview();
-    </script>
-</body>
-</html>`;
-    }
-
-    /**
-     * Get HTML for edit column panel
-     */
-    private static getEditColumnHtml(schema: string, tableName: string, columnName: string, currentColumn: any): string {
-        const currentNullable = currentColumn.is_nullable === 'YES';
-        const currentDefault = currentColumn.column_default || '';
-        const currentLength = currentColumn.character_maximum_length || '';
-        const currentPrecision = currentColumn.numeric_precision || '';
-        const currentScale = currentColumn.numeric_scale !== null && currentColumn.numeric_scale !== undefined ? currentColumn.numeric_scale : '';
-        const dataType = currentColumn.data_type.toUpperCase();
+    private static getWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        mode: 'createColumn' | 'editColumn',
+        initialData: any
+    ): string {
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', `${mode}.js`)
+        );
 
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Column</title>
-    ${getStyles()}
+    <title>${mode === 'createColumn' ? 'Add Column' : 'Edit Column'}</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
+        }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Edit Column</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Table</label>
-                <input type="text" value="${schema}.${tableName}" readonly />
-            </div>
-
-            <div class="form-group">
-                <label>Column Name <span class="required">*</span></label>
-                <input type="text" id="columnName" value="${columnName}" />
-                <div class="info-text">Changing the name will rename the column</div>
-            </div>
-
-            <div class="form-group">
-                <label>Data Type <span class="required">*</span></label>
-                <select id="dataType">
-                    <optgroup label="Numeric Types">
-                        <option value="INTEGER">INTEGER</option>
-                        <option value="BIGINT">BIGINT</option>
-                        <option value="SMALLINT">SMALLINT</option>
-                        <option value="SERIAL">SERIAL</option>
-                        <option value="BIGSERIAL">BIGSERIAL</option>
-                        <option value="NUMERIC">NUMERIC</option>
-                        <option value="DECIMAL">DECIMAL</option>
-                        <option value="REAL">REAL</option>
-                        <option value="DOUBLE PRECISION">DOUBLE PRECISION</option>
-                    </optgroup>
-                    <optgroup label="Text Types">
-                        <option value="VARCHAR">VARCHAR</option>
-                        <option value="CHAR">CHAR</option>
-                        <option value="TEXT">TEXT</option>
-                    </optgroup>
-                    <optgroup label="Date/Time Types">
-                        <option value="DATE">DATE</option>
-                        <option value="TIME">TIME</option>
-                        <option value="TIMESTAMP">TIMESTAMP</option>
-                        <option value="TIMESTAMPTZ">TIMESTAMPTZ</option>
-                    </optgroup>
-                    <optgroup label="Other Types">
-                        <option value="BOOLEAN">BOOLEAN</option>
-                        <option value="UUID">UUID</option>
-                        <option value="JSON">JSON</option>
-                        <option value="JSONB">JSONB</option>
-                        <option value="BYTEA">BYTEA</option>
-                    </optgroup>
-                </select>
-                <div class="info-text">Warning: Changing data type may require data migration</div>
-            </div>
-
-            <div class="form-group" id="lengthGroup" style="display: none;">
-                <label>Length</label>
-                <input type="number" id="length" placeholder="255" min="1" value="${currentLength}" />
-                <div class="info-text">Character length for VARCHAR/CHAR types</div>
-            </div>
-
-            <div class="form-group" id="precisionGroup" style="display: none;">
-                <label>Precision</label>
-                <input type="number" id="precision" placeholder="10" min="1" value="${currentPrecision}" />
-                <div class="info-text">Total number of digits</div>
-            </div>
-
-            <div class="form-group" id="scaleGroup" style="display: none;">
-                <label>Scale</label>
-                <input type="number" id="scale" placeholder="2" min="0" value="${currentScale}" />
-                <div class="info-text">Number of digits after decimal point</div>
-            </div>
-
-            <div class="checkbox-group">
-                <input type="checkbox" id="nullable" ${currentNullable ? 'checked' : ''} />
-                <label for="nullable" style="margin: 0;">Allow NULL</label>
-            </div>
-
-            <div class="form-group">
-                <label>Default Value</label>
-                <input type="text" id="defaultValue" placeholder="NULL" value="${currentDefault}" />
-                <div class="info-text">Default value expression (e.g., 'default_text', 0, NOW(), NULL)</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- SQL will be generated automatically as you make changes</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="editBtn">Apply Changes</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
-        const vscode = acquireVsCodeApi();
-        const originalColumnName = '${columnName}';
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        // Set initial data type selection
-        document.getElementById('dataType').value = '${dataType}';
-        
-        // Initialize visibility of type-specific fields
-        updateTypeFields('${dataType}');
-
-        function updateTypeFields(dataType) {
-            const lengthGroup = document.getElementById('lengthGroup');
-            const precisionGroup = document.getElementById('precisionGroup');
-            const scaleGroup = document.getElementById('scaleGroup');
-
-            lengthGroup.style.display = 'none';
-            precisionGroup.style.display = 'none';
-            scaleGroup.style.display = 'none';
-
-            if (['VARCHAR', 'CHAR', 'CHARACTER'].includes(dataType)) {
-                lengthGroup.style.display = 'block';
-            } else if (['NUMERIC', 'DECIMAL'].includes(dataType)) {
-                precisionGroup.style.display = 'block';
-                scaleGroup.style.display = 'block';
-            }
-        }
-
-        // Show/hide length, precision, scale fields based on data type
-        document.getElementById('dataType').addEventListener('change', function() {
-            updateTypeFields(this.value.toUpperCase());
-            updatePreview();
-        });
-
-        function getColumnDefinition() {
-            const dataType = document.getElementById('dataType').value;
-            const columnDef = {
-                name: document.getElementById('columnName').value.trim(),
-                dataType: dataType,
-                nullable: document.getElementById('nullable').checked
-            };
-
-            const lengthVal = document.getElementById('length').value;
-            if (lengthVal) columnDef.length = parseInt(lengthVal);
-
-            const precisionVal = document.getElementById('precision').value;
-            if (precisionVal) columnDef.precision = parseInt(precisionVal);
-
-            const scaleVal = document.getElementById('scale').value;
-            if (scaleVal) columnDef.scale = parseInt(scaleVal);
-
-            const defaultVal = document.getElementById('defaultValue').value.trim();
-            if (defaultVal) columnDef.defaultValue = defaultVal;
-
-            return columnDef;
-        }
-
-        function updatePreview() {
-            const columnDef = getColumnDefinition();
-            vscode.postMessage({
-                command: 'previewSql',
-                columnDef: columnDef
-            });
-        }
-
-        // Auto-update preview on input changes
-        ['columnName', 'dataType', 'length', 'precision', 'scale', 'nullable', 'defaultValue'].forEach(id => {
-            const element = document.getElementById(id);
-            element.addEventListener('input', updatePreview);
-            element.addEventListener('change', updatePreview);
-        });
-
-        document.getElementById('editBtn').addEventListener('click', () => {
-            const columnDef = getColumnDefinition();
-            
-            if (!columnDef.name) {
-                showError('Column name is required');
-                return;
-            }
-
-            vscode.postMessage({
-                command: 'editColumn',
-                columnDef: columnDef
-            });
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreview').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
-        }
-
-        // Initialize preview
-        updatePreview();
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
     }

@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { SqlQueryService } from '../services/sqlQuery.service';
 import { StateService } from '../services/state.service';
 import { SchemaService } from '../services/schema.service';
-import { getStyles } from '../templates/styles';
 
 export interface ViewDefinition {
     viewName: string;
@@ -81,7 +80,7 @@ export class ViewManagementPanel {
                 SELECT rolname 
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
-                  AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND rolname NOT IN ('cloud_admin', 'neon_superuser', 'neon_service')
                   AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
@@ -92,12 +91,15 @@ export class ViewManagementPanel {
             const currentUserResult = await sqlService.executeQuery('SELECT current_user', database);
             const currentUser = currentUserResult.rows[0]?.current_user || '';
             
-            panel.webview.html = ViewManagementPanel.getCreateViewHtml(
+            const initialData = {
                 schema,
-                tables.map(t => t.name),
+                tables: tables.map(t => t.name),
                 existingRoles,
-                currentUser
-            );
+                currentUser,
+                mode: 'create'
+            };
+            
+            panel.webview.html = ViewManagementPanel.getWebviewContent(context, panel, 'createView', initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -197,7 +199,7 @@ export class ViewManagementPanel {
                 SELECT rolname 
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
-                  AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND rolname NOT IN ('cloud_admin', 'neon_superuser', 'neon_service')
                   AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
@@ -208,16 +210,19 @@ export class ViewManagementPanel {
             const currentUserResult = await sqlService.executeQuery('SELECT current_user', database);
             const currentUser = currentUserResult.rows[0]?.current_user || '';
             
-            panel.webview.html = ViewManagementPanel.getEditViewHtml(
+            const initialData = {
                 schema,
                 viewName,
-                viewData.definition,
-                viewData.is_materialized,
-                viewData.owner,
-                tables.map(t => t.name),
+                definition: viewData.definition,
+                isMaterialized: viewData.is_materialized,
+                owner: viewData.owner,
+                tables: tables.map(t => t.name),
                 existingRoles,
-                currentUser
-            );
+                currentUser,
+                mode: 'edit'
+            };
+            
+            panel.webview.html = ViewManagementPanel.getWebviewContent(context, panel, 'editView', initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -255,24 +260,64 @@ export class ViewManagementPanel {
         schema: string,
         viewName: string,
         isMaterialized: boolean,
-        cascade: boolean = false,
         database?: string
     ): Promise<void> {
         try {
-            const viewType = isMaterialized ? 'MATERIALIZED VIEW' : 'VIEW';
-            const cascadeStr = cascade ? ' CASCADE' : ' RESTRICT';
-            const sql = `DROP ${viewType} ${schema}.${viewName}${cascadeStr};`;
-            
+            const viewType = isMaterialized ? 'materialized view' : 'view';
+            const viewTypeSQL = isMaterialized ? 'MATERIALIZED VIEW' : 'VIEW';
+
+            // Ask about CASCADE or RESTRICT
+            const dropMode = await vscode.window.showQuickPick(
+                [
+                    {
+                        label: `Drop ${viewType} Only`,
+                        description: 'RESTRICT - Fails if other objects depend on this view',
+                        value: 'RESTRICT'
+                    },
+                    {
+                        label: `Drop ${viewType} and All Dependencies`,
+                        description: 'CASCADE - Removes all dependent objects',
+                        value: 'CASCADE'
+                    }
+                ],
+                {
+                    placeHolder: 'How should the view be dropped?',
+                    title: `Drop ${viewType}: ${schema}.${viewName}`
+                }
+            );
+
+            if (!dropMode) {
+                return; // User cancelled
+            }
+
+            // Confirm the operation with strong warning
+            const warningMessage = dropMode.value === 'CASCADE'
+                ? `WARNING: This will permanently delete ${viewType} "${schema}.${viewName}" and ALL objects that depend on it. This action CANNOT be undone!`
+                : `Are you sure you want to drop ${viewType} "${schema}.${viewName}"? This operation will fail if other objects depend on it.`;
+
+            const confirm = await vscode.window.showErrorMessage(
+                warningMessage,
+                { modal: true },
+                dropMode.value === 'CASCADE' ? 'Yes, Drop Everything' : `Drop ${viewType}`
+            );
+
+            if (!confirm) {
+                return;
+            }
+
+            // Execute DROP VIEW statement
+            const sql = `DROP ${viewTypeSQL} ${schema}.${viewName} ${dropMode.value};`;
             const sqlService = new SqlQueryService(stateService, context);
             await sqlService.executeQuery(sql, database);
 
-            vscode.window.showInformationMessage(`${viewType} "${viewName}" dropped successfully!`);
+            vscode.window.showInformationMessage(`${viewType} "${schema}.${viewName}" dropped successfully!`);
+            
+            // Refresh the schema view
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
             
         } catch (error) {
             const errorMessage = this.extractErrorMessage(error);
             vscode.window.showErrorMessage(`Failed to drop view: ${errorMessage}`);
-            throw error;
         }
     }
 
@@ -472,612 +517,41 @@ export class ViewManagementPanel {
     }
 
     /**
-     * Get HTML for create view panel
+     * Get webview content for React components
      */
-    private static getCreateViewHtml(
-        schema: string,
-        tables: string[],
-        existingRoles: string[],
-        currentUser: string
+    private static getWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        mode: 'createView' | 'editView',
+        initialData: any
     ): string {
-        const tablesJson = JSON.stringify(tables);
-        const rolesJson = JSON.stringify(existingRoles);
-        
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', `${mode}.js`)
+        );
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create View</title>
-    ${getStyles()}
+    <title>${mode === 'createView' ? 'Create View' : 'Edit View'}</title>
     <style>
-        textarea {
-            width: 100%;
-            min-height: 200px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
-            padding: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            resize: vertical;
-        }
-        .helper-section {
-            margin-top: 12px;
-            padding: 12px;
-            background-color: var(--vscode-editor-background);
-            border-radius: 3px;
-        }
-        .helper-title {
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .table-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .table-badge {
-            padding: 4px 8px;
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            border-radius: 3px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .table-badge:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Create View</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Schema</label>
-                <input type="text" id="schemaInput" value="${schema}" readonly />
-                <div class="info-text">The schema where this view will be created</div>
-            </div>
-            
-            <div class="form-group">
-                <label>View Name <span class="required">*</span></label>
-                <input type="text" id="viewName" placeholder="my_view" />
-                <div class="info-text">Naming convention: lowercase with underscores</div>
-            </div>
-
-            <div class="form-group">
-                <label>Owner</label>
-                <select id="ownerInput">
-                    <option value="">Loading...</option>
-                </select>
-                <div class="info-text">The role that will own this view</div>
-            </div>
-
-            <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="materializedView" />
-                    <label for="materializedView">Materialized View</label>
-                </div>
-                <div class="info-text">Materialized views store query results and must be refreshed</div>
-            </div>
-
-            <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="replaceIfExists" checked />
-                    <label for="replaceIfExists">Replace if Exists</label>
-                </div>
-                <div class="info-text">Use CREATE OR REPLACE (not available for materialized views)</div>
-            </div>
-        </div>
-
-        <div class="section-box">
-            <div style="margin-bottom: 12px; font-weight: 500;">SQL Definition <span class="required">*</span></div>
-            <div class="info-text" style="margin-bottom: 12px;">Enter the SELECT statement for your view (without CREATE VIEW)</div>
-            
-            <textarea id="sqlDefinition" placeholder="SELECT id, name, email&#10;FROM users&#10;WHERE active = true"></textarea>
-
-            <div class="helper-section">
-                <div class="helper-title">Available Tables:</div>
-                <div class="table-list" id="tableList"></div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <pre class="sql-preview" id="sqlPreview">-- Generating SQL preview...</pre>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Create View</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
-        ${ViewManagementPanel.getCreateViewScript(schema, tablesJson, rolesJson, currentUser)}
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
-    }
-
-    /**
-     * Get HTML for edit view panel
-     */
-    private static getEditViewHtml(
-        schema: string,
-        viewName: string,
-        definition: string,
-        isMaterialized: boolean,
-        currentOwner: string,
-        tables: string[],
-        existingRoles: string[],
-        currentUser: string
-    ): string {
-        const tablesJson = JSON.stringify(tables);
-        const rolesJson = JSON.stringify(existingRoles);
-        
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit View</title>
-    ${getStyles()}
-    <style>
-        textarea {
-            width: 100%;
-            min-height: 200px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
-            padding: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            resize: vertical;
-        }
-        .helper-section {
-            margin-top: 12px;
-            padding: 12px;
-            background-color: var(--vscode-editor-background);
-            border-radius: 3px;
-        }
-        .helper-title {
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .table-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .table-badge {
-            padding: 4px 8px;
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            border-radius: 3px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .table-badge:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Edit View</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Schema</label>
-                <input type="text" id="schemaInput" value="${schema}" readonly />
-                <div class="info-text">The schema containing this view</div>
-            </div>
-            
-            <div class="form-group">
-                <label>View Name <span class="required">*</span></label>
-                <input type="text" id="viewName" value="${viewName}" />
-                <div class="info-text">Change the view name to rename it</div>
-            </div>
-
-            <div class="form-group">
-                <label>Owner</label>
-                <select id="ownerInput">
-                    <option value="">Loading...</option>
-                </select>
-                <div class="info-text">The role that owns this view</div>
-            </div>
-
-            <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="materializedView" ${isMaterialized ? 'checked' : ''} disabled />
-                    <label for="materializedView">Materialized View</label>
-                </div>
-                <div class="info-text">View type cannot be changed after creation</div>
-            </div>
-
-            <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="replaceIfExists" checked ${isMaterialized ? 'disabled' : ''} />
-                    <label for="replaceIfExists">Replace if Exists</label>
-                </div>
-                ${isMaterialized ? '<div class="info-text">Materialized views must be dropped and recreated</div>' : '<div class="info-text">Use CREATE OR REPLACE (not available for materialized views)</div>'}
-            </div>
-        </div>
-
-        <div class="section-box">
-            <div style="margin-bottom: 12px; font-weight: 500;">SQL Definition <span class="required">*</span></div>
-            <div class="info-text" style="margin-bottom: 12px;">Modify the SELECT statement for your view</div>
-            
-            <textarea id="sqlDefinition">${definition}</textarea>
-
-            <div class="helper-section">
-                <div class="helper-title">Available Tables:</div>
-                <div class="table-list" id="tableList"></div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <pre class="sql-preview" id="sqlPreview">-- Generating SQL preview...</pre>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="updateBtn">Update View</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
-    <script>
-        ${ViewManagementPanel.getEditViewScript(schema, viewName, isMaterialized, currentOwner, tablesJson, rolesJson, currentUser)}
-    </script>
-</body>
-</html>`;
-    }
-
-    /**
-     * JavaScript for create view panel
-     */
-    private static getCreateViewScript(schema: string, tablesJson: string, rolesJson: string, currentUser: string): string {
-        return `
-        const vscode = acquireVsCodeApi();
-        const tables = ${tablesJson};
-        const existingRoles = ${rolesJson};
-
-        const viewNameInput = document.getElementById('viewName');
-        const ownerInput = document.getElementById('ownerInput');
-        const materializedCheckbox = document.getElementById('materializedView');
-        const replaceCheckbox = document.getElementById('replaceIfExists');
-        const sqlTextarea = document.getElementById('sqlDefinition');
-        const sqlPreview = document.getElementById('sqlPreview');
-        const createBtn = document.getElementById('createBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const errorContainer = document.getElementById('errorContainer');
-        const tableList = document.getElementById('tableList');
-
-        // Populate owner dropdown
-        ownerInput.innerHTML = '';
-        if (existingRoles && existingRoles.length > 0) {
-            existingRoles.forEach(role => {
-                const option = document.createElement('option');
-                option.value = role;
-                option.textContent = role;
-                // Select the current user by default
-                if (role === '${currentUser}') {
-                    option.selected = true;
-                }
-                ownerInput.appendChild(option);
-            });
-        }
-
-        // Render available tables
-        tables.forEach(table => {
-            const badge = document.createElement('span');
-            badge.className = 'table-badge';
-            badge.textContent = table;
-            badge.title = 'Click to insert table name';
-            badge.addEventListener('click', () => {
-                const cursorPos = sqlTextarea.selectionStart;
-                const textBefore = sqlTextarea.value.substring(0, cursorPos);
-                const textAfter = sqlTextarea.value.substring(cursorPos);
-                sqlTextarea.value = textBefore + table + textAfter;
-                sqlTextarea.focus();
-                sqlTextarea.setSelectionRange(cursorPos + table.length, cursorPos + table.length);
-                updatePreview();
-            });
-            tableList.appendChild(badge);
-        });
-
-        // Toggle section functionality
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            if (section.style.display === 'none' || section.style.display === '') {
-                section.style.display = 'block';
-                icon.classList.add('expanded');
-            } else {
-                section.style.display = 'none';
-                icon.classList.remove('expanded');
-            }
-        }
-        window.toggleSection = toggleSection;
-
-        // Disable OR REPLACE for materialized views
-        materializedCheckbox.addEventListener('change', () => {
-            if (materializedCheckbox.checked) {
-                replaceCheckbox.checked = false;
-                replaceCheckbox.disabled = true;
-            } else {
-                replaceCheckbox.disabled = false;
-            }
-            updatePreview();
-        });
-
-        // Event listeners for auto-updating preview
-        viewNameInput.addEventListener('input', updatePreview);
-        ownerInput.addEventListener('change', updatePreview);
-        replaceCheckbox.addEventListener('change', updatePreview);
-        sqlTextarea.addEventListener('input', updatePreview);
-
-        function getViewDefinition() {
-            return {
-                viewName: viewNameInput.value.trim(),
-                schema: '${schema}',
-                sqlDefinition: sqlTextarea.value.trim(),
-                materialized: materializedCheckbox.checked,
-                replaceIfExists: replaceCheckbox.checked && !materializedCheckbox.checked,
-                owner: ownerInput.value
-            };
-        }
-
-        function validateView() {
-            clearError();
-            
-            if (!viewNameInput.value.trim()) {
-                showError('View name is required');
-                return false;
-            }
-            
-            if (!/^[a-z_][a-z0-9_]*$/i.test(viewNameInput.value.trim())) {
-                showError('View name must start with a letter and contain only letters, numbers, and underscores');
-                return false;
-            }
-            
-            if (!sqlTextarea.value.trim()) {
-                showError('SQL definition is required');
-                return false;
-            }
-            
-            return true;
-        }
-
-        function updatePreview() {
-            vscode.postMessage({
-                command: 'previewSql',
-                viewDef: getViewDefinition()
-            });
-        }
-
-        createBtn.addEventListener('click', () => {
-            if (!validateView()) return;
-            vscode.postMessage({
-                command: 'createView',
-                viewDef: getViewDefinition()
-            });
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'cancel'
-            });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    sqlPreview.textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function showError(message) {
-            errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            errorContainer.innerHTML = '';
-        }
-
-        // Initial preview
-        updatePreview();
-        `;
-    }
-
-    /**
-     * JavaScript for edit view panel
-     */
-    private static getEditViewScript(
-        schema: string, 
-        viewName: string, 
-        isMaterialized: boolean, 
-        currentOwner: string,
-        tablesJson: string,
-        rolesJson: string,
-        currentUser: string
-    ): string {
-        return `
-        const vscode = acquireVsCodeApi();
-        const tables = ${tablesJson};
-        const existingRoles = ${rolesJson};
-        const isMaterialized = ${isMaterialized};
-        const originalViewName = '${viewName}';
-        const originalOwner = '${currentOwner}';
-
-        const viewNameInput = document.getElementById('viewName');
-        const ownerInput = document.getElementById('ownerInput');
-        const materializedCheckbox = document.getElementById('materializedView');
-        const replaceCheckbox = document.getElementById('replaceIfExists');
-        const sqlTextarea = document.getElementById('sqlDefinition');
-        const sqlPreview = document.getElementById('sqlPreview');
-        const updateBtn = document.getElementById('updateBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const errorContainer = document.getElementById('errorContainer');
-        const tableList = document.getElementById('tableList');
-
-        // Populate owner dropdown
-        ownerInput.innerHTML = '';
-        if (existingRoles && existingRoles.length > 0) {
-            existingRoles.forEach(role => {
-                const option = document.createElement('option');
-                option.value = role;
-                option.textContent = role;
-                // Select the current owner by default
-                if (role === originalOwner) {
-                    option.selected = true;
-                }
-                ownerInput.appendChild(option);
-            });
-        }
-
-        // Render available tables
-        tables.forEach(table => {
-            const badge = document.createElement('span');
-            badge.className = 'table-badge';
-            badge.textContent = table;
-            badge.title = 'Click to insert table name';
-            badge.addEventListener('click', () => {
-                const cursorPos = sqlTextarea.selectionStart;
-                const textBefore = sqlTextarea.value.substring(0, cursorPos);
-                const textAfter = sqlTextarea.value.substring(cursorPos);
-                sqlTextarea.value = textBefore + table + textAfter;
-                sqlTextarea.focus();
-                sqlTextarea.setSelectionRange(cursorPos + table.length, cursorPos + table.length);
-                updatePreview();
-            });
-            tableList.appendChild(badge);
-        });
-
-        // Toggle section functionality
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            if (section.style.display === 'none' || section.style.display === '') {
-                section.style.display = 'block';
-                icon.classList.add('expanded');
-            } else {
-                section.style.display = 'none';
-                icon.classList.remove('expanded');
-            }
-        }
-        window.toggleSection = toggleSection;
-
-        // Event listeners for auto-updating preview
-        viewNameInput.addEventListener('input', updatePreview);
-        ownerInput.addEventListener('change', updatePreview);
-        replaceCheckbox.addEventListener('change', updatePreview);
-        sqlTextarea.addEventListener('input', updatePreview);
-
-        function getViewDefinition() {
-            return {
-                viewName: viewNameInput.value.trim(),
-                originalViewName: originalViewName,
-                schema: '${schema}',
-                sqlDefinition: sqlTextarea.value.trim(),
-                materialized: isMaterialized,
-                replaceIfExists: replaceCheckbox.checked && !isMaterialized,
-                owner: ownerInput.value
-            };
-        }
-
-        function validateView() {
-            clearError();
-            
-            if (!viewNameInput.value.trim()) {
-                showError('View name is required');
-                return false;
-            }
-            
-            if (!/^[a-z_][a-z0-9_]*$/i.test(viewNameInput.value.trim())) {
-                showError('View name must start with a letter and contain only letters, numbers, and underscores');
-                return false;
-            }
-            
-            if (!sqlTextarea.value.trim()) {
-                showError('SQL definition is required');
-                return false;
-            }
-            
-            return true;
-        }
-
-        function updatePreview() {
-            vscode.postMessage({
-                command: 'previewSql',
-                viewDef: getViewDefinition()
-            });
-        }
-
-        updateBtn.addEventListener('click', () => {
-            if (!validateView()) return;
-            vscode.postMessage({
-                command: 'updateView',
-                viewDef: getViewDefinition()
-            });
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'cancel'
-            });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    sqlPreview.textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function showError(message) {
-            errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            errorContainer.innerHTML = '';
-        }
-
-        // Initial preview
-        updatePreview();
-        `;
     }
 }
 

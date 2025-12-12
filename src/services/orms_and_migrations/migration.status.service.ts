@@ -1,5 +1,5 @@
-import { StateService } from './state.service';
-import { SqlQueryService } from './sqlQuery.service';
+import { StateService } from '../state.service';
+import { SqlQueryService } from '../sqlQuery.service';
 import * as vscode from 'vscode';
 
 export class MigrationStatusService {

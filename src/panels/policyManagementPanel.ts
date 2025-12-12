@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { StateService } from '../services/state.service';
 import { SqlQueryService } from '../services/sqlQuery.service';
-import { getStyles } from '../templates/styles';
 
 export class PolicyManagementPanel {
     private static extractErrorMessage(error: any): string {
@@ -50,7 +49,8 @@ export class PolicyManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -81,12 +81,14 @@ export class PolicyManagementPanel {
                 ORDER BY ordinal_position
             `, [schema, tableName], database);
 
-            panel.webview.html = PolicyManagementPanel.getCreatePolicyHtml(
+            const initialData = {
                 schema,
                 tableName,
-                rolesResult.rows,
-                columnsResult.rows
-            );
+                roles: rolesResult.rows,
+                columns: columnsResult.rows
+            };
+
+            panel.webview.html = PolicyManagementPanel.getWebviewContent(context, panel, initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -157,7 +159,8 @@ export class PolicyManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -213,14 +216,16 @@ export class PolicyManagementPanel {
                 ORDER BY ordinal_position
             `, [schema, tableName], database);
 
-            panel.webview.html = PolicyManagementPanel.getEditPolicyHtml(
+            const initialData = {
                 schema,
                 tableName,
                 policyName,
                 policyInfo,
-                rolesResult.rows,
-                columnsResult.rows
-            );
+                roles: rolesResult.rows,
+                columns: columnsResult.rows
+            };
+
+            panel.webview.html = PolicyManagementPanel.getEditWebviewContent(context, panel, initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -384,8 +389,16 @@ export class PolicyManagementPanel {
             withCheckExpression
         } = policyDef;
 
-        // Ensure roles is always an array
-        const rolesArray = Array.isArray(roles) ? roles : (roles ? [roles] : []);
+        // Ensure roles is always an array and clean up any PostgreSQL array notation
+        let rolesArray = Array.isArray(roles) ? roles : (roles ? [roles] : []);
+        
+        // Clean up role names - remove curly braces if present (from PostgreSQL array notation)
+        rolesArray = rolesArray.map((r: string) => {
+            if (typeof r === 'string') {
+                return r.replace(/^\{|\}$/g, '');
+            }
+            return r;
+        });
 
         let sql = `CREATE POLICY "${name}" ON "${schema}"."${tableName}"\n`;
         sql += `  AS ${type}\n`;
@@ -421,522 +434,75 @@ export class PolicyManagementPanel {
     }
 
     /**
-     * Get HTML for create policy panel
+     * Get webview content for React components (Create Policy)
      */
-    private static getCreatePolicyHtml(
-        schema: string,
-        tableName: string,
-        roles: any[],
-        columns: any[]
+    private static getWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
     ): string {
-        const rolesJson = JSON.stringify(roles);
-        const columnsJson = JSON.stringify(columns);
-        
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'createPolicy.js')
+        );
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Policy</title>
-    ${getStyles()}
     <style>
-        .role-selector {
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
-            padding: 8px;
-            max-height: 150px;
-            overflow-y: auto;
-            background-color: var(--vscode-input-background);
-        }
-        .role-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px;
-            cursor: pointer;
-        }
-        .role-item:hover {
-            background-color: var(--vscode-list-hoverBackground);
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Create RLS Policy on ${schema}.${tableName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Policy Name <span class="required">*</span></label>
-                <input type="text" id="policyName" placeholder="policy_name" />
-                <div class="info-text">Name of the row-level security policy</div>
-            </div>
-
-            <div class="form-group">
-                <label>Policy Type <span class="required">*</span></label>
-                <select id="policyType">
-                    <option value="PERMISSIVE">PERMISSIVE (Allow matching rows)</option>
-                    <option value="RESTRICTIVE">RESTRICTIVE (Deny non-matching rows)</option>
-                </select>
-                <div class="info-text">PERMISSIVE allows rows that match, RESTRICTIVE denies rows that don't match</div>
-            </div>
-
-            <div class="form-group">
-                <label>Command <span class="required">*</span></label>
-                <select id="command">
-                    <option value="ALL">ALL - All operations</option>
-                    <option value="SELECT">SELECT - Read access</option>
-                    <option value="INSERT">INSERT - Create access</option>
-                    <option value="UPDATE">UPDATE - Modify access</option>
-                    <option value="DELETE">DELETE - Remove access</option>
-                </select>
-                <div class="info-text">Which database operations this policy applies to</div>
-            </div>
-
-            <div class="form-group">
-                <label>Roles</label>
-                <div class="info-text" style="margin-bottom: 8px;">Select roles this policy applies to (leave empty for all roles)</div>
-                <div class="role-selector" id="roleSelector"></div>
-            </div>
-
-            <div class="form-group">
-                <label>USING Expression</label>
-                <textarea id="usingExpression" rows="4" placeholder="e.g., user_id = current_user_id()"></textarea>
-                <div class="info-text">Boolean expression to determine which rows are visible/modifiable</div>
-            </div>
-
-            <div class="form-group">
-                <label>WITH CHECK Expression (Optional)</label>
-                <textarea id="withCheckExpression" rows="4" placeholder="e.g., status = 'active'"></textarea>
-                <div class="info-text">For INSERT/UPDATE: boolean expression to check new rows (defaults to USING expression)</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- Fill in required fields to generate SQL preview</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Create Policy</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
-        const vscode = acquireVsCodeApi();
-        const roles = ${rolesJson};
-        const columns = ${columnsJson};
-        let selectedRoles = [];
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        const policyNameInput = document.getElementById('policyName');
-        const policyTypeSelect = document.getElementById('policyType');
-        const commandSelect = document.getElementById('command');
-        const roleSelector = document.getElementById('roleSelector');
-        const usingExpressionInput = document.getElementById('usingExpression');
-        const withCheckExpressionInput = document.getElementById('withCheckExpression');
-        const createBtn = document.getElementById('createBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const errorContainer = document.getElementById('errorContainer');
-
-        // Render role checkboxes
-        roles.forEach(role => {
-            const div = document.createElement('div');
-            div.className = 'role-item';
-            div.innerHTML = \`
-                <input type="checkbox" id="role_\${role.rolname}" value="\${role.rolname}" />
-                <label for="role_\${role.rolname}" style="cursor: pointer; margin: 0;">\${role.rolname}</label>
-            \`;
-            div.addEventListener('click', (e) => {
-                if (e.target.tagName !== 'INPUT') {
-                    const checkbox = div.querySelector('input');
-                    checkbox.checked = !checkbox.checked;
-                    checkbox.dispatchEvent(new Event('change'));
-                }
-            });
-            div.querySelector('input').addEventListener('change', () => {
-                selectedRoles = Array.from(roleSelector.querySelectorAll('input:checked')).map(cb => cb.value);
-                updatePreview();
-            });
-            roleSelector.appendChild(div);
-        });
-
-        function getPolicyDefinition() {
-            return {
-                name: policyNameInput.value.trim(),
-                type: policyTypeSelect.value,
-                command: commandSelect.value,
-                roles: selectedRoles,
-                usingExpression: usingExpressionInput.value.trim(),
-                withCheckExpression: withCheckExpressionInput.value.trim()
-            };
-        }
-
-        function validatePolicy(showErrors = true) {
-            if (showErrors) {
-                clearError();
-            }
-
-            if (!policyNameInput.value.trim()) {
-                if (showErrors) showError('Policy name is required');
-                return false;
-            }
-
-            if (!/^[a-z_][a-z0-9_]*$/i.test(policyNameInput.value.trim())) {
-                if (showErrors) showError('Policy name must start with a letter and contain only letters, numbers, and underscores');
-                return false;
-            }
-
-            return true;
-        }
-
-        function updatePreview() {
-            if (!validatePolicy(false)) {
-                document.getElementById('sqlPreview').textContent = '-- Fill in required fields to generate SQL preview';
-                return;
-            }
-            vscode.postMessage({
-                command: 'previewSql',
-                policyDef: getPolicyDefinition()
-            });
-        }
-
-        // Auto-update preview
-        policyNameInput.addEventListener('input', updatePreview);
-        policyTypeSelect.addEventListener('change', updatePreview);
-        commandSelect.addEventListener('change', updatePreview);
-        usingExpressionInput.addEventListener('input', updatePreview);
-        withCheckExpressionInput.addEventListener('input', updatePreview);
-
-        createBtn.addEventListener('click', () => {
-            if (!validatePolicy(true)) return;
-            
-            createBtn.disabled = true;
-            createBtn.textContent = 'Creating...';
-            
-            vscode.postMessage({
-                command: 'createPolicy',
-                policyDef: getPolicyDefinition()
-            });
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreview').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    createBtn.disabled = false;
-                    createBtn.textContent = 'Create Policy';
-                    break;
-            }
-        });
-
-        function showError(message) {
-            errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            errorContainer.innerHTML = '';
-        }
-
-        // Initialize preview
-        updatePreview();
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
     }
 
     /**
-     * Get HTML for edit policy panel
+     * Get webview content for React components (Edit Policy)
      */
-    private static getEditPolicyHtml(
-        schema: string,
-        tableName: string,
-        policyName: string,
-        policyInfo: any,
-        roles: any[],
-        columns: any[]
+    private static getEditWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
     ): string {
-        const rolesJson = JSON.stringify(roles);
-        const columnsJson = JSON.stringify(columns);
-        
-        // Parse command from pg_policy format
-        let commandValue = 'ALL';
-        switch (policyInfo.command) {
-            case '*': commandValue = 'ALL'; break;
-            case 'r': commandValue = 'SELECT'; break;
-            case 'a': commandValue = 'INSERT'; break;
-            case 'w': commandValue = 'UPDATE'; break;
-            case 'd': commandValue = 'DELETE'; break;
-        }
-        
-        // Ensure roles is always an array (handle case where it might be null or other type)
-        let policyRoles = policyInfo.roles;
-        if (!Array.isArray(policyRoles)) {
-            policyRoles = policyRoles ? [policyRoles] : [];
-        }
-        const selectedRolesJson = JSON.stringify(policyRoles);
-        
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'editPolicy.js')
+        );
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Policy</title>
-    ${getStyles()}
     <style>
-        .role-selector {
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
-            padding: 8px;
-            max-height: 150px;
-            overflow-y: auto;
-            background-color: var(--vscode-input-background);
-        }
-        .role-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px;
-            cursor: pointer;
-        }
-        .role-item:hover {
-            background-color: var(--vscode-list-hoverBackground);
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Edit RLS Policy: ${policyName} on ${schema}.${tableName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Policy Name <span class="required">*</span></label>
-                <input type="text" id="policyName" value="${policyName}" />
-                <div class="info-text">Rename policy by changing the name</div>
-            </div>
-
-            <div class="form-group">
-                <label>Policy Type <span class="required">*</span></label>
-                <select id="policyType">
-                    <option value="PERMISSIVE" ${policyInfo.is_permissive ? 'selected' : ''}>PERMISSIVE (Allow matching rows)</option>
-                    <option value="RESTRICTIVE" ${!policyInfo.is_permissive ? 'selected' : ''}>RESTRICTIVE (Deny non-matching rows)</option>
-                </select>
-                <div class="info-text">PERMISSIVE allows rows that match, RESTRICTIVE denies rows that don't match</div>
-            </div>
-
-            <div class="form-group">
-                <label>Command <span class="required">*</span></label>
-                <select id="command">
-                    <option value="ALL" ${commandValue === 'ALL' ? 'selected' : ''}>ALL - All operations</option>
-                    <option value="SELECT" ${commandValue === 'SELECT' ? 'selected' : ''}>SELECT - Read access</option>
-                    <option value="INSERT" ${commandValue === 'INSERT' ? 'selected' : ''}>INSERT - Create access</option>
-                    <option value="UPDATE" ${commandValue === 'UPDATE' ? 'selected' : ''}>UPDATE - Modify access</option>
-                    <option value="DELETE" ${commandValue === 'DELETE' ? 'selected' : ''}>DELETE - Remove access</option>
-                </select>
-                <div class="info-text">Which database operations this policy applies to</div>
-            </div>
-
-            <div class="form-group">
-                <label>Roles</label>
-                <div class="info-text" style="margin-bottom: 8px;">Select roles this policy applies to (leave empty for all roles)</div>
-                <div class="role-selector" id="roleSelector"></div>
-            </div>
-
-            <div class="form-group">
-                <label>USING Expression</label>
-                <textarea id="usingExpression" rows="4" placeholder="e.g., user_id = current_user_id()">${policyInfo.using_expression || ''}</textarea>
-                <div class="info-text">Boolean expression to determine which rows are visible/modifiable</div>
-            </div>
-
-            <div class="form-group">
-                <label>WITH CHECK Expression (Optional)</label>
-                <textarea id="withCheckExpression" rows="4" placeholder="e.g., status = 'active'">${policyInfo.with_check_expression || ''}</textarea>
-                <div class="info-text">For INSERT/UPDATE: boolean expression to check new rows (defaults to USING expression)</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- SQL will be generated automatically as you make changes</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="saveBtn">Save Changes</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
-        const vscode = acquireVsCodeApi();
-        const roles = ${rolesJson};
-        const columns = ${columnsJson};
-        const initialRoles = ${selectedRolesJson};
-        let selectedRoles = [...initialRoles];
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        const policyNameInput = document.getElementById('policyName');
-        const policyTypeSelect = document.getElementById('policyType');
-        const commandSelect = document.getElementById('command');
-        const roleSelector = document.getElementById('roleSelector');
-        const usingExpressionInput = document.getElementById('usingExpression');
-        const withCheckExpressionInput = document.getElementById('withCheckExpression');
-        const saveBtn = document.getElementById('saveBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const errorContainer = document.getElementById('errorContainer');
-
-        // Render role checkboxes
-        roles.forEach(role => {
-            const div = document.createElement('div');
-            div.className = 'role-item';
-            const isChecked = initialRoles.includes(role.rolname);
-            div.innerHTML = \`
-                <input type="checkbox" id="role_\${role.rolname}" value="\${role.rolname}" \${isChecked ? 'checked' : ''} />
-                <label for="role_\${role.rolname}" style="cursor: pointer; margin: 0;">\${role.rolname}</label>
-            \`;
-            div.addEventListener('click', (e) => {
-                if (e.target.tagName !== 'INPUT') {
-                    const checkbox = div.querySelector('input');
-                    checkbox.checked = !checkbox.checked;
-                    checkbox.dispatchEvent(new Event('change'));
-                }
-            });
-            div.querySelector('input').addEventListener('change', () => {
-                selectedRoles = Array.from(roleSelector.querySelectorAll('input:checked')).map(cb => cb.value);
-                updatePreview();
-            });
-            roleSelector.appendChild(div);
-        });
-
-        function getPolicyDefinition() {
-            return {
-                name: policyNameInput.value.trim(),
-                type: policyTypeSelect.value,
-                command: commandSelect.value,
-                roles: selectedRoles,
-                usingExpression: usingExpressionInput.value.trim(),
-                withCheckExpression: withCheckExpressionInput.value.trim()
-            };
-        }
-
-        function validatePolicy(showErrors = true) {
-            if (showErrors) {
-                clearError();
-            }
-
-            if (!policyNameInput.value.trim()) {
-                if (showErrors) showError('Policy name is required');
-                return false;
-            }
-
-            if (!/^[a-z_][a-z0-9_]*$/i.test(policyNameInput.value.trim())) {
-                if (showErrors) showError('Policy name must start with a letter and contain only letters, numbers, and underscores');
-                return false;
-            }
-
-            return true;
-        }
-
-        function updatePreview() {
-            if (!validatePolicy(false)) {
-                document.getElementById('sqlPreview').textContent = '-- Fill in required fields to generate SQL preview';
-                return;
-            }
-            vscode.postMessage({
-                command: 'previewSql',
-                policyDef: getPolicyDefinition()
-            });
-        }
-
-        // Auto-update preview
-        policyNameInput.addEventListener('input', updatePreview);
-        policyTypeSelect.addEventListener('change', updatePreview);
-        commandSelect.addEventListener('change', updatePreview);
-        usingExpressionInput.addEventListener('input', updatePreview);
-        withCheckExpressionInput.addEventListener('input', updatePreview);
-
-        saveBtn.addEventListener('click', () => {
-            if (!validatePolicy(true)) return;
-            
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
-            
-            vscode.postMessage({
-                command: 'editPolicy',
-                policyDef: getPolicyDefinition()
-            });
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreview').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    saveBtn.disabled = false;
-                    saveBtn.textContent = 'Save Changes';
-                    break;
-            }
-        });
-
-        function showError(message) {
-            errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            errorContainer.innerHTML = '';
-        }
-
-        // Initialize preview
-        updatePreview();
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
     }

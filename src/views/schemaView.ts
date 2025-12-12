@@ -16,7 +16,6 @@ import { DataImportExportPanel } from '../panels/dataImportExportPanel';
 import { FunctionManagementPanel } from '../panels/functionManagementPanel';
 import { DatabaseManagementPanel } from '../panels/databaseManagementPanel';
 import { SequenceManagementPanel } from '../panels/sequenceManagementPanel';
-import { ForeignKeyManagementPanel } from '../panels/foreignKeyManagementPanel';
 import { TriggerManagementPanel } from '../panels/triggerManagementPanel';
 import { ModelGeneratorPanel } from '../panels/modelGeneratorPanel';
 import { ColumnManagementPanel } from '../panels/columnManagementPanel';
@@ -196,6 +195,11 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 }
                 break;
             case 'table':
+                // Don't show "BASE TABLE" for regular tables
+                if (item.metadata?.table_type === 'BASE TABLE') {
+                    return undefined;
+                }
+                return item.metadata?.table_type?.toUpperCase();
             case 'view':
                 return item.metadata?.table_type?.toUpperCase();
             case 'index':
@@ -203,6 +207,8 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 break;
             case 'constraint':
                 return item.metadata?.constraint_type_label?.toUpperCase();
+            case 'foreignkey':
+                return 'FOREIGN KEY';
             case 'policy':
                 return item.metadata?.command_label?.toUpperCase();
             case 'trigger':
@@ -253,7 +259,7 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 } else if (column?.is_foreign_key) {
                     return new vscode.ThemeIcon('link', columnColor);
                 } else {
-                    return new vscode.ThemeIcon('symbol-field', columnColor);
+                    return new vscode.ThemeIcon('gripper', columnColor);
                 }
             case 'index':
                 // Level 5 - Magenta
@@ -269,7 +275,7 @@ export class SchemaTreeItem extends vscode.TreeItem {
                 return new vscode.ThemeIcon('play', new vscode.ThemeColor('terminal.ansiMagenta'));
             case 'policy':
                 // Level 5 - Magenta
-                return new vscode.ThemeIcon('shield-check', new vscode.ThemeColor('terminal.ansiMagenta'));
+                return new vscode.ThemeIcon('lock', new vscode.ThemeColor('terminal.ansiMagenta'));
             case 'container':
                 // Container nodes - no icons for grouping nodes
                 return undefined;
@@ -295,9 +301,10 @@ export class SchemaTreeItem extends vscode.TreeItem {
             case 'views':
                 // Purple for views container
                 return new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('charts.purple'));
-            case 'functions':
-                // Orange for functions container
-                return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('charts.orange'));
+            // Hidden: Functions
+            // case 'functions':
+            //     // Orange for functions container
+            //     return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('charts.orange'));
             case 'sequences':
                 // Bright magenta for sequences container
                 return new vscode.ThemeIcon('symbol-numeric', new vscode.ThemeColor('terminal.ansiBrightMagenta'));
@@ -310,9 +317,10 @@ export class SchemaTreeItem extends vscode.TreeItem {
             case 'constraints':
                 // Red for constraints container
                 return new vscode.ThemeIcon('shield', new vscode.ThemeColor('terminal.ansiRed'));
-            case 'triggers':
-                // Bright green for triggers container
-                return new vscode.ThemeIcon('flash', new vscode.ThemeColor('terminal.ansiGreen'));
+            // Hidden: Triggers
+            // case 'triggers':
+            //     // Bright green for triggers container
+            //     return new vscode.ThemeIcon('flash', new vscode.ThemeColor('terminal.ansiGreen'));
             case 'policies':
                 // Bright green for policies container
                 return new vscode.ThemeIcon('lock', new vscode.ThemeColor('terminal.ansiBrightGreen'));
@@ -591,12 +599,13 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                 type: 'container' as any,
                 metadata: { containerType: 'views', database, schema }
             },
-            {
-                id: `container_functions_${baseId}`,
-                name: 'Functions',
-                type: 'container' as any,
-                metadata: { containerType: 'functions', database, schema }
-            },
+            // Hidden: Functions
+            // {
+            //     id: `container_functions_${baseId}`,
+            //     name: 'Functions',
+            //     type: 'container' as any,
+            //     metadata: { containerType: 'functions', database, schema }
+            // },
             {
                 id: `container_sequences_${baseId}`,
                 name: 'Sequences',
@@ -628,9 +637,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                 case 'views':
                     result = await this.schemaService.getViews(database, schema);
                     break;
-                case 'functions':
-                    result = await this.schemaService.getFunctions(database, schema);
-                    break;
+                // Hidden: Functions
+                // case 'functions':
+                //     result = await this.schemaService.getFunctions(database, schema);
+                //     break;
                 case 'sequences':
                     result = await this.schemaService.getSequences(database, schema);
                     break;
@@ -652,9 +662,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     const constraints = await this.schemaService.getConstraints(database, schema, containerItem.metadata.tableName);
                     result = [...foreignKeys, ...constraints];
                     break;
-                case 'triggers':
-                    result = await this.schemaService.getTriggers(database, schema, containerItem.metadata.tableName);
-                    break;
+                // Hidden: Triggers
+                // case 'triggers':
+                //     result = await this.schemaService.getTriggers(database, schema, containerItem.metadata.tableName);
+                //     break;
                 case 'policies':
                     result = await this.schemaService.getPolicies(database, schema, containerItem.metadata.tableName);
                     break;
@@ -693,7 +704,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     ) as member_of
                 FROM pg_catalog.pg_roles r
                 WHERE r.rolname NOT LIKE 'pg_%'
-                  AND r.rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND r.rolname NOT IN ('cloud_admin', 'neon_superuser', 'neon_service')
                 ORDER BY r.rolname
             `, database);
 
@@ -761,12 +772,13 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                     type: 'container' as any,
                     metadata: { containerType: 'constraints', database, schema, tableName }
                 },
-                {
-                    id: `container_triggers_${baseId}`,
-                    name: 'Triggers',
-                    type: 'container' as any,
-                    metadata: { containerType: 'triggers', database, schema, tableName }
-                },
+                // Hidden: Triggers
+                // {
+                //     id: `container_triggers_${baseId}`,
+                //     name: 'Triggers',
+                //     type: 'container' as any,
+                //     metadata: { containerType: 'triggers', database, schema, tableName }
+                // },
                 {
                     id: `container_policies_${baseId}`,
                     name: 'Policies',
@@ -895,9 +907,10 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
                                         case 'views':
                                             containerChildren = await this.schemaService.getViews(database, schemaName);
                                             break;
-                                        case 'functions':
-                                            containerChildren = await this.schemaService.getFunctions(database, schemaName);
-                                            break;
+                                        // Hidden: Functions
+                                        // case 'functions':
+                                        //     containerChildren = await this.schemaService.getFunctions(database, schemaName);
+                                        //     break;
                                         case 'sequences':
                                             containerChildren = await this.schemaService.getSequences(database, schemaName);
                                             break;
@@ -1107,6 +1120,9 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.resetFromParent', () => {
                 this.resetFromParent();
             }),
+            vscode.commands.registerCommand('neonLocal.schema.openInConsole', (item: SchemaItem) => {
+                this.openInConsole(item);
+            }),
             vscode.commands.registerCommand('neonLocal.schema.launchPsql', (item: SchemaItem) => {
                 this.launchPsql(item);
             }),
@@ -1203,9 +1219,6 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.createFunction', (item: SchemaItem) => {
                 this.createFunction(item);
             }),
-            vscode.commands.registerCommand('neonLocal.schema.editFunction', (item: SchemaItem) => {
-                this.editFunction(item);
-            }),
             vscode.commands.registerCommand('neonLocal.schema.dropFunction', (item: SchemaItem) => {
                 this.dropFunction(item);
             }),
@@ -1223,15 +1236,6 @@ export class SchemaViewProvider {
             }),
             vscode.commands.registerCommand('neonLocal.schema.setSequenceValue', (item: SchemaItem) => {
                 this.setSequenceValue(item);
-            }),
-            vscode.commands.registerCommand('neonLocal.schema.createForeignKey', (item: SchemaItem) => {
-                this.createForeignKey(item);
-            }),
-            vscode.commands.registerCommand('neonLocal.schema.viewForeignKeyProperties', (item: SchemaItem) => {
-                this.viewForeignKeyProperties(item);
-            }),
-            vscode.commands.registerCommand('neonLocal.schema.dropForeignKey', (item: SchemaItem) => {
-                this.dropForeignKey(item);
             }),
             vscode.commands.registerCommand('neonLocal.schema.createConstraint', (item: SchemaItem) => {
                 this.createConstraint(item);
@@ -1436,6 +1440,33 @@ export class SchemaViewProvider {
         await vscode.commands.executeCommand('neon-local-connect.resetFromParent');
     }
 
+    private async openInConsole(item: SchemaItem): Promise<void> {
+        try {
+            // Get the view data to retrieve project and branch IDs
+            const viewData = await this.stateService.getViewData();
+            
+            // Get project ID from state
+            const projectId = viewData.connection?.selectedProjectId;
+            
+            // Get branch ID - could be from metadata or from state
+            const branchId = item.metadata?.branchId || viewData.currentlyConnectedBranch;
+            
+            if (!projectId || !branchId) {
+                vscode.window.showErrorMessage('Unable to open console: Missing project or branch information');
+                return;
+            }
+
+            // Construct the Neon console URL - open branch page
+            const consoleUrl = `https://console.neon.tech/app/projects/${projectId}/branches/${branchId}`;
+            
+            // Open in browser
+            await vscode.env.openExternal(vscode.Uri.parse(consoleUrl));
+            
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open console: ${error}`);
+        }
+    }
+
     private async launchPsql(item: SchemaItem): Promise<void> {
         if (item.type !== 'database') {
             return;
@@ -1449,7 +1480,7 @@ export class SchemaViewProvider {
                 throw new Error('Database is not connected. Please connect first.');
             }
 
-            const connectionInfos = viewData.connection.branchConnectionInfos;
+            let connectionInfos = viewData.connection.branchConnectionInfos;
             
             if (!connectionInfos || connectionInfos.length === 0) {
                 throw new Error('No connection information available. Please reconnect.');
@@ -1459,14 +1490,43 @@ export class SchemaViewProvider {
             const selectedDatabase = item.name;
 
             // Get roles for the selected database
-            const rolesForDatabase = connectionInfos
+            let rolesForDatabase = connectionInfos
                 .filter(info => info.database === selectedDatabase)
                 .map(info => info.user);
+
+            // If no roles found for this database, try fetching fresh connection info
+            // This handles the case where a database was just created
+            if (rolesForDatabase.length === 0) {
+                console.debug(`No roles found for database ${selectedDatabase}, fetching fresh connection info...`);
+                try {
+                    const apiService = new (require('../services/api.service').NeonApiService)(this.context);
+                    const projectId = await this.stateService.getCurrentProjectId();
+                    const branchId = await this.stateService.currentlyConnectedBranch;
+                    
+                    if (projectId && branchId) {
+                        const freshConnectionInfos = await apiService.getBranchConnectionInfo(projectId, branchId);
+                        await this.stateService.setBranchConnectionInfos(freshConnectionInfos);
+                        connectionInfos = freshConnectionInfos;
+                        
+                        // Try again with fresh data
+                        if (connectionInfos && connectionInfos.length > 0) {
+                            rolesForDatabase = connectionInfos
+                                .filter(info => info.database === selectedDatabase)
+                                .map(info => info.user);
+                            
+                            console.debug(`After refresh: Found ${rolesForDatabase.length} roles for database ${selectedDatabase}`);
+                        }
+                    }
+                } catch (refreshError) {
+                    console.error('Error refreshing connection info:', refreshError);
+                    // Continue with existing data
+                }
+            }
 
             const uniqueRoles = Array.from(new Set(rolesForDatabase));
 
             if (uniqueRoles.length === 0) {
-                throw new Error(`No roles found for database ${selectedDatabase}`);
+                throw new Error(`No roles found for database ${selectedDatabase}. The database may be still initializing. Please try again in a moment.`);
             }
 
             // Prompt for role selection
@@ -1483,6 +1543,11 @@ export class SchemaViewProvider {
 
             if (!selectedRole) {
                 return; // User cancelled
+            }
+
+            // Ensure we still have connection info
+            if (!connectionInfos || connectionInfos.length === 0) {
+                throw new Error('Connection information was lost. Please try again.');
             }
 
             // Find the connection info for the selected database and role
@@ -1986,22 +2051,9 @@ export class SchemaViewProvider {
 
             // Check if it's a materialized view
             const isMaterialized = item.metadata?.is_materialized || false;
-            const viewType = isMaterialized ? 'materialized view' : 'view';
 
-            // Confirmation dialog
-            const confirmation = await vscode.window.showWarningMessage(
-                `Are you sure you want to drop ${viewType} "${viewName}"?`,
-                { modal: true },
-                'Drop (RESTRICT)',
-                'Drop (CASCADE)'
-            );
-
-            if (!confirmation) {
-                return;
-            }
-
-            const cascade = confirmation.includes('CASCADE');
-            await ViewManagementPanel.dropView(this.context, this.stateService, schema, viewName, isMaterialized, cascade, database);
+            // Call ViewManagementPanel which handles all confirmation dialogs
+            await ViewManagementPanel.dropView(this.context, this.stateService, schema, viewName, isMaterialized, database);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to drop view: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -2117,21 +2169,6 @@ export class SchemaViewProvider {
             await FunctionManagementPanel.createFunction(this.context, this.stateService, schema, database);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to create function: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private async editFunction(item: SchemaItem): Promise<void> {
-        if (item.type !== 'function') {
-            return;
-        }
-
-        try {
-            // Parse function ID: function_database_schema_functionname
-            const { database, schema, name: functionName } = this.parseSchemaItem(item);
-
-            await FunctionManagementPanel.editFunction(this.context, this.stateService, schema, functionName, database);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to edit function: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -2509,64 +2546,6 @@ export class SchemaViewProvider {
         }
     }
 
-    private async createForeignKey(item: SchemaItem): Promise<void> {
-        if (item.type !== 'table') {
-            return;
-        }
-
-        try {
-            // Parse table ID: table_database_schema_tablename
-            const { database, schema, name: tableName } = this.parseSchemaItem(item);
-
-            await ForeignKeyManagementPanel.createForeignKey(this.context, this.stateService, schema, tableName, database);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to create foreign key: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private async viewForeignKeyProperties(item: SchemaItem): Promise<void> {
-        if (item.type !== 'foreignkey') {
-            return;
-        }
-
-        try {
-            // Parse foreign key ID: foreignkey_database_schema_tablename_fkname
-            const { database, schema, name: tableName } = this.parseSchemaItem(item);
-            const fkName = parts.slice(4).join('_');
-
-            await ForeignKeyManagementPanel.viewForeignKeyProperties(this.context, this.stateService, schema, tableName, fkName, database);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to view foreign key properties: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private dropForeignKey = async (item: SchemaItem): Promise<void> => {
-        if (item.type !== 'foreignkey') {
-            return;
-        }
-
-        try {
-            // Parse foreign key ID: foreignkey_database_schema_tablename_fkname
-            const { database, schema, name: tableName } = this.parseSchemaItem(item);
-            const fkName = parts.slice(4).join('_');
-
-            // Confirmation dialog
-            const confirmation = await vscode.window.showWarningMessage(
-                `Are you sure you want to drop foreign key "${fkName}" from table "${schema}.${tableName}"?`,
-                { modal: true },
-                'Drop Foreign Key'
-            );
-
-            if (!confirmation) {
-                return;
-            }
-
-            await ForeignKeyManagementPanel.dropForeignKey(this.context, this.stateService, schema, tableName, fkName, database);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to drop foreign key: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    };
-
     private async createConstraint(item: SchemaItem): Promise<void> {
         if (item.type !== 'table' && item.type !== 'container') {
             return;
@@ -2596,7 +2575,7 @@ export class SchemaViewProvider {
     }
 
     private dropConstraint = async (item: SchemaItem): Promise<void> => {
-        if (item.type !== 'constraint') {
+        if (item.type !== 'constraint' && item.type !== 'foreignkey') {
             return;
         }
 
@@ -2627,7 +2606,7 @@ export class SchemaViewProvider {
     };
 
     private async editConstraint(item: SchemaItem): Promise<void> {
-        if (item.type !== 'constraint') {
+        if (item.type !== 'constraint' && item.type !== 'foreignkey') {
             return;
         }
 
@@ -2969,6 +2948,7 @@ export class SchemaViewProvider {
         switch (item.type) {
             case 'connection':
                 actions.push(
+                    { label: '$(link-external) Open in Neon Console', command: 'neonLocal.schema.openInConsole', description: 'Open branch in browser' },
                     // DISABLED: Create Database
                     // { label: '$(database) Create Database', command: 'neonLocal.schema.createDatabase' },
                     { label: '$(refresh) Reset branch to parent', command: 'neonLocal.schema.resetFromParent' }
@@ -3018,7 +2998,6 @@ export class SchemaViewProvider {
 
             case 'function':
                 actions.push(
-                    { label: '$(edit) Edit Function', command: 'neonLocal.schema.editFunction', description: 'Modify function code' },
                     { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(trash) Drop Function', command: 'neonLocal.schema.dropFunction', description: 'Delete function' }
                 );
@@ -3041,15 +3020,12 @@ export class SchemaViewProvider {
 
             case 'foreignkey':
                 actions.push(
-                    { label: '$(info) View Properties', command: 'neonLocal.schema.viewForeignKeyProperties', description: 'Show constraint details' },
-                    { label: '$(search) Open SQL Query', command: 'neonLocal.schema.openSqlQuery' },
-                    { label: '$(trash) Drop Foreign Key', command: 'neonLocal.schema.dropForeignKey', description: 'Remove constraint' }
+                    { label: '$(trash) Drop Constraint', command: 'neonLocal.schema.dropConstraint', description: 'Remove constraint' }
                 );
                 break;
 
             case 'constraint':
                 actions.push(
-                    { label: '$(edit) Edit Constraint', command: 'neonLocal.schema.editConstraint', description: 'Modify constraint definition' },
                     { label: '$(trash) Drop Constraint', command: 'neonLocal.schema.dropConstraint', description: 'Remove constraint' }
                 );
                 break;

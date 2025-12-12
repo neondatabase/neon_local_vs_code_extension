@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { StateService } from './state.service';
+import { StateService } from '../state.service';
 
 export class DjangoIntegrationService {
     constructor(

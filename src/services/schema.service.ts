@@ -307,36 +307,55 @@ export class SchemaService {
 
     async getColumns(database: string, schema: string, table: string): Promise<SchemaItem[]> {
         try {
+            // Use a query that works for tables, views, AND materialized views
+            // information_schema.columns doesn't include materialized views, so we use pg_catalog
             const result = await this.connectionPool.executeQuery(`
                 SELECT 
-                    c.column_name as name,
-                    c.data_type,
-                    c.is_nullable,
-                    c.column_default,
-                    c.character_maximum_length,
-                    CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key,
-                    CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_foreign_key,
+                    a.attname as name,
+                    pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END as is_nullable,
+                    pg_catalog.pg_get_expr(d.adbin, d.adrelid) as column_default,
+                    CASE 
+                        WHEN t.typname = 'varchar' OR t.typname = 'char' OR t.typname = 'bpchar'
+                        THEN a.atttypmod - 4
+                        ELSE NULL 
+                    END as character_maximum_length,
+                    CASE WHEN pk.attname IS NOT NULL THEN true ELSE false END as is_primary_key,
+                    CASE WHEN fk.attname IS NOT NULL THEN true ELSE false END as is_foreign_key,
                     fk.foreign_table_name,
                     fk.foreign_column_name
-                FROM information_schema.columns c
+                FROM pg_catalog.pg_attribute a
+                JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+                JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+                JOIN pg_catalog.pg_type t ON a.atttypid = t.oid
+                LEFT JOIN pg_catalog.pg_attrdef d ON (a.attrelid, a.attnum) = (d.adrelid, d.adnum)
                 LEFT JOIN (
-                    SELECT ku.column_name
-                    FROM information_schema.table_constraints tc
-                    JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
-                    WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'PRIMARY KEY'
-                ) pk ON c.column_name = pk.column_name
+                    SELECT a.attname
+                    FROM pg_catalog.pg_index i
+                    JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                    JOIN pg_catalog.pg_class c ON c.oid = i.indrelid
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = $1 AND c.relname = $2 AND i.indisprimary
+                ) pk ON a.attname = pk.attname
                 LEFT JOIN (
                     SELECT 
-                        ku.column_name,
-                        ccu.table_name AS foreign_table_name,
-                        ccu.column_name AS foreign_column_name
-                    FROM information_schema.table_constraints tc
-                    JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
-                    JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
-                    WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'FOREIGN KEY'
-                ) fk ON c.column_name = fk.column_name
-                WHERE c.table_schema = $1 AND c.table_name = $2
-                ORDER BY c.ordinal_position
+                        a.attname,
+                        fc.relname AS foreign_table_name,
+                        fa.attname AS foreign_column_name
+                    FROM pg_catalog.pg_constraint con
+                    JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY(con.conkey)
+                    JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                    JOIN pg_catalog.pg_class fc ON fc.oid = con.confrelid
+                    JOIN pg_catalog.pg_attribute fa ON fa.attrelid = con.confrelid AND fa.attnum = ANY(con.confkey)
+                    WHERE n.nspname = $1 AND c.relname = $2 AND con.contype = 'f'
+                ) fk ON a.attname = fk.attname
+                WHERE n.nspname = $1 
+                    AND c.relname = $2
+                    AND a.attnum > 0 
+                    AND NOT a.attisdropped
+                    AND (c.relkind = 'r' OR c.relkind = 'v' OR c.relkind = 'm')
+                ORDER BY a.attnum
             `, [schema, table], database);
 
             return result.rows.map((row) => ({

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { SqlQueryService } from '../services/sqlQuery.service';
 import { StateService } from '../services/state.service';
-import { getStyles } from '../templates/styles';
+import { NeonApiService } from '../services/api.service';
 
 export interface DatabaseDefinition {
     name: string;
@@ -74,16 +74,18 @@ export class DatabaseManagementPanel {
             const currentUser = currentUserResult.rows[0]?.current_user || '';
             
             // Get roles, excluding Neon system roles
+            // For database creation, allow any role as owner since that's what the extension will connect as
             const rolesResult = await sqlService.executeQuery(`
                 SELECT rolname
                 FROM pg_catalog.pg_roles
                 WHERE rolname !~ '^pg_'
-                  AND rolname NOT IN ('cloud_admin', 'neon_superuser')
-                  AND pg_has_role(current_user, oid, 'MEMBER')
+                  AND rolname NOT IN ('cloud_admin', 'neon_superuser', 'neon_service')
                 ORDER BY rolname
             `, [], 'postgres');
 
             panel.webview.html = DatabaseManagementPanel.getCreateDatabaseHtml(
+                panel.webview,
+                context.extensionUri,
                 rolesResult.rows.map(r => r.rolname),
                 currentUser
             );
@@ -97,10 +99,6 @@ export class DatabaseManagementPanel {
                             message.dbDef,
                             panel
                         );
-                        break;
-                    case 'previewSql':
-                        const sql = DatabaseManagementPanel.generateCreateDatabaseSql(message.dbDef);
-                        panel.webview.postMessage({ command: 'sqlPreview', sql });
                         break;
                     case 'cancel':
                         panel.dispose();
@@ -161,7 +159,9 @@ export class DatabaseManagementPanel {
     }
 
     /**
-     * Execute create database
+     * Execute create database using Neon API
+     * This avoids PostgreSQL SET ROLE permission issues by using the Neon API
+     * which handles ownership assignment internally
      */
     private static async executeCreateDatabase(
         context: vscode.ExtensionContext,
@@ -170,9 +170,31 @@ export class DatabaseManagementPanel {
         panel: vscode.WebviewPanel
     ): Promise<void> {
         try {
-            const sql = DatabaseManagementPanel.generateCreateDatabaseSql(dbDef);
-            const sqlService = new SqlQueryService(stateService, context);
-            await sqlService.executeQuery(sql, 'postgres');
+            // Get currently connected project and branch
+            const viewData = await stateService.getViewData();
+            const projectId = viewData.connection.selectedProjectId;
+            const branchId = viewData.connection.currentlyConnectedBranch;
+            
+            if (!projectId || !branchId) {
+                throw new Error('No project or branch connected. Please connect first.');
+            }
+
+            console.debug(`Creating database via Neon API: project=${projectId}, branch=${branchId}, name=${dbDef.name}, owner=${dbDef.owner}`);
+
+            // Use Neon API to create the database
+            const apiService = new NeonApiService(context);
+            await apiService.createDatabase(
+                projectId,
+                branchId,
+                dbDef.name,
+                dbDef.owner
+            );
+
+            // Refresh branch connection info to include the new database
+            console.debug('Refreshing branch connection info after database creation...');
+            const freshConnectionInfos = await apiService.getBranchConnectionInfo(projectId, branchId);
+            await stateService.setBranchConnectionInfos(freshConnectionInfos);
+            console.debug(`Branch connection info refreshed: ${freshConnectionInfos.length} configurations`);
 
             vscode.window.showInformationMessage(`Database "${dbDef.name}" created successfully!`);
             await vscode.commands.executeCommand('neonLocal.schema.refresh');
@@ -188,201 +210,48 @@ export class DatabaseManagementPanel {
     }
 
     /**
-     * Generate CREATE DATABASE SQL
+     * Get HTML for create database panel (React version)
      */
-    private static generateCreateDatabaseSql(dbDef: DatabaseDefinition): string {
-        const {
-            name,
-            owner,
-            encoding
-        } = dbDef;
+    private static getCreateDatabaseHtml(
+        webview: vscode.Webview,
+        extensionUri: vscode.Uri,
+        existingRoles: string[],
+        currentUser: string
+    ): string {
+        const scriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(extensionUri, 'dist', 'databaseManagement.js')
+        );
 
-        let sql = `CREATE DATABASE ${name}`;
-        
-        const options: string[] = [];
-        
-        if (owner) {
-            options.push(`OWNER = ${owner}`);
-        }
-        
-        if (encoding && encoding !== 'UTF8') {
-            options.push(`ENCODING = '${encoding}'`);
-        }
-        
-        if (options.length > 0) {
-            sql += '\n  WITH ' + options.join('\n       ');
-        }
-        
-        sql += ';';
-        
-        return sql;
-    }
+        const nonce = this.getNonce();
 
-    /**
-     * Get HTML for create database panel
-     */
-    private static getCreateDatabaseHtml(existingRoles: string[], currentUser: string): string {
-        const rolesJson = JSON.stringify(existingRoles);
-        const currentUserJson = JSON.stringify(currentUser);
-        
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <title>Create Database</title>
-    ${getStyles()}
 </head>
 <body>
-    <div class="container">
-        <h1>Create Database</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Database Name</label>
-                <input type="text" id="dbName" placeholder="mydb" />
-                <div class="info-text">Must contain only letters, numbers, and underscores</div>
-            </div>
-
-            <div class="form-group">
-                <label>Owner</label>
-                <select id="owner">
-                    <!-- Roles will be populated here -->
-                </select>
-                <div class="info-text">The database owner role</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreview')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreview">
-                <div class="sql-preview" id="sqlPreviewContent">-- Generating SQL preview...</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Create Database</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        const existingRoles = ${rolesJson};
-        const currentUser = ${currentUserJson};
-
-        // Populate roles dropdown and select current user by default
-        const ownerSelect = document.getElementById('owner');
-        existingRoles.forEach(role => {
-            const option = document.createElement('option');
-            option.value = role;
-            option.textContent = role;
-            // Select the current user by default
-            if (role === currentUser) {
-                option.selected = true;
-            }
-            ownerSelect.appendChild(option);
-        });
-
-        function getDatabaseDefinition() {
-            const dbNameInput = document.getElementById('dbName');
-            const dbName = dbNameInput.value.trim() || dbNameInput.placeholder;
-            
-            return {
-                name: dbName,
-                owner: document.getElementById('owner').value,
-                encoding: 'UTF8'
-            };
-        }
-
-        function validateDatabase() {
-            clearError();
-            
-            const dbNameInput = document.getElementById('dbName');
-            const dbName = dbNameInput.value.trim() || dbNameInput.placeholder;
-            
-            if (!dbName) {
-                showError('Database name is required');
-                return false;
-            }
-            
-            if (!/^[a-z_][a-z0-9_]*$/i.test(dbName)) {
-                showError('Database name must start with a letter or underscore and contain only letters, numbers, and underscores');
-                return false;
-            }
-            
-            return true;
-        }
-
-        function updatePreview() {
-            vscode.postMessage({
-                command: 'previewSql',
-                dbDef: getDatabaseDefinition()
-            });
-        }
-
-        // Add event listeners to all form fields to auto-update preview
-        document.getElementById('dbName').addEventListener('input', updatePreview);
-        document.getElementById('owner').addEventListener('change', updatePreview);
-
-        document.getElementById('createBtn').addEventListener('click', () => {
-            if (!validateDatabase()) return;
-            vscode.postMessage({
-                command: 'createDatabase',
-                dbDef: getDatabaseDefinition()
-            });
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'cancel'
-            });
-        });
-
-        // Generate initial preview
-        updatePreview();
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreviewContent').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function toggleSection(sectionId) {
-            const content = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId + 'Icon');
-            
-            if (content.style.display === 'none' || content.style.display === '') {
-                content.style.display = 'block';
-                icon.style.transform = 'rotate(90deg)';
-            } else {
-                content.style.display = 'none';
-                icon.style.transform = 'rotate(0deg)';
-            }
-        }
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = '<div class="error">' + message + '</div>';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
-        }
+    <div id="root"></div>
+    <script nonce="${nonce}">
+        window.initialData = ${JSON.stringify({ existingRoles, currentUser })};
     </script>
+    <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+    }
+
+    /**
+     * Generate a nonce for CSP
+     */
+    private static getNonce(): string {
+        let text = '';
+        const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        for (let i = 0; i < 32; i++) {
+            text += possible.charAt(Math.floor(Math.random() * possible.length));
+        }
+        return text;
     }
 
 }

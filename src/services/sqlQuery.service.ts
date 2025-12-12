@@ -87,8 +87,9 @@ export class SqlQueryService {
             const queryExecutionTime = Date.now() - queryStart;
             const executionTime = Date.now() - startTime;
             
-            // Collect performance stats after successful execution
-            const performanceStats = await this.collectPerformanceStats(client, cleanSql, startTime, connectionTime);
+            // Collect performance stats after successful execution (only for SELECT queries)
+            const isDDL = /^\s*(ALTER|CREATE|DROP|TRUNCATE|GRANT|REVOKE)\s+/i.test(cleanSql);
+            const performanceStats = isDDL ? undefined : await this.collectPerformanceStats(client, cleanSql, params, startTime, connectionTime);
 
             // Handle different types of results
             const columns = result.fields ? result.fields.map(field => field.name) : [];
@@ -98,12 +99,14 @@ export class SqlQueryService {
 
             console.debug(`Query executed successfully in ${executionTime}ms, ${rowCount} rows returned`);
 
-            // Complete performance stats
-            performanceStats.queryExecutionTime = queryExecutionTime;
-            performanceStats.executionTime = executionTime;
-            performanceStats.rowsReturned = rowCount;
-            performanceStats.rowsAffected = affectedRows;
-            performanceStats.bytesReceived = this.estimateBytesReceived(rows, columns);
+            // Complete performance stats (only if they were collected)
+            if (performanceStats) {
+                performanceStats.queryExecutionTime = queryExecutionTime;
+                performanceStats.executionTime = executionTime;
+                performanceStats.rowsReturned = rowCount;
+                performanceStats.rowsAffected = affectedRows;
+                performanceStats.bytesReceived = this.estimateBytesReceived(rows, columns);
+            }
 
             return {
                 columns,
@@ -331,6 +334,7 @@ export class SqlQueryService {
     private async collectPerformanceStats(
         client: ManagedClient, 
         sql: string, 
+        params: any[],
         startTime: number, 
         connectionTime: number
     ): Promise<PerformanceStats> {
@@ -343,7 +347,7 @@ export class SqlQueryService {
         try {
             // Get query plan for analysis (but don't execute the query yet)
             const explainSql = `EXPLAIN (ANALYZE false, BUFFERS false, FORMAT JSON) ${sql}`;
-            const explainResult = await client.query(explainSql);
+            const explainResult = await client.query(explainSql, params);
             if (explainResult.rows && explainResult.rows[0] && explainResult.rows[0]['QUERY PLAN']) {
                 const plan = explainResult.rows[0]['QUERY PLAN'][0];
                 

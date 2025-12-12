@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { SqlQueryService } from '../services/sqlQuery.service';
 import { StateService } from '../services/state.service';
-import { getStyles } from '../templates/styles';
 
 export interface SchemaDefinition {
     name: string;
@@ -59,7 +58,7 @@ export class SchemaManagementPanel {
                 SELECT rolname 
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
-                  AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND rolname NOT IN ('cloud_admin', 'neon_superuser', 'neon_service')
                   AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname;
             `;
@@ -70,7 +69,7 @@ export class SchemaManagementPanel {
             const currentUserResult = await sqlService.executeQuery('SELECT current_user', database);
             const currentUser = currentUserResult.rows[0]?.current_user || '';
 
-            panel.webview.html = SchemaManagementPanel.getCreateSchemaHtml(existingRoles, currentUser);
+            panel.webview.html = SchemaManagementPanel.getCreateSchemaHtml(context, panel, existingRoles, currentUser);
 
             // Handle messages from the webview
             panel.webview.onDidReceiveMessage(
@@ -160,9 +159,13 @@ export class SchemaManagementPanel {
     /**
      * Get HTML for create schema panel
      */
-    private static getCreateSchemaHtml(existingRoles: string[], currentUser: string): string {
-        const rolesJson = JSON.stringify(existingRoles);
-        const currentUserJson = JSON.stringify(currentUser);
+    private static getCreateSchemaHtml(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        existingRoles: string[],
+        currentUser: string
+    ): string {
+        const initialData = { existingRoles, currentUser, mode: 'create' };
         
         return `<!DOCTYPE html>
 <html lang="en">
@@ -170,177 +173,34 @@ export class SchemaManagementPanel {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Schema</title>
-    ${getStyles()}
+    <style>
+        body { margin: 0; padding: 0; height: 100vh; overflow: auto; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Create Schema</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Schema Name</label>
-                <input type="text" id="schemaName" placeholder="my_schema" />
-                <div class="info-text">Must start with a letter and contain only letters, numbers, and underscores. Cannot use reserved prefixes (pg_, information_schema).</div>
-            </div>
-
-            <div class="form-group">
-                <label>Owner</label>
-                <select id="owner">
-                    <!-- Roles will be populated here -->
-                </select>
-                <div class="info-text">The schema owner role</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreview')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreview">
-                <div class="sql-preview" id="sqlPreviewContent">-- Generating SQL preview...</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Create Schema</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
-        const vscode = acquireVsCodeApi();
-        const existingRoles = ${rolesJson};
-        const currentUser = ${currentUserJson};
-
-        // Populate roles dropdown and select current user by default
-        const ownerSelect = document.getElementById('owner');
-        existingRoles.forEach(role => {
-            const option = document.createElement('option');
-            option.value = role;
-            option.textContent = role;
-            // Select the current user by default
-            if (role === currentUser) {
-                option.selected = true;
-            }
-            ownerSelect.appendChild(option);
-        });
-
-        function getSchemaDefinition() {
-            const schemaNameInput = document.getElementById('schemaName');
-            const schemaName = schemaNameInput.value.trim() || schemaNameInput.placeholder;
-            
-            return {
-                name: schemaName,
-                owner: document.getElementById('owner').value
-            };
-        }
-
-        function validateSchema() {
-            clearError();
-            
-            const schemaNameInput = document.getElementById('schemaName');
-            const schemaName = schemaNameInput.value.trim() || schemaNameInput.placeholder;
-
-            if (!schemaName) {
-                showError('Schema name is required');
-                return false;
-            }
-            
-            if (!/^[a-z_][a-z0-9_]*$/i.test(schemaName)) {
-                showError('Schema name must start with a letter or underscore and contain only letters, numbers, and underscores');
-                return false;
-            }
-            
-            // Check for reserved prefixes
-            const reserved = ['pg_', 'information_schema', 'pg_catalog', 'pg_toast'];
-            if (reserved.some(r => schemaName.toLowerCase().startsWith(r.toLowerCase()))) {
-                showError('Cannot use reserved schema name prefix');
-                return false;
-            }
-            
-            return true;
-        }
-
-        document.getElementById('createBtn').addEventListener('click', () => {
-            if (!validateSchema()) {
-                return;
-            }
-            
-            vscode.postMessage({
-                command: 'createSchema',
-                schemaDef: getSchemaDefinition()
-            });
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'cancel'
-            });
-        });
-
-        // Generate initial preview
-        updatePreview();
-
-        // Add event listeners for auto-updating preview
-        document.getElementById('schemaName').addEventListener('input', updatePreview);
-        document.getElementById('owner').addEventListener('change', updatePreview);
-
-        function updatePreview() {
-            vscode.postMessage({
-                command: 'previewSql',
-                schemaDef: getSchemaDefinition()
-            });
-        }
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreviewContent').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function toggleSection(sectionId) {
-            const content = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId + 'Icon');
-            
-            if (content.style.display === 'none' || content.style.display === '') {
-                content.style.display = 'block';
-                icon.style.transform = 'rotate(90deg)';
-            } else {
-                content.style.display = 'none';
-                icon.style.transform = 'rotate(0deg)';
-            }
-        }
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = '<div class="error">' + message + '</div>';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
-        }
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', 'schemaManagement.js'))}"></script>
 </body>
 </html>`;
     }
 
     private static getEditSchemaHtml(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
         currentSchemaName: string,
         currentOwner: string,
         existingRoles: string[]
     ): string {
-        const rolesJson = JSON.stringify(existingRoles);
-        const currentOwnerJson = JSON.stringify(currentOwner);
-        const currentNameJson = JSON.stringify(currentSchemaName);
+        const initialData = {
+            existingRoles,
+            currentUser: '', // Not needed for edit mode
+            currentSchemaName,
+            currentOwner,
+            mode: 'edit'
+        };
         
         return `<!DOCTYPE html>
 <html lang="en">
@@ -348,172 +208,38 @@ export class SchemaManagementPanel {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Schema</title>
-    ${getStyles()}
+    <style>
+        body { margin: 0; padding: 0; height: 100vh; overflow: auto; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Edit Schema: ${currentSchemaName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Schema Name</label>
-                <input type="text" id="schemaName" value="${currentSchemaName}" />
-                <div class="info-text">Must start with a letter and contain only letters, numbers, and underscores. Cannot use reserved prefixes (pg_, information_schema).</div>
-            </div>
-
-            <div class="form-group">
-                <label>Owner</label>
-                <select id="owner">
-                    <!-- Roles will be populated here -->
-                </select>
-                <div class="info-text">The schema owner role</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreview')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreview">
-                <div class="sql-preview" id="sqlPreviewContent">-- Generating SQL preview...</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="editBtn">Update Schema</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
+    <div id="root"></div>
     <script>
-        const vscode = acquireVsCodeApi();
-        const existingRoles = ${rolesJson};
-        const currentOwner = ${currentOwnerJson};
-        const originalSchemaName = ${currentNameJson};
-
-        // Populate roles dropdown and select current owner
-        const ownerSelect = document.getElementById('owner');
-        existingRoles.forEach(role => {
-            const option = document.createElement('option');
-            option.value = role;
-            option.textContent = role;
-            // Select the current owner
-            if (role === currentOwner) {
-                option.selected = true;
-            }
-            ownerSelect.appendChild(option);
-        });
-
-        function getSchemaDefinition() {
-            return {
-                name: document.getElementById('schemaName').value.trim(),
-                owner: document.getElementById('owner').value
-            };
-        }
-
-        function validateSchema() {
-            clearError();
-            
-            const schemaName = document.getElementById('schemaName').value.trim();
-            
-            if (!schemaName) {
-                showError('Schema name is required');
-                return false;
-            }
-            
-            if (!/^[a-z_][a-z0-9_]*$/i.test(schemaName)) {
-                showError('Schema name must start with a letter or underscore and contain only letters, numbers, and underscores');
-                return false;
-            }
-            
-            // Check for reserved prefixes
-            const reserved = ['pg_', 'information_schema', 'pg_catalog', 'pg_toast'];
-            if (reserved.some(r => schemaName.toLowerCase().startsWith(r.toLowerCase()))) {
-                showError('Cannot use reserved schema name prefix');
-                return false;
-            }
-            
-            return true;
-        }
-
-        document.getElementById('editBtn').addEventListener('click', () => {
-            if (!validateSchema()) {
-                return;
-            }
-            
-            vscode.postMessage({
-                command: 'editSchema',
-                schemaDef: getSchemaDefinition()
-            });
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'cancel'
-            });
-        });
-
-        // Generate initial preview
-        updatePreview();
-
-        // Add event listeners for auto-updating preview
-        document.getElementById('schemaName').addEventListener('input', updatePreview);
-        document.getElementById('owner').addEventListener('change', updatePreview);
-
-        function updatePreview() {
-            vscode.postMessage({
-                command: 'previewSql',
-                schemaDef: getSchemaDefinition()
-            });
-        }
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreviewContent').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function toggleSection(sectionId) {
-            const content = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId + 'Icon');
-            const isExpanded = content.style.display === 'block';
-            content.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
-        }
+        window.initialData = ${JSON.stringify(initialData)};
     </script>
+    <script src="${panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', 'schemaManagement.js'))}"></script>
 </body>
 </html>`;
     }
 
     private static generateEditSchemaSql(originalSchemaName: string, schemaDef: any): string {
         const statements: string[] = [];
+        let currentSchemaName = originalSchemaName;
         
         // Check if name changed
         if (schemaDef.name && schemaDef.name !== originalSchemaName) {
             statements.push(`ALTER SCHEMA "${originalSchemaName}" RENAME TO "${schemaDef.name}";`);
+            currentSchemaName = schemaDef.name;
         }
         
-        // Always include owner change (using the new name if renamed, else original)
-        const schemaName = schemaDef.name || originalSchemaName;
-        statements.push(`ALTER SCHEMA "${schemaName}" OWNER TO "${schemaDef.owner}";`);
+        // Only include owner change if it actually changed
+        if (schemaDef.owner && schemaDef.originalOwner && schemaDef.owner !== schemaDef.originalOwner) {
+            statements.push(`ALTER SCHEMA "${currentSchemaName}" OWNER TO "${schemaDef.owner}";`);
+        }
+        
+        if (statements.length === 0) {
+            return '-- No changes to apply';
+        }
         
         return statements.join('\n');
     }
@@ -558,22 +284,31 @@ export class SchemaManagementPanel {
                 return;
             }
 
+            const sqlStatements: string[] = [];
+            let currentSchemaName = originalSchemaName;
+
             // Rename schema if name changed
             if (schemaDef.name && schemaDef.name !== originalSchemaName) {
-                await sqlService.executeQuery(
-                    `ALTER SCHEMA "${originalSchemaName}" RENAME TO "${schemaDef.name}"`,
-                    [],
-                    database
-                );
+                sqlStatements.push(`ALTER SCHEMA "${originalSchemaName}" RENAME TO "${schemaDef.name}"`);
+                currentSchemaName = schemaDef.name;
             }
 
-            // Change owner (using new name if renamed)
-            const currentSchemaName = schemaDef.name || originalSchemaName;
-            await sqlService.executeQuery(
-                `ALTER SCHEMA "${currentSchemaName}" OWNER TO "${schemaDef.owner}"`,
-                [],
-                database
-            );
+            // Change owner only if it changed
+            if (schemaDef.owner && schemaDef.originalOwner && schemaDef.owner !== schemaDef.originalOwner) {
+                sqlStatements.push(`ALTER SCHEMA "${currentSchemaName}" OWNER TO "${schemaDef.owner}"`);
+            }
+
+            // Execute SQL statements if any changes were made
+            if (sqlStatements.length === 0) {
+                vscode.window.showInformationMessage(`No changes to apply`);
+                panel.dispose();
+                return;
+            }
+
+            // Execute all statements
+            for (const sql of sqlStatements) {
+                await sqlService.executeQuery(sql, [], database);
+            }
 
             vscode.window.showInformationMessage(`Schema updated successfully`);
             panel.dispose();
@@ -642,13 +377,15 @@ export class SchemaManagementPanel {
                 SELECT rolname 
                 FROM pg_catalog.pg_roles 
                 WHERE rolname NOT LIKE 'pg_%' 
-                  AND rolname NOT IN ('cloud_admin', 'neon_superuser')
+                  AND rolname NOT IN ('cloud_admin', 'neon_superuser', 'neon_service')
                   AND pg_has_role(current_user, oid, 'MEMBER')
                 ORDER BY rolname
             `, [], database);
             const existingRoles = rolesResult.rows.map((row: any) => row.rolname);
             
             panel.webview.html = SchemaManagementPanel.getEditSchemaHtml(
+                context,
+                panel,
                 schemaName,
                 currentSchema.owner,
                 existingRoles

@@ -151,6 +151,50 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.label-with-refresh {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.label-with-refresh label {
+  margin-bottom: 0;
+}
+
+.refresh-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  color: var(--vscode-icon-foreground);
+  padding: 4px;
+  border-radius: 3px;
+  margin: 0;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background-color: var(--vscode-toolbar-hoverBackground);
+  opacity: 1;
+}
+
+.refresh-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.refresh-button:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
 .section label {
   display: block;
   margin-bottom: 4px;

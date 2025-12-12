@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { SqlQueryService } from '../services/sqlQuery.service';
 import { StateService } from '../services/state.service';
 import { SchemaService } from '../services/schema.service';
-import { getStyles } from '../templates/styles';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -29,6 +28,8 @@ export interface ExportOptions {
     delimiter: string;
     quoteChar: string;
     nullValue: string;
+    targetSchema?: string;
+    targetTable?: string;
 }
 
 export class DataImportExportPanel {
@@ -78,7 +79,8 @@ export class DataImportExportPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -93,22 +95,45 @@ export class DataImportExportPanel {
             const schemaService = new SchemaService(stateService, context);
             const columns = await schemaService.getColumns(database || 'neondb', schema, tableName);
             
-            panel.webview.html = DataImportExportPanel.getImportHtml(
+            const initialData = {
                 schema,
                 tableName,
-                columns.map(col => ({ name: col.name, type: col.data_type }))
-            );
+                columns: columns.map(col => ({ name: col.name, type: col.data_type }))
+            };
+            
+            panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import Data</title>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        window.initialData = ${JSON.stringify(initialData)};
+    </script>
+    <script src="${panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', 'importData.js'))}"></script>
+</body>
+</html>`;
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
                     case 'selectFile':
+                        const format = message.fileFormat || 'csv';
+                        
+                        // Create filters based on selected format
+                        const filters: { [key: string]: string[] } = {};
+                        if (format === 'csv') {
+                            filters['CSV Files'] = ['csv'];
+                        } else if (format === 'json') {
+                            filters['JSON Files'] = ['json'];
+                        }
+                        filters['All Files'] = ['*'];
+                        
                         const fileUri = await vscode.window.showOpenDialog({
                             canSelectMany: false,
-                            filters: {
-                                'CSV Files': ['csv'],
-                                'JSON Files': ['json'],
-                                'All Files': ['*']
-                            },
+                            filters: filters,
                             title: 'Select file to import'
                         });
                         
@@ -170,7 +195,8 @@ export class DataImportExportPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -181,19 +207,47 @@ export class DataImportExportPanel {
         });
 
         try {
-            panel.webview.html = DataImportExportPanel.getExportHtml(schema, tableName);
+            const initialData = {
+                schema,
+                tableName
+            };
+            
+            panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Export Data</title>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        window.initialData = ${JSON.stringify(initialData)};
+    </script>
+    <script src="${panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', 'exportData.js'))}"></script>
+</body>
+</html>`;
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
                     case 'selectFile':
+                        const defaultFileName = message.defaultFileName || `${tableName}.csv`;
+                        const format = message.fileFormat || 'csv';
+                        
+                        // Create filters based on selected format
+                        const filters: { [key: string]: string[] } = {};
+                        if (format === 'csv') {
+                            filters['CSV Files'] = ['csv'];
+                        } else if (format === 'json') {
+                            filters['JSON Files'] = ['json'];
+                        } else if (format === 'sql') {
+                            filters['SQL Files'] = ['sql'];
+                        }
+                        filters['All Files'] = ['*'];
+                        
                         const fileUri = await vscode.window.showSaveDialog({
-                            defaultUri: vscode.Uri.file(`${tableName}.${message.format}`),
-                            filters: {
-                                'CSV Files': ['csv'],
-                                'JSON Files': ['json'],
-                                'SQL Files': ['sql'],
-                                'All Files': ['*']
-                            },
+                            defaultUri: vscode.Uri.file(defaultFileName),
+                            filters,
                             title: 'Select export destination'
                         });
                         
@@ -234,25 +288,50 @@ export class DataImportExportPanel {
     ): Promise<void> {
         try {
             const content = fs.readFileSync(filePath, 'utf-8');
-            let preview: any;
             
             if (fileFormat === 'csv') {
-                const lines = content.split('\n').slice(0, 6); // Preview first 6 lines
+                const lines = content.split('\n').slice(0, 11).filter(line => line.trim()); // Preview first 10 rows + header
+                if (lines.length === 0) {
+                    throw new Error('File is empty');
+                }
+                
                 const rows = lines.map(line => {
-                    // Simple CSV parsing (doesn't handle quoted delimiters)
-                    return line.split(delimiter).map(cell => cell.trim());
+                    return this.parseCSVLine(line, delimiter);
                 });
-                preview = { type: 'csv', rows };
+                
+                // First row is columns
+                const columns = rows[0];
+                const data = rows.slice(1).map(row => {
+                    const obj: any = {};
+                    columns.forEach((col, idx) => {
+                        obj[col] = row[idx] || '';
+                    });
+                    return obj;
+                });
+                
+                panel.webview.postMessage({
+                    command: 'previewData',
+                    columns,
+                    data
+                });
+                
             } else if (fileFormat === 'json') {
-                const data = JSON.parse(content);
-                const items = Array.isArray(data) ? data.slice(0, 5) : [data];
-                preview = { type: 'json', items };
+                const jsonData = JSON.parse(content);
+                const items = Array.isArray(jsonData) ? jsonData.slice(0, 10) : [jsonData];
+                
+                if (items.length === 0) {
+                    throw new Error('No data found in JSON file');
+                }
+                
+                // Extract columns from first object
+                const columns = Object.keys(items[0]);
+                
+                panel.webview.postMessage({
+                    command: 'previewData',
+                    columns,
+                    data: items
+                });
             }
-            
-            panel.webview.postMessage({
-                command: 'previewData',
-                preview
-            });
             
         } catch (error) {
             panel.webview.postMessage({
@@ -398,17 +477,39 @@ export class DataImportExportPanel {
         try {
             const sqlService = new SqlQueryService(stateService, context);
             
+            // Send initial progress
+            panel.webview.postMessage({
+                command: 'exportProgress',
+                progress: 10,
+                text: 'Executing query...'
+            });
+            
             // Build query
             const query = options.sqlQuery || `SELECT * FROM ${options.schema}.${options.tableName}`;
             
             // Execute query
             const result = await sqlService.executeQuery(query, database);
             
+            panel.webview.postMessage({
+                command: 'exportProgress',
+                progress: 50,
+                text: `Formatting ${result.rows.length} rows...`
+            });
+            
+            // Check if we have data
+            if (!result.columns || result.columns.length === 0) {
+                throw new Error('No columns found in query result');
+            }
+            
+            if (!result.rows || result.rows.length === 0) {
+                throw new Error('No data to export');
+            }
+            
             let content = '';
             
             if (options.fileFormat === 'csv') {
                 // Export as CSV
-                const headers = result.fields.map(f => f.name);
+                const headers = result.columns;
                 
                 if (options.includeHeaders) {
                     content += headers.map(h => `"${h}"`).join(options.delimiter) + '\n';
@@ -436,8 +537,9 @@ export class DataImportExportPanel {
                 
             } else if (options.fileFormat === 'sql') {
                 // Export as SQL INSERT statements
-                const headers = result.fields.map(f => f.name);
-                const tableName = options.tableName || 'exported_data';
+                const headers = result.columns;
+                const targetSchema = options.targetSchema || options.schema;
+                const targetTable = options.targetTable || options.tableName || 'exported_data';
                 
                 for (const row of result.rows) {
                     const values = headers.map(header => {
@@ -450,15 +552,30 @@ export class DataImportExportPanel {
                         }
                         return `'${String(value).replace(/'/g, "''")}'`;
                     });
-                    content += `INSERT INTO ${options.schema}.${tableName} (${headers.join(', ')}) VALUES (${values.join(', ')});\n`;
+                    content += `INSERT INTO ${targetSchema}.${targetTable} (${headers.join(', ')}) VALUES (${values.join(', ')});\n`;
                 }
             }
             
             // Write to file
+            panel.webview.postMessage({
+                command: 'exportProgress',
+                progress: 90,
+                text: 'Writing to file...'
+            });
+            
             fs.writeFileSync(options.filePath, content, 'utf-8');
             
             vscode.window.showInformationMessage(`Successfully exported ${result.rows.length} rows to ${path.basename(options.filePath)}`);
-            panel.dispose();
+            
+            panel.webview.postMessage({
+                command: 'exportComplete',
+                filePath: options.filePath
+            });
+            
+            // Dispose panel after a short delay to allow user to see the success message
+            setTimeout(() => {
+                panel.dispose();
+            }, 1000);
             
         } catch (error) {
             const errorMessage = this.extractErrorMessage(error);
@@ -504,507 +621,4 @@ export class DataImportExportPanel {
         
         return cells;
     }
-
-    /**
-     * Get HTML for import panel
-     */
-    private static getImportHtml(
-        schema: string,
-        tableName: string,
-        columns: Array<{ name: string; type: string }>
-    ): string {
-        const columnsJson = JSON.stringify(columns);
-        
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Import Data</title>
-    ${getStyles()}
-    <style>
-        /* Consistent form field spacing */
-        .section-box .checkbox-group {
-            margin-bottom: 16px;
-        }
-        .section-box .info-text:last-child {
-            margin-bottom: 0;
-        }
-        .section-box > button:not(.btn) {
-            margin-top: 0;
-        }
-        #csvOptions {
-            margin-bottom: 16px;
-        }
-        #csvOptions .form-group:last-child {
-            margin-bottom: 0;
-        }
-        
-        .file-input {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        .file-input input {
-            flex: 1;
-        }
-        .preview-box {
-            background-color: var(--vscode-textCodeBlock-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 12px;
-            margin-top: 16px;
-            max-height: 300px;
-            overflow: auto;
-        }
-        .preview-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-        }
-        .preview-table th,
-        .preview-table td {
-            padding: 6px;
-            border: 1px solid var(--vscode-panel-border);
-            text-align: left;
-        }
-        .preview-table th {
-            background-color: var(--vscode-list-headerBackground);
-        }
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background-color: var(--vscode-input-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 16px;
-        }
-        .progress-fill {
-            height: 100%;
-            background-color: var(--vscode-progressBar-background);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        .progress-text {
-            text-align: center;
-            margin-top: 8px;
-            font-size: 12px;
-            color: var(--vscode-descriptionForeground);
-        }
-        textarea {
-            resize: vertical;
-            font-family: var(--vscode-editor-font-family, monospace);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Import Data into ${schema}.${tableName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Select File</h2>
-            
-            <div class="form-group">
-                <label>File Format</label>
-                <select id="fileFormat">
-                    <option value="csv">CSV (Comma Separated Values)</option>
-                    <option value="json">JSON (JavaScript Object Notation)</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>File Path</label>
-                <div class="file-input">
-                    <input type="text" id="filePath" readonly placeholder="Click Browse to select file" />
-                    <button class="btn btn-secondary" id="browseBtn">Browse...</button>
-                </div>
-            </div>
-
-            <button class="btn btn-secondary" id="previewBtn" disabled>Preview File</button>
-            
-            <div id="previewContainer"></div>
-        </div>
-
-        <div class="section-box">
-            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Import Options</h2>
-            
-            <div id="csvOptions">
-                <div class="form-group">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="skipFirstRow" checked />
-                        <label for="skipFirstRow" style="margin: 0;">First row contains headers</label>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Delimiter</label>
-                    <select id="delimiter">
-                        <option value=",">Comma (,)</option>
-                        <option value=";">Semicolon (;)</option>
-                        <option value="\t">Tab</option>
-                        <option value="|">Pipe (|)</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>Quote Character</label>
-                    <input type="text" id="quoteChar" value='"' maxlength="1" />
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label>NULL Value Representation</label>
-                <input type="text" id="nullValue" placeholder="(empty string)" />
-                <div class="info-text">How NULL values are represented in the file</div>
-            </div>
-
-            <div class="form-group">
-                <div class="checkbox-group" style="margin-bottom: 8px;">
-                    <input type="checkbox" id="truncateFirst" />
-                    <label for="truncateFirst" style="margin: 0;">Truncate table before import</label>
-                </div>
-                <div class="info-text">Warning: This will delete all existing data in the table</div>
-            </div>
-        </div>
-
-        <div class="section-box">
-            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Target Table Columns</h2>
-            <div class="info-text">
-                Table columns: ${columns.map(c => c.name).join(', ')}
-            </div>
-        </div>
-
-        <div id="progressContainer" style="display: none;">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-            <div class="progress-text" id="progressText">0 / 0 rows</div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="importBtn" disabled>Import Data</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        const columns = ${columnsJson};
-        let selectedFilePath = '';
-
-        const fileFormatSelect = document.getElementById('fileFormat');
-        const filePathInput = document.getElementById('filePath');
-        const browseBtn = document.getElementById('browseBtn');
-        const previewBtn = document.getElementById('previewBtn');
-        const importBtn = document.getElementById('importBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const csvOptions = document.getElementById('csvOptions');
-
-        fileFormatSelect.addEventListener('change', () => {
-            csvOptions.style.display = fileFormatSelect.value === 'csv' ? 'block' : 'none';
-        });
-
-        browseBtn.addEventListener('click', () => {
-            vscode.postMessage({ command: 'selectFile' });
-        });
-
-        previewBtn.addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'previewFile',
-                filePath: selectedFilePath,
-                fileFormat: fileFormatSelect.value,
-                delimiter: document.getElementById('delimiter').value
-            });
-        });
-
-        importBtn.addEventListener('click', () => {
-            const options = {
-                schema: '${schema}',
-                tableName: '${tableName}',
-                fileFormat: fileFormatSelect.value,
-                filePath: selectedFilePath,
-                skipFirstRow: document.getElementById('skipFirstRow').checked,
-                delimiter: document.getElementById('delimiter').value,
-                quoteChar: document.getElementById('quoteChar').value,
-                nullValue: document.getElementById('nullValue').value,
-                truncateBeforeImport: document.getElementById('truncateFirst').checked
-            };
-
-            document.getElementById('progressContainer').style.display = 'block';
-            importBtn.disabled = true;
-            
-            vscode.postMessage({
-                command: 'import',
-                options: options
-            });
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            window.close();
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'fileSelected':
-                    selectedFilePath = message.filePath;
-                    filePathInput.value = message.filePath;
-                    previewBtn.disabled = false;
-                    importBtn.disabled = false;
-                    break;
-                    
-                case 'previewData':
-                    displayPreview(message.preview);
-                    break;
-                    
-                case 'progress':
-                    updateProgress(message.current, message.total);
-                    break;
-                    
-                case 'error':
-                    showError(message.error);
-                    document.getElementById('progressContainer').style.display = 'none';
-                    importBtn.disabled = false;
-                    break;
-            }
-        });
-
-        function displayPreview(preview) {
-            const container = document.getElementById('previewContainer');
-            
-            if (preview.type === 'csv') {
-                let html = '<div class="preview-box"><table class="preview-table"><thead><tr>';
-                preview.rows[0].forEach(cell => {
-                    html += \`<th>\${cell}</th>\`;
-                });
-                html += '</tr></thead><tbody>';
-                for (let i = 1; i < preview.rows.length; i++) {
-                    html += '<tr>';
-                    preview.rows[i].forEach(cell => {
-                        html += \`<td>\${cell}</td>\`;
-                    });
-                    html += '</tr>';
-                }
-                html += '</tbody></table></div>';
-                container.innerHTML = html;
-            } else if (preview.type === 'json') {
-                const html = '<div class="preview-box"><pre>' + JSON.stringify(preview.items, null, 2) + '</pre></div>';
-                container.innerHTML = html;
-            }
-        }
-
-        function updateProgress(current, total) {
-            const percent = Math.round((current / total) * 100);
-            document.getElementById('progressFill').style.width = percent + '%';
-            document.getElementById('progressText').textContent = \`\${current} / \${total} rows (\${percent}%)\`;
-        }
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
-        }
-    </script>
-</body>
-</html>`;
-    }
-
-    /**
-     * Get HTML for export panel
-     */
-    private static getExportHtml(schema: string, tableName: string): string {
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Export Data</title>
-    ${getStyles()}
-    <style>
-        /* Consistent form field spacing */
-        .section-box .checkbox-group {
-            margin-bottom: 16px;
-        }
-        .section-box .info-text:last-child {
-            margin-bottom: 0;
-        }
-        #csvOptions {
-            margin-bottom: 16px;
-        }
-        #csvOptions .form-group:last-child {
-            margin-bottom: 0;
-        }
-        
-        .file-input {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        .file-input input {
-            flex: 1;
-        }
-        textarea {
-            resize: vertical;
-            font-family: var(--vscode-editor-font-family, monospace);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Export Data from ${schema}.${tableName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Select Destination</h2>
-            
-            <div class="form-group">
-                <label>File Format</label>
-                <select id="fileFormat">
-                    <option value="csv">CSV (Comma Separated Values)</option>
-                    <option value="json">JSON (JavaScript Object Notation)</option>
-                    <option value="sql">SQL (INSERT statements)</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>File Path</label>
-                <div class="file-input">
-                    <input type="text" id="filePath" readonly placeholder="Click Browse to select destination" />
-                    <button class="btn btn-secondary" id="browseBtn">Browse...</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-box">
-            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Export Options</h2>
-            
-            <div id="csvOptions">
-                <div class="form-group">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="includeHeaders" checked />
-                        <label for="includeHeaders" style="margin: 0;">Include column headers</label>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Delimiter</label>
-                    <select id="delimiter">
-                        <option value=",">Comma (,)</option>
-                        <option value=";">Semicolon (;)</option>
-                        <option value="\t">Tab</option>
-                        <option value="|">Pipe (|)</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>Quote Character</label>
-                    <input type="text" id="quoteChar" value='"' maxlength="1" />
-                </div>
-
-                <div class="form-group">
-                    <label>NULL Value Representation</label>
-                    <input type="text" id="nullValue" value="NULL" />
-                </div>
-            </div>
-        </div>
-
-        <div class="section-box">
-            <h2 style="font-size: 14px; margin: 0 0 16px 0; font-weight: 600;">Data Selection</h2>
-            
-            <div class="form-group">
-                <label>Custom SQL Query</label>
-                <textarea id="customQuery" placeholder="SELECT * FROM ${schema}.${tableName} WHERE ..."></textarea>
-                <div class="info-text">Leave empty to export all rows</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="exportBtn" disabled>Export Data</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        let selectedFilePath = '';
-
-        const fileFormatSelect = document.getElementById('fileFormat');
-        const filePathInput = document.getElementById('filePath');
-        const browseBtn = document.getElementById('browseBtn');
-        const exportBtn = document.getElementById('exportBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const csvOptions = document.getElementById('csvOptions');
-
-        fileFormatSelect.addEventListener('change', () => {
-            csvOptions.style.display = fileFormatSelect.value === 'csv' ? 'block' : 'none';
-            // Update file extension suggestion
-            if (selectedFilePath) {
-                const ext = '.' + fileFormatSelect.value;
-                const newPath = selectedFilePath.replace(/\.[^.]+$/, ext);
-                filePathInput.value = newPath;
-                selectedFilePath = newPath;
-            }
-        });
-
-        browseBtn.addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'selectFile',
-                format: fileFormatSelect.value
-            });
-        });
-
-        exportBtn.addEventListener('click', () => {
-            const options = {
-                schema: '${schema}',
-                tableName: '${tableName}',
-                fileFormat: fileFormatSelect.value,
-                filePath: selectedFilePath,
-                includeHeaders: document.getElementById('includeHeaders').checked,
-                delimiter: document.getElementById('delimiter').value,
-                quoteChar: document.getElementById('quoteChar').value,
-                nullValue: document.getElementById('nullValue').value,
-                sqlQuery: document.getElementById('customQuery').value.trim() || null
-            };
-
-            exportBtn.disabled = true;
-            exportBtn.textContent = 'Exporting...';
-            
-            vscode.postMessage({
-                command: 'export',
-                options: options
-            });
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            window.close();
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'fileSelected':
-                    selectedFilePath = message.filePath;
-                    filePathInput.value = message.filePath;
-                    exportBtn.disabled = false;
-                    break;
-                    
-                case 'error':
-                    showError(message.error);
-                    exportBtn.disabled = false;
-                    exportBtn.textContent = 'Export Data';
-                    break;
-            }
-        });
-
-        function showError(message) {
-            document.getElementById('errorContainer').innerHTML = \`<div class="error">\${message}</div>\`;
-        }
-    </script>
-</body>
-</html>`;
-    }
 }
-
-

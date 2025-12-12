@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { SqlQueryService } from '../services/sqlQuery.service';
 import { StateService } from '../services/state.service';
 import { SchemaService } from '../services/schema.service';
-import { getStyles } from '../templates/styles';
 
 export interface IndexDefinition {
     indexName: string;
@@ -63,7 +62,8 @@ export class IndexManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -78,11 +78,13 @@ export class IndexManagementPanel {
             const schemaService = new SchemaService(stateService, context);
             const columns = await schemaService.getColumns(database || 'neondb', schema, tableName);
             
-            panel.webview.html = IndexManagementPanel.getCreateIndexHtml(
+            const initialData = {
                 schema,
                 tableName,
-                columns.map(col => col.name)
-            );
+                columns: columns.map(col => col.name)
+            };
+
+            panel.webview.html = IndexManagementPanel.getWebviewContent(context, panel, initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -495,300 +497,6 @@ export class IndexManagementPanel {
     }
 
     /**
-     * Get HTML for create index panel
-     */
-    private static getCreateIndexHtml(
-        schema: string,
-        tableName: string,
-        columns: string[]
-    ): string {
-        const columnsJson = JSON.stringify(columns);
-        
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create Index</title>
-    ${getStyles()}
-    <style>
-        .column-selector {
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 3px;
-            padding: 8px;
-            max-height: 200px;
-            overflow-y: auto;
-            background-color: var(--vscode-input-background);
-        }
-        .column-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px;
-            cursor: pointer;
-        }
-        .column-item:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-        .selected-columns {
-            margin-top: 8px;
-            padding: 8px;
-            background-color: var(--vscode-textCodeBlock-background);
-            border-radius: 3px;
-            min-height: 30px;
-        }
-        .selected-column-chip {
-            display: inline-block;
-            background-color: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            padding: 4px 8px;
-            margin: 2px;
-            border-radius: 12px;
-            font-size: 12px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Create Index on ${schema}.${tableName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label>Index Name <span class="required">*</span></label>
-                <input type="text" id="indexName" placeholder="idx_tablename_column" />
-                <div class="info-text">Naming convention: idx_tablename_columnname</div>
-            </div>
-
-            <div class="form-group">
-                <label>Index Type</label>
-                <select id="indexType">
-                    <option value="btree">B-tree (Default - Most Common)</option>
-                    <option value="hash">Hash (Equality Only)</option>
-                    <option value="gist">GiST (Geometric/Full-text)</option>
-                    <option value="gin">GIN (Full-text/JSONB)</option>
-                    <option value="brin">BRIN (Large Tables)</option>
-                    <option value="spgist">SP-GiST (Partitioned)</option>
-                </select>
-                <div class="info-text">B-tree is suitable for most use cases</div>
-            </div>
-
-            <div class="checkbox-group">
-                <input type="checkbox" id="uniqueIndex" />
-                <label for="uniqueIndex" style="margin: 0;">Unique Index</label>
-            </div>
-            <div class="info-text">Ensures all values in the indexed columns are unique</div>
-
-            <div class="checkbox-group" style="margin-top: 16px;">
-                <input type="checkbox" id="concurrentIndex" />
-                <label for="concurrentIndex" style="margin: 0;">Create Concurrently</label>
-            </div>
-            <div class="info-text">Allows reads/writes during index creation (slower but non-blocking)</div>
-        </div>
-
-        <div class="section-box">
-            <label>Select Columns <span class="required">*</span></label>
-            <div class="info-text" style="margin-bottom: 8px;">Select columns in the order they should appear in the index</div>
-            
-            <div class="column-selector" id="columnSelector">
-                <!-- Columns will be populated here -->
-            </div>
-            
-            <div class="selected-columns" id="selectedColumns">
-                <span style="color: var(--vscode-descriptionForeground); font-size: 12px;">No columns selected</span>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('optionsSection')">
-                <span class="toggle-icon" id="optionsIcon">▶</span>
-                Advanced Options
-            </div>
-            <div class="collapsible-content" id="optionsSection">
-                <div class="form-group">
-                    <label>WHERE Clause (Partial Index)</label>
-                    <input type="text" id="whereClause" placeholder="e.g., status = 'active'" />
-                    <div class="info-text">Index only rows that match this condition (smaller, faster index)</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- SQL will be generated automatically as you make changes</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Create Index</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        const columns = ${columnsJson};
-        let selectedColumns = [];
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.classList.toggle('expanded', !isExpanded);
-        }
-
-        window.toggleSection = toggleSection;
-
-        const indexNameInput = document.getElementById('indexName');
-        const indexTypeSelect = document.getElementById('indexType');
-        const uniqueCheckbox = document.getElementById('uniqueIndex');
-        const concurrentCheckbox = document.getElementById('concurrentIndex');
-        const whereClauseInput = document.getElementById('whereClause');
-        const columnSelector = document.getElementById('columnSelector');
-        const selectedColumnsDiv = document.getElementById('selectedColumns');
-        const createBtn = document.getElementById('createBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const errorContainer = document.getElementById('errorContainer');
-
-        // Render column checkboxes
-        columns.forEach(col => {
-            const div = document.createElement('div');
-            div.className = 'column-item';
-            div.innerHTML = \`
-                <input type="checkbox" id="col_\${col}" value="\${col}" />
-                <label for="col_\${col}" style="cursor: pointer; margin: 0;">\${col}</label>
-            \`;
-            div.addEventListener('click', (e) => {
-                if (e.target.tagName !== 'INPUT') {
-                    const checkbox = div.querySelector('input');
-                    checkbox.checked = !checkbox.checked;
-                    checkbox.dispatchEvent(new Event('change'));
-                }
-            });
-            div.querySelector('input').addEventListener('change', updateSelectedColumns);
-            columnSelector.appendChild(div);
-        });
-
-        function updateSelectedColumns() {
-            selectedColumns = Array.from(columnSelector.querySelectorAll('input:checked'))
-                .map(cb => cb.value);
-            
-            if (selectedColumns.length === 0) {
-                selectedColumnsDiv.innerHTML = '<span style="color: var(--vscode-descriptionForeground); font-size: 12px;">No columns selected</span>';
-            } else {
-                selectedColumnsDiv.innerHTML = selectedColumns
-                    .map((col, i) => \`<span class="selected-column-chip">\${i + 1}. \${col}</span>\`)
-                    .join('');
-            }
-            updatePreview();
-        }
-
-        function getIndexDefinition() {
-            return {
-                indexName: indexNameInput.value.trim(),
-                tableName: '${tableName}',
-                schema: '${schema}',
-                columns: selectedColumns,
-                indexType: indexTypeSelect.value,
-                unique: uniqueCheckbox.checked,
-                concurrent: concurrentCheckbox.checked,
-                whereClause: whereClauseInput.value.trim()
-            };
-        }
-
-        function validateIndex(showErrors = true) {
-            if (showErrors) {
-                clearError();
-            }
-            
-            if (!indexNameInput.value.trim()) {
-                if (showErrors) {
-                    showError('Index name is required');
-                }
-                return false;
-            }
-            
-            if (selectedColumns.length === 0) {
-                if (showErrors) {
-                    showError('At least one column must be selected');
-                }
-                return false;
-            }
-            
-            if (!/^[a-z_][a-z0-9_]*$/i.test(indexNameInput.value.trim())) {
-                if (showErrors) {
-                    showError('Index name must start with a letter and contain only letters, numbers, and underscores');
-                }
-                return false;
-            }
-            
-            return true;
-        }
-
-        function updatePreview() {
-            // Only update preview if validation passes (without showing errors)
-            if (!validateIndex(false)) {
-                document.getElementById('sqlPreview').textContent = '-- Fill in required fields to generate SQL preview';
-                return;
-            }
-            vscode.postMessage({
-                command: 'previewSql',
-                indexDef: getIndexDefinition()
-            });
-        }
-
-        // Auto-update preview on input changes
-        indexNameInput.addEventListener('input', updatePreview);
-        indexTypeSelect.addEventListener('change', updatePreview);
-        uniqueCheckbox.addEventListener('change', updatePreview);
-        concurrentCheckbox.addEventListener('change', updatePreview);
-        whereClauseInput.addEventListener('input', updatePreview);
-
-        createBtn.addEventListener('click', () => {
-            if (!validateIndex(true)) return;
-            vscode.postMessage({
-                command: 'createIndex',
-                indexDef: getIndexDefinition()
-            });
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            switch (message.command) {
-                case 'sqlPreview':
-                    document.getElementById('sqlPreview').textContent = message.sql;
-                    break;
-                case 'error':
-                    showError(message.error);
-                    break;
-            }
-        });
-
-        function showError(message) {
-            errorContainer.innerHTML = \`<div class="error">\${message}</div>\`;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function clearError() {
-            errorContainer.innerHTML = '';
-        }
-
-        // Initialize preview (silent validation)
-        updatePreview();
-    </script>
-</body>
-</html>`;
-    }
 
     /**
      * Get HTML for manage indexes panel
@@ -975,6 +683,43 @@ export class IndexManagementPanel {
 
         renderIndexes();
     </script>
+</body>
+</html>`;
+    }
+
+    /**
+     * Get webview content for React components
+     */
+    private static getWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
+    ): string {
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'createIndex.js')
+        );
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Index</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        window.initialData = ${JSON.stringify(initialData)};
+    </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
     }

@@ -360,6 +360,46 @@ export class NeonApiService {
         }
     }
 
+    public async createDatabase(
+        projectId: string, 
+        branchId: string, 
+        name: string, 
+        ownerName?: string
+    ): Promise<NeonDatabase> {
+        try {
+            console.debug(`🔍 API Request - createDatabase: projectId="${projectId}", branchId="${branchId}", name="${name}", ownerName="${ownerName}"`);
+            
+            const requestBody: any = {
+                database: {
+                    name: name
+                }
+            };
+            
+            if (ownerName) {
+                requestBody.database.owner_name = ownerName;
+            }
+            
+            console.debug(`📡 Making API POST request to: /projects/${projectId}/branches/${branchId}/databases`, requestBody);
+            
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/databases`,
+                'POST',
+                requestBody
+            );
+            
+            console.debug(`✅ createDatabase response:`, response);
+            
+            // The API returns a database object
+            const database = response.database || response;
+            console.debug(`📊 Created database:`, database);
+            
+            return database;
+        } catch (error: unknown) {
+            console.error(`❌ Error creating database:`, error);
+            throw new Error(`Failed to create database: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
     public async getRoles(projectId: string, branchId: string): Promise<NeonRole[]> {
         try {
             console.debug(`🔍 API Request - getRoles: projectId="${projectId}", branchId="${branchId}"`);

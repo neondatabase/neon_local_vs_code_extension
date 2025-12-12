@@ -495,6 +495,87 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                     await this.updateView();
                     break;
 
+                case 'refreshOrgs':
+                    try {
+                        const apiService = new NeonApiService(this._extensionContext);
+                        const orgs = await apiService.getOrgs();
+                        const refreshState = await this._stateService.getViewData();
+                        
+                        await this._stateService.updateState({
+                            selection: {
+                                orgs: orgs,
+                                projects: refreshState.projects,
+                                branches: refreshState.branches,
+                                selectedOrgId: refreshState.selectedOrgId || '',
+                                selectedOrgName: refreshState.selectedOrgName || '',
+                                selectedProjectId: refreshState.selectedProjectId,
+                                selectedProjectName: refreshState.selectedProjectName,
+                                selectedBranchId: refreshState.selectedBranchId,
+                                selectedBranchName: refreshState.selectedBranchName,
+                                parentBranchId: refreshState.parentBranchId,
+                                parentBranchName: refreshState.parentBranchName
+                            }
+                        });
+                        await this.updateView();
+                    } catch (error) {
+                        vscode.window.showErrorMessage(`Failed to refresh organizations: ${error}`);
+                    }
+                    break;
+
+                case 'refreshProjects':
+                    try {
+                        const apiService = new NeonApiService(this._extensionContext);
+                        const projects = await apiService.getProjects(message.orgId);
+                        const refreshState = await this._stateService.getViewData();
+                        
+                        await this._stateService.updateState({
+                            selection: {
+                                orgs: refreshState.orgs,
+                                projects: projects,
+                                branches: refreshState.branches,
+                                selectedOrgId: refreshState.selectedOrgId || '',
+                                selectedOrgName: refreshState.selectedOrgName || '',
+                                selectedProjectId: refreshState.selectedProjectId,
+                                selectedProjectName: refreshState.selectedProjectName,
+                                selectedBranchId: refreshState.selectedBranchId,
+                                selectedBranchName: refreshState.selectedBranchName,
+                                parentBranchId: refreshState.parentBranchId,
+                                parentBranchName: refreshState.parentBranchName
+                            }
+                        });
+                        await this.updateView();
+                    } catch (error) {
+                        vscode.window.showErrorMessage(`Failed to refresh projects: ${error}`);
+                    }
+                    break;
+
+                case 'refreshBranches':
+                    try {
+                        const apiService = new NeonApiService(this._extensionContext);
+                        const branches = await apiService.getBranches(message.projectId);
+                        const refreshState = await this._stateService.getViewData();
+                        
+                        await this._stateService.updateState({
+                            selection: {
+                                orgs: refreshState.orgs,
+                                projects: refreshState.projects,
+                                branches: branches,
+                                selectedOrgId: refreshState.selectedOrgId || '',
+                                selectedOrgName: refreshState.selectedOrgName || '',
+                                selectedProjectId: refreshState.selectedProjectId,
+                                selectedProjectName: refreshState.selectedProjectName,
+                                selectedBranchId: refreshState.selectedBranchId,
+                                selectedBranchName: refreshState.selectedBranchName,
+                                parentBranchId: refreshState.parentBranchId,
+                                parentBranchName: refreshState.parentBranchName
+                            }
+                        });
+                        await this.updateView();
+                    } catch (error) {
+                        vscode.window.showErrorMessage(`Failed to refresh branches: ${error}`);
+                    }
+                    break;
+
                 case 'updatePort':
                     await this._stateService.setPort(message.port);
                     await this.updateView();
@@ -730,15 +811,39 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
     private async handleSelectConnectionDatabaseRole(currentDatabase: string, currentRole: string): Promise<void> {
         try {
             const viewData = await this._stateService.getViewData();
-            const connectionInfos = viewData.connection.branchConnectionInfos;
+            let connectionInfos = viewData.connection.branchConnectionInfos;
 
             if (!connectionInfos || connectionInfos.length === 0) {
                 vscode.window.showWarningMessage('No connection information available');
                 return;
             }
 
+            // Fetch fresh connection info to ensure we have the latest databases
+            // This handles the case where a database was just created
+            try {
+                console.debug('Fetching fresh connection info for database/role selection...');
+                const apiService = new NeonApiService(this._extensionContext);
+                const projectId = await this._stateService.getCurrentProjectId();
+                const branchId = await this._stateService.currentlyConnectedBranch;
+                
+                if (projectId && branchId) {
+                    const freshConnectionInfos = await apiService.getBranchConnectionInfo(projectId, branchId);
+                    await this._stateService.setBranchConnectionInfos(freshConnectionInfos);
+                    connectionInfos = freshConnectionInfos;
+                    console.debug(`Refreshed connection info: Found ${connectionInfos.length} connection configurations`);
+                }
+            } catch (refreshError) {
+                console.error('Error refreshing connection info:', refreshError);
+                // Continue with existing data
+            }
+
             // Get unique databases
             const databases = Array.from(new Set(connectionInfos.map(info => info.database)));
+
+            if (databases.length === 0) {
+                vscode.window.showWarningMessage('No databases available');
+                return;
+            }
 
             // Show database picker
             const selectedDatabase = await vscode.window.showQuickPick(
@@ -762,6 +867,11 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                 .map(info => info.user);
 
             const uniqueRoles = Array.from(new Set(rolesForDatabase));
+
+            if (uniqueRoles.length === 0) {
+                vscode.window.showWarningMessage(`No roles found for database ${selectedDatabase.label}`);
+                return;
+            }
 
             // Show role picker
             const selectedRole = await vscode.window.showQuickPick(

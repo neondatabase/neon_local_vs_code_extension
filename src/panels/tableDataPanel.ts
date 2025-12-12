@@ -1350,7 +1350,9 @@ export class TableDataPanel {
                         
                         // Add special styling for different data types
                         if (displayValue.className) {
-                            td.classList.add(displayValue.className);
+                            // Split className string and add each class individually
+                            const classes = displayValue.className.split(' ').filter(c => c.trim());
+                            classes.forEach(cls => td.classList.add(cls));
                         }
                     }
                     td.classList.add('editable-cell');

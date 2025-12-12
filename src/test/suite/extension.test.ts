@@ -19,7 +19,7 @@ suite('Neon Local Connect Extension Tests', () => {
         test('Extension should activate without errors', async function() {
             this.timeout(10000); // Allow 10 seconds for activation
             
-            const ext = vscode.extensions.getExtension('undefined_publisher.neon-local-connect');
+        const ext = vscode.extensions.getExtension('undefined_publisher.neon-local-connect');
             assert.ok(ext, 'Extension must be present');
             
             if (!ext.isActive) {
@@ -55,7 +55,7 @@ suite('Neon Local Connect Extension Tests', () => {
         });
 
         test('Should register all expected database commands', async () => {
-            const commands = await vscode.commands.getCommands(true);
+        const commands = await vscode.commands.getCommands(true);
             
             const expectedDbCommands = [
                 'neonLocal.schema.createDatabase',
@@ -160,7 +160,7 @@ suite('Neon Local Connect Extension Tests', () => {
             }
         });
     });
-});
+}); 
 
 /**
  * Integration-style tests that verify the extension works as a whole

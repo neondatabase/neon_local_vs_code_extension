@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { StateService } from '../services/state.service';
 import { SqlQueryService } from '../services/sqlQuery.service';
-import { getStyles } from '../templates/styles';
 
 export class TriggerManagementPanel {
     private static extractErrorMessage(error: any): string {
@@ -50,7 +49,8 @@ export class TriggerManagementPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
             }
         );
 
@@ -84,12 +84,14 @@ export class TriggerManagementPanel {
                 ORDER BY ordinal_position
             `, [schema, tableName], database);
 
-            panel.webview.html = TriggerManagementPanel.getCreateTriggerHtml(
+            const initialData = {
                 schema,
                 tableName,
-                functionsResult.rows,
-                columnsResult.rows
-            );
+                functions: functionsResult.rows,
+                columns: columnsResult.rows
+            };
+
+            panel.webview.html = TriggerManagementPanel.getWebviewContent(context, panel, initialData);
 
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
@@ -583,255 +585,6 @@ export class TriggerManagementPanel {
     /**
      * Get HTML for create trigger panel
      */
-    private static getCreateTriggerHtml(
-        schema: string,
-        tableName: string,
-        functions: any[],
-        columns: any[]
-    ): string {
-        const functionsJson = JSON.stringify(functions);
-        const columnsJson = JSON.stringify(columns);
-        
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create Trigger</title>
-    ${getStyles()}
-    <style>
-        .events-checkboxes {
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Create Trigger on ${schema}.${tableName}</h1>
-        
-        <div id="errorContainer"></div>
-
-        <div class="section-box">
-            <div class="form-group">
-                <label for="triggerName">Trigger Name <span class="required">*</span></label>
-                <input type="text" id="triggerName" placeholder="tr_tablename_action" />
-                <div class="info-text">Naming convention: tr_tablename_action (e.g., tr_users_update)</div>
-            </div>
-
-            <div class="form-group">
-                <label for="timing">Timing <span class="required">*</span></label>
-                <select id="timing">
-                    <option value="BEFORE">BEFORE - Execute before the event</option>
-                    <option value="AFTER">AFTER - Execute after the event</option>
-                    <option value="INSTEAD OF">INSTEAD OF - Replace the event (views only)</option>
-                </select>
-                <div class="info-text">When the trigger fires relative to the event</div>
-            </div>
-
-            <div class="form-group">
-                <label>Events <span class="required">*</span></label>
-                <div class="events-checkboxes">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="eventInsert" value="INSERT">
-                        <label for="eventInsert" style="margin: 0;">INSERT</label>
-                    </div>
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="eventUpdate" value="UPDATE">
-                        <label for="eventUpdate" style="margin: 0;">UPDATE</label>
-                    </div>
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="eventDelete" value="DELETE">
-                        <label for="eventDelete" style="margin: 0;">DELETE</label>
-                    </div>
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="eventTruncate" value="TRUNCATE">
-                        <label for="eventTruncate" style="margin: 0;">TRUNCATE</label>
-                    </div>
-                </div>
-                <div class="info-text">Select at least one event that will fire the trigger</div>
-            </div>
-
-            <div class="form-group">
-                <label for="level">Trigger Level <span class="required">*</span></label>
-                <select id="level">
-                    <option value="ROW">FOR EACH ROW - Execute once per affected row</option>
-                    <option value="STATEMENT">FOR EACH STATEMENT - Execute once per statement</option>
-                </select>
-                <div class="info-text">Whether to fire once per row or once per statement</div>
-            </div>
-        </div>
-
-        <div class="section-box">
-            <div style="margin-bottom: 12px; font-weight: 500;">Trigger Function</div>
-            
-            <div class="form-group">
-                <label for="triggerFunction">Function <span class="required">*</span></label>
-                <select id="triggerFunction">
-                    <option value="">-- Select a function --</option>
-                </select>
-                <div class="info-text">Function must return type TRIGGER</div>
-            </div>
-
-            <div class="form-group">
-                <label for="functionArgs">Function Arguments (Optional)</label>
-                <input type="text" id="functionArgs" placeholder="'arg1', 'arg2'" />
-                <div class="info-text">Comma-separated arguments to pass to the trigger function</div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('conditionSection')">
-                <span class="toggle-icon" id="conditionIcon">▶</span>
-                WHEN Condition (Optional)
-            </div>
-            <div class="collapsible-content" id="conditionSection">
-                <div class="form-group">
-                    <label for="whenCondition">Condition Expression</label>
-                    <textarea id="whenCondition" rows="3" placeholder="e.g., NEW.status != OLD.status"></textarea>
-                    <div class="info-text">Boolean expression to filter when trigger executes. Use OLD and NEW to reference row values.</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-box collapsible">
-            <div class="collapsible-header" onclick="toggleSection('sqlPreviewSection')">
-                <span class="toggle-icon" id="sqlPreviewIcon">▶</span>
-                SQL Preview
-            </div>
-            <div class="collapsible-content" id="sqlPreviewSection">
-                <div class="sql-preview" id="sqlPreview">-- Fill in required fields to generate SQL preview</div>
-            </div>
-        </div>
-
-        <div class="actions">
-            <button class="btn" id="createBtn">Create Trigger</button>
-            <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        </div>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        const functions = ${functionsJson};
-        const columns = ${columnsJson};
-
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
-            const isExpanded = section.style.display === 'block';
-            section.style.display = isExpanded ? 'none' : 'block';
-            icon.textContent = isExpanded ? '▶' : '▼';
-        }
-
-        window.toggleSection = toggleSection;
-        
-        // Populate functions dropdown
-        const functionSelect = document.getElementById('triggerFunction');
-        functions.forEach(func => {
-            const option = document.createElement('option');
-            const funcDisplay = \`\${func.schema_name}.\${func.function_name}\`;
-            option.value = JSON.stringify({ schema: func.schema_name, name: func.function_name });
-            option.textContent = funcDisplay;
-            functionSelect.appendChild(option);
-        });
-
-        function getFormData() {
-            const name = document.getElementById('triggerName').value.trim();
-            if (!name) {
-                throw new Error('Trigger name is required');
-            }
-
-            const timing = document.getElementById('timing').value;
-            
-            const events = [];
-            if (document.getElementById('eventInsert').checked) events.push('INSERT');
-            if (document.getElementById('eventUpdate').checked) events.push('UPDATE');
-            if (document.getElementById('eventDelete').checked) events.push('DELETE');
-            if (document.getElementById('eventTruncate').checked) events.push('TRUNCATE');
-            
-            if (events.length === 0) {
-                throw new Error('Please select at least one event');
-            }
-
-            const level = document.getElementById('level').value;
-            const whenCondition = document.getElementById('whenCondition').value.trim();
-            
-            const functionValue = document.getElementById('triggerFunction').value;
-            if (!functionValue) {
-                throw new Error('Please select a trigger function');
-            }
-            
-            const functionInfo = JSON.parse(functionValue);
-            const functionArgs = document.getElementById('functionArgs').value.trim();
-            
-            return {
-                name,
-                timing,
-                events,
-                level,
-                whenCondition,
-                functionSchema: functionInfo.schema,
-                functionName: functionInfo.name,
-                functionArgs
-            };
-        }
-
-        function updatePreview() {
-            try {
-                const triggerDef = getFormData();
-                vscode.postMessage({ command: 'previewSql', triggerDef });
-            } catch (error) {
-                document.getElementById('sqlPreview').textContent = '-- Fill in required fields to generate SQL preview';
-            }
-        }
-
-        // Auto-update preview on input changes
-        document.getElementById('triggerName').addEventListener('input', updatePreview);
-        document.getElementById('timing').addEventListener('change', updatePreview);
-        document.getElementById('eventInsert').addEventListener('change', updatePreview);
-        document.getElementById('eventUpdate').addEventListener('change', updatePreview);
-        document.getElementById('eventDelete').addEventListener('change', updatePreview);
-        document.getElementById('eventTruncate').addEventListener('change', updatePreview);
-        document.getElementById('level').addEventListener('change', updatePreview);
-        document.getElementById('triggerFunction').addEventListener('change', updatePreview);
-        document.getElementById('functionArgs').addEventListener('input', updatePreview);
-        document.getElementById('whenCondition').addEventListener('input', updatePreview);
-
-        document.getElementById('createBtn').addEventListener('click', () => {
-            try {
-                const triggerDef = getFormData();
-                vscode.postMessage({ command: 'createTrigger', triggerDef });
-            } catch (error) {
-                showError(error.message);
-            }
-        });
-
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'cancel' });
-        });
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            if (message.command === 'sqlPreview') {
-                document.getElementById('sqlPreview').textContent = message.sql;
-            } else if (message.command === 'error') {
-                showError(message.message);
-            }
-        });
-
-        function showError(message) {
-            const errorContainer = document.getElementById('errorContainer');
-            errorContainer.innerHTML = '<div class="error">' + message + '</div>';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        // Initialize preview
-        updatePreview();
-    </script>
-</body>
-</html>`;
-    }
 
     /**
      * Get HTML for viewing trigger properties
@@ -1167,6 +920,43 @@ export class TriggerManagementPanel {
         // Initialize preview
         updatePreview();
     </script>
+</body>
+</html>`;
+    }
+
+    /**
+     * Get webview content for React components
+     */
+    private static getWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
+    ): string {
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'createTrigger.js')
+        );
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Trigger</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        window.initialData = ${JSON.stringify(initialData)};
+    </script>
+    <script src="${scriptUri}"></script>
 </body>
 </html>`;
     }
