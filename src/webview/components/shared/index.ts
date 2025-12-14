@@ -2,7 +2,8 @@
 export { Button } from './Button';
 export { Input } from './Input';
 export { Select } from './Select';
-export { Checkbox, Textarea, FormRow } from './FormComponents';
+export { Tooltip } from './Tooltip';
+export { Checkbox } from './Checkbox';
 
 // Layout Components
 export { Card } from './Card';

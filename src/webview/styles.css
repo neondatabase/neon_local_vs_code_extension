@@ -151,6 +151,22 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.connection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.connection-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--vscode-editor-foreground);
+}
+
 .label-with-refresh {
   display: flex;
   justify-content: space-between;

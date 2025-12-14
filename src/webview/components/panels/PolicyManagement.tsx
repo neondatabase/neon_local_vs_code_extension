@@ -5,7 +5,8 @@ import {
     Section,
     ActionButtons,
     SqlPreview,
-    useScrollToError
+    useScrollToError,
+    Tooltip
 } from '../shared';
 import { layouts, spacing, componentStyles } from '../../design-system';
 
@@ -73,10 +74,46 @@ export const CreatePolicyComponent: React.FC = () => {
     const [withCheckExpression, setWithCheckExpression] = useState('');
 
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const errorRef = useScrollToError(error);
+
+    const validatePolicyName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Policy name is required';
+        }
+        
+        // Check for valid PostgreSQL identifier
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return 'Policy name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+        
+        // Check for reserved prefixes
+        if (name.toLowerCase().startsWith('pg_')) {
+            return 'Policy name cannot start with "pg_" (reserved prefix)';
+        }
+        
+        return '';
+    };
+
+    const handlePolicyNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newName = e.target.value;
+        setPolicyName(newName);
+        setValidationError(validatePolicyName(newName));
+    };
+
+    // Determine which expression fields to show based on command
+    const shouldShowUsing = () => {
+        // USING is used for SELECT, UPDATE, DELETE, and ALL
+        return command === 'ALL' || command === 'SELECT' || command === 'UPDATE' || command === 'DELETE';
+    };
+
+    const shouldShowWithCheck = () => {
+        // WITH CHECK is used for INSERT, UPDATE, and ALL
+        return command === 'ALL' || command === 'INSERT' || command === 'UPDATE';
+    };
 
     useEffect(() => {
         const messageHandler = (event: MessageEvent) => {
@@ -122,8 +159,10 @@ export const CreatePolicyComponent: React.FC = () => {
     };
 
     const handleSubmit = () => {
-        if (!policyName.trim()) {
-            setError('Policy name is required');
+        const nameError = validatePolicyName(policyName);
+        if (nameError) {
+            setError(nameError);
+            setValidationError(nameError);
             return;
         }
 
@@ -168,13 +207,13 @@ export const CreatePolicyComponent: React.FC = () => {
                 </div>
             )}
 
-            <Section title="Policy Details">
+            <Section>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
                     <Input
                         label="Policy Name"
                         value={policyName}
-                        onChange={(e) => setPolicyName(e.target.value)}
-                        helperText="Name of the row-level security policy"
+                        onChange={handlePolicyNameChange}
+                        error={validationError}
                         required
                     />
 
@@ -184,7 +223,6 @@ export const CreatePolicyComponent: React.FC = () => {
                         onChange={(e) => setPolicyType(e.target.value)}
                         options={POLICY_TYPES}
                         required
-                        helperText="PERMISSIVE allows rows that match, RESTRICTIVE denies rows that don't match"
                     />
 
                     <Select
@@ -193,7 +231,7 @@ export const CreatePolicyComponent: React.FC = () => {
                         onChange={(e) => setCommand(e.target.value)}
                         options={COMMANDS}
                         required
-                        helperText="Which database operations this policy applies to"
+                        labelTooltip="Which database operations this policy applies to"
                     />
 
                     <div>
@@ -248,67 +286,59 @@ export const CreatePolicyComponent: React.FC = () => {
                         </div>
                     </div>
 
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
-                            USING Expression
-                        </label>
-                        <textarea
-                            value={usingExpression}
-                            onChange={(e) => setUsingExpression(e.target.value)}
-                            placeholder="e.g., user_id = current_user_id()"
-                            rows={4}
-                            style={{
-                                width: '100%',
-                                backgroundColor: 'var(--vscode-input-background)',
-                                color: 'var(--vscode-input-foreground)',
-                                border: '1px solid var(--vscode-input-border)',
-                                padding: '8px',
-                                borderRadius: '3px',
-                                fontSize: '13px',
-                                fontFamily: 'var(--vscode-font-family)',
-                                resize: 'vertical'
-                            }}
-                        />
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginTop: '4px'
-                        }}>
-                            Boolean expression to determine which rows are visible/modifiable
+                    {shouldShowUsing() && (
+                        <div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
+                                USING Expression
+                                <Tooltip text="Boolean expression to determine which rows are visible/modifiable" />
+                            </label>
+                            <textarea
+                                value={usingExpression}
+                                onChange={(e) => setUsingExpression(e.target.value)}
+                                placeholder="e.g., user_id = current_user_id()"
+                                rows={4}
+                                style={{
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    backgroundColor: 'var(--vscode-input-background)',
+                                    color: 'var(--vscode-input-foreground)',
+                                    border: '1px solid var(--vscode-input-border)',
+                                    padding: '8px',
+                                    borderRadius: '3px',
+                                    fontSize: '13px',
+                                    fontFamily: 'var(--vscode-font-family)',
+                                    resize: 'vertical'
+                                }}
+                            />
                         </div>
-                    </div>
+                    )}
 
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
-                            WITH CHECK Expression (Optional)
-                        </label>
-                        <textarea
-                            value={withCheckExpression}
-                            onChange={(e) => setWithCheckExpression(e.target.value)}
-                            placeholder="e.g., status = 'active'"
-                            rows={4}
-                            style={{
-                                width: '100%',
-                                backgroundColor: 'var(--vscode-input-background)',
-                                color: 'var(--vscode-input-foreground)',
-                                border: '1px solid var(--vscode-input-border)',
-                                padding: '8px',
-                                borderRadius: '3px',
-                                fontSize: '13px',
-                                fontFamily: 'var(--vscode-font-family)',
-                                resize: 'vertical'
-                            }}
-                        />
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginTop: '4px'
-                        }}>
-                            For INSERT/UPDATE: boolean expression to check new rows (defaults to USING expression)
+                    {shouldShowWithCheck() && (
+                        <div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
+                                WITH CHECK Expression (Optional)
+                                <Tooltip text="For INSERT/UPDATE: boolean expression to check new rows (defaults to USING expression)" />
+                            </label>
+                            <textarea
+                                value={withCheckExpression}
+                                onChange={(e) => setWithCheckExpression(e.target.value)}
+                                placeholder="e.g., status = 'active'"
+                                rows={4}
+                                style={{
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    backgroundColor: 'var(--vscode-input-background)',
+                                    color: 'var(--vscode-input-foreground)',
+                                    border: '1px solid var(--vscode-input-border)',
+                                    padding: '8px',
+                                    borderRadius: '3px',
+                                    fontSize: '13px',
+                                    fontFamily: 'var(--vscode-font-family)',
+                                    resize: 'vertical'
+                                }}
+                            />
                         </div>
-                    </div>
+                    )}
                 </div>
             </Section>
 
@@ -381,10 +411,46 @@ export const EditPolicyComponent: React.FC = () => {
     const originalWithCheckExpression = policyInfo?.with_check_expression || '';
 
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const errorRef = useScrollToError(error);
+
+    const validatePolicyName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Policy name is required';
+        }
+        
+        // Check for valid PostgreSQL identifier
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return 'Policy name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+        
+        // Check for reserved prefixes
+        if (name.toLowerCase().startsWith('pg_')) {
+            return 'Policy name cannot start with "pg_" (reserved prefix)';
+        }
+        
+        return '';
+    };
+
+    const handlePolicyNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newName = e.target.value;
+        setPolicyName(newName);
+        setValidationError(validatePolicyName(newName));
+    };
+
+    // Determine which expression fields to show based on command
+    const shouldShowUsing = () => {
+        // USING is used for SELECT, UPDATE, DELETE, and ALL
+        return command === 'ALL' || command === 'SELECT' || command === 'UPDATE' || command === 'DELETE';
+    };
+
+    const shouldShowWithCheck = () => {
+        // WITH CHECK is used for INSERT, UPDATE, and ALL
+        return command === 'ALL' || command === 'INSERT' || command === 'UPDATE';
+    };
 
     // Helper function to compare arrays
     const arraysEqual = (a: string[], b: string[]): boolean => {
@@ -454,8 +520,10 @@ export const EditPolicyComponent: React.FC = () => {
     };
 
     const handleSubmit = () => {
-        if (!policyName.trim()) {
-            setError('Policy name is required');
+        const nameError = validatePolicyName(policyName);
+        if (nameError) {
+            setError(nameError);
+            setValidationError(nameError);
             return;
         }
 
@@ -500,13 +568,13 @@ export const EditPolicyComponent: React.FC = () => {
                 </div>
             )}
 
-            <Section title="Policy Details">
+            <Section>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
                     <Input
                         label="Policy Name"
                         value={policyName}
-                        onChange={(e) => setPolicyName(e.target.value)}
-                        helperText="Name of the row-level security policy"
+                        onChange={handlePolicyNameChange}
+                        error={validationError}
                         required
                     />
 
@@ -516,7 +584,6 @@ export const EditPolicyComponent: React.FC = () => {
                         onChange={(e) => setPolicyType(e.target.value)}
                         options={POLICY_TYPES}
                         required
-                        helperText="PERMISSIVE allows rows that match, RESTRICTIVE denies rows that don't match"
                     />
 
                     <Select
@@ -525,7 +592,7 @@ export const EditPolicyComponent: React.FC = () => {
                         onChange={(e) => setCommand(e.target.value)}
                         options={COMMANDS}
                         required
-                        helperText="Which database operations this policy applies to"
+                        labelTooltip="Which database operations this policy applies to"
                     />
 
                     <div>
@@ -580,67 +647,73 @@ export const EditPolicyComponent: React.FC = () => {
                         </div>
                     </div>
 
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
-                            USING Expression
-                        </label>
-                        <textarea
-                            value={usingExpression}
-                            onChange={(e) => setUsingExpression(e.target.value)}
-                            placeholder="e.g., user_id = current_user_id()"
-                            rows={4}
-                            style={{
-                                width: '100%',
-                                backgroundColor: 'var(--vscode-input-background)',
-                                color: 'var(--vscode-input-foreground)',
-                                border: '1px solid var(--vscode-input-border)',
-                                padding: '8px',
-                                borderRadius: '3px',
-                                fontSize: '13px',
-                                fontFamily: 'var(--vscode-font-family)',
-                                resize: 'vertical'
-                            }}
-                        />
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginTop: '4px'
-                        }}>
-                            Boolean expression to determine which rows are visible/modifiable
+                    {shouldShowUsing() && (
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
+                                USING Expression
+                            </label>
+                            <textarea
+                                value={usingExpression}
+                                onChange={(e) => setUsingExpression(e.target.value)}
+                                placeholder="e.g., user_id = current_user_id()"
+                                rows={4}
+                                style={{
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    backgroundColor: 'var(--vscode-input-background)',
+                                    color: 'var(--vscode-input-foreground)',
+                                    border: '1px solid var(--vscode-input-border)',
+                                    padding: '8px',
+                                    borderRadius: '3px',
+                                    fontSize: '13px',
+                                    fontFamily: 'var(--vscode-font-family)',
+                                    resize: 'vertical'
+                                }}
+                            />
+                            <div style={{
+                                fontSize: '12px',
+                                color: 'var(--vscode-descriptionForeground)',
+                                fontStyle: 'italic',
+                                marginTop: '4px'
+                            }}>
+                                Boolean expression to determine which rows are visible/modifiable
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
-                            WITH CHECK Expression (Optional)
-                        </label>
-                        <textarea
-                            value={withCheckExpression}
-                            onChange={(e) => setWithCheckExpression(e.target.value)}
-                            placeholder="e.g., status = 'active'"
-                            rows={4}
-                            style={{
-                                width: '100%',
-                                backgroundColor: 'var(--vscode-input-background)',
-                                color: 'var(--vscode-input-foreground)',
-                                border: '1px solid var(--vscode-input-border)',
-                                padding: '8px',
-                                borderRadius: '3px',
-                                fontSize: '13px',
-                                fontFamily: 'var(--vscode-font-family)',
-                                resize: 'vertical'
-                            }}
-                        />
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginTop: '4px'
-                        }}>
-                            For INSERT/UPDATE: boolean expression to check new rows (defaults to USING expression)
+                    {shouldShowWithCheck() && (
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
+                                WITH CHECK Expression (Optional)
+                            </label>
+                            <textarea
+                                value={withCheckExpression}
+                                onChange={(e) => setWithCheckExpression(e.target.value)}
+                                placeholder="e.g., status = 'active'"
+                                rows={4}
+                                style={{
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    backgroundColor: 'var(--vscode-input-background)',
+                                    color: 'var(--vscode-input-foreground)',
+                                    border: '1px solid var(--vscode-input-border)',
+                                    padding: '8px',
+                                    borderRadius: '3px',
+                                    fontSize: '13px',
+                                    fontFamily: 'var(--vscode-font-family)',
+                                    resize: 'vertical'
+                                }}
+                            />
+                            <div style={{
+                                fontSize: '12px',
+                                color: 'var(--vscode-descriptionForeground)',
+                                fontStyle: 'italic',
+                                marginTop: '4px'
+                            }}>
+                                For INSERT/UPDATE: boolean expression to check new rows (defaults to USING expression)
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </Section>
 

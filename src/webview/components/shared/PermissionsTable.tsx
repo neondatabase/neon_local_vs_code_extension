@@ -152,3 +152,4 @@ export const PermissionsTable: React.FC<PermissionsTableProps> = ({
     );
 };
 
+

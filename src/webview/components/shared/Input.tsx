@@ -1,8 +1,10 @@
 import React from 'react';
 import { componentStyles, mergeStyles } from '../../design-system';
+import { Tooltip } from './Tooltip';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
+  labelTooltip?: string;
   error?: string;
   helperText?: string;
   fullWidth?: boolean;
@@ -11,6 +13,7 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 export const Input: React.FC<InputProps> = ({
   label,
+  labelTooltip,
   error,
   helperText,
   fullWidth = true,
@@ -43,7 +46,15 @@ export const Input: React.FC<InputProps> = ({
 
   return (
     <div style={componentStyles.formGroup.base}>
-      {label && <label style={componentStyles.label.base}>{label}</label>}
+      {label && (
+        <label style={{ ...componentStyles.label.base, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span>
+            {label}
+            {props.required && <span style={{ color: 'var(--vscode-errorForeground)', marginLeft: '2px' }}>*</span>}
+          </span>
+          {labelTooltip && <Tooltip text={labelTooltip} />}
+        </label>
+      )}
       {inputElement}
       {error && (
         <div style={{ color: 'var(--vscode-inputValidation-errorForeground)', fontSize: '12px', marginTop: '4px' }}>

@@ -1,6 +1,6 @@
 {
   "name": "neon-local-connect",
-  "displayName": "Neon Local Connect",
+  "displayName": "Neon",
   "description": "Local development environment for Neon Databases with branch management",
   "version": "1.0.9",
   "publisher": "databricks",
@@ -461,12 +461,12 @@
         {
           "type": "webview",
           "id": "neonLocalConnect",
-          "name": "Database Connection"
+          "name": "Branch Connection"
         },
         {
           "type": "tree",
           "id": "neonLocalSchema",
-          "name": "Database Schema",
+          "name": "Databases",
           "when": "neonLocal.connected"
         }
       ]

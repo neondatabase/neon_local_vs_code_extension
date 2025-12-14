@@ -1,8 +1,10 @@
 import React from 'react';
 import { componentStyles, mergeStyles } from '../../design-system';
+import { Tooltip } from './Tooltip';
 
 interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
+  labelTooltip?: string;
   error?: string;
   helperText?: string;
   options: Array<{ value: string; label: string }>;
@@ -12,6 +14,7 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
 
 export const Select: React.FC<SelectProps> = ({
   label,
+  labelTooltip,
   error,
   helperText,
   options,
@@ -30,9 +33,14 @@ export const Select: React.FC<SelectProps> = ({
         disabled ? { 
           opacity: 0.5,
           cursor: 'not-allowed',
-          backgroundColor: 'var(--vscode-input-background)',
         } : undefined,
-        style
+        style,
+        // Ensure chevron icon is always present
+        {
+          backgroundImage: componentStyles.select.base.backgroundImage,
+          backgroundRepeat: componentStyles.select.base.backgroundRepeat,
+          backgroundPosition: componentStyles.select.base.backgroundPosition,
+        }
       )}
       disabled={disabled}
       {...props}
@@ -51,7 +59,15 @@ export const Select: React.FC<SelectProps> = ({
 
   return (
     <div style={componentStyles.formGroup.base}>
-      {label && <label style={componentStyles.label.base}>{label}</label>}
+      {label && (
+        <label style={{ ...componentStyles.label.base, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span>
+            {label}
+            {props.required && <span style={{ color: 'var(--vscode-errorForeground)', marginLeft: '2px' }}>*</span>}
+          </span>
+          {labelTooltip && <Tooltip text={labelTooltip} />}
+        </label>
+      )}
       {selectElement}
       {error && (
         <div style={{ color: 'var(--vscode-inputValidation-errorForeground)', fontSize: '12px', marginTop: '4px' }}>

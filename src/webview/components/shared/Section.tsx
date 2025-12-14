@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { colors, spacing, borderRadius } from '../../design-system';
+import { colors, spacing, borderRadius, fontSize, fontWeight } from '../../design-system';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -33,8 +33,8 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
           display: 'flex',
           alignItems: 'center',
           gap: spacing.sm,
-          fontWeight: 500,
-          fontSize: '13px',
+          fontWeight: fontWeight.medium,
+          fontSize: fontSize.md,
           transition: 'background-color 150ms',
         }}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = colors.listHover)}
@@ -53,7 +53,16 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         <span>{title}</span>
       </div>
       {isOpen && (
-        <div style={{ padding: spacing.md, paddingTop: 0 }}>
+        <div 
+          className="section-content"
+          style={{ 
+            padding: spacing.md, 
+            paddingTop: spacing.lg,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: spacing.md
+          }}
+        >
           {children}
         </div>
       )}
@@ -63,37 +72,84 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 
 interface SectionProps {
   title?: string;
+  description?: string;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   style?: React.CSSProperties;
+  noPadding?: boolean;
 }
 
-export const Section: React.FC<SectionProps> = ({ title, children, style }) => {
+export const Section: React.FC<SectionProps> = ({ 
+  title, 
+  description,
+  headerActions,
+  children, 
+  style,
+  noPadding = false
+}) => {
   return (
     <div
       style={{
         backgroundColor: colors.backgroundLight,
         border: `1px solid ${colors.border}`,
         borderRadius: borderRadius.md,
-        padding: spacing.md,
+        padding: noPadding ? 0 : spacing.md,
         marginBottom: spacing.md,
         ...style,
       }}
     >
-      {title && (
-        <h3
-          style={{
-            margin: 0,
-            marginBottom: spacing.md,
-            fontSize: '14px',
-            fontWeight: 600,
-          }}
-        >
-          {title}
-        </h3>
+      {(title || description || headerActions) && (
+        <div style={{ marginBottom: spacing.lg }}>
+          {(title || headerActions) && (
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              marginBottom: description ? spacing.xs : 0,
+            }}>
+              {title && (
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: fontSize.lg,
+                    fontWeight: fontWeight.semibold,
+                  }}
+                >
+                  {title}
+                </h3>
+              )}
+              {headerActions && (
+                <div>{headerActions}</div>
+              )}
+            </div>
+          )}
+          {description && (
+            <div
+              style={{
+                fontSize: fontSize.sm,
+                color: colors.textSecondary,
+                fontStyle: 'italic',
+              }}
+            >
+              {description}
+            </div>
+          )}
+        </div>
       )}
-      {children}
+      <div 
+        className="section-content"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: spacing.md,
+          paddingTop: (title || description || headerActions) ? 0 : spacing.lg
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 };
+
 
 

@@ -6,7 +6,9 @@ import {
     ActionButtons,
     SqlPreview,
     CollapsibleSection,
-    useScrollToError
+    useScrollToError,
+    Checkbox,
+    ColumnSelector
 } from '../shared';
 import { layouts, spacing, componentStyles } from '../../design-system';
 
@@ -33,6 +35,8 @@ interface ConstraintManagementProps {
     schema: string;
     tableName: string;
     columns: string[];
+    schemas?: string[];
+    tables?: Array<{schemaname: string; tablename: string}>;
     mode: 'create' | 'edit';
     currentConstraint?: any;
 }
@@ -66,12 +70,28 @@ const EXCLUSION_METHODS = [
     { value: 'hash', label: 'Hash' }
 ];
 
+const FK_ACTION_DESCRIPTIONS: Record<string, string> = {
+    'NO ACTION': 'Allows the operation if no referencing rows exist; produces an error at check time if they do (can be deferred)',
+    'RESTRICT': 'Prevents the operation if any referencing rows exist; produces an error immediately (cannot be deferred)',
+    'CASCADE': 'Automatically deletes/updates all referencing rows when the referenced row is deleted/updated',
+    'SET NULL': 'Sets the foreign key columns to NULL when the referenced row is deleted/updated',
+    'SET DEFAULT': 'Sets the foreign key columns to their default values when the referenced row is deleted/updated'
+};
+
+const FK_MATCH_DESCRIPTIONS: Record<string, string> = {
+    'SIMPLE': 'Allows any foreign key column to be NULL; if all are NULL, the row is not checked. If any are non-NULL, all non-NULL columns must match',
+    'FULL': 'Either all foreign key columns must be NULL, or all must be non-NULL and match the referenced row',
+    'PARTIAL': 'Allows some columns to be NULL while others are not (not fully implemented in PostgreSQL)'
+};
+
 export const CreateConstraintComponent: React.FC = () => {
     const initialData = ((window as any).initialData || {}) as ConstraintManagementProps;
 
     const [schema] = useState(initialData.schema || '');
     const [tableName] = useState(initialData.tableName || '');
     const availableColumns = initialData.columns || [];
+    const availableSchemas = initialData.schemas || [initialData.schema || 'public'];
+    const availableTables = initialData.tables || [];
     
     const [constraintName, setConstraintName] = useState('');
     const [constraintType, setConstraintType] = useState<'check' | 'unique' | 'exclusion' | 'foreignkey'>('check');
@@ -88,9 +108,10 @@ export const CreateConstraintComponent: React.FC = () => {
     
     // FOREIGN KEY fields
     const [fkColumns, setFkColumns] = useState<string[]>([]);
-    const [fkReferencedSchema, setFkReferencedSchema] = useState(schema);
+    const [fkReferencedSchema, setFkReferencedSchema] = useState('');
     const [fkReferencedTable, setFkReferencedTable] = useState('');
-    const [fkReferencedColumns, setFkReferencedColumns] = useState('');
+    const [fkReferencedColumns, setFkReferencedColumns] = useState<string[]>([]);
+    const [availableReferencedColumns, setAvailableReferencedColumns] = useState<string[]>([]);
     const [fkOnUpdate, setFkOnUpdate] = useState('NO ACTION');
     const [fkOnDelete, setFkOnDelete] = useState('NO ACTION');
     const [fkMatch, setFkMatch] = useState('SIMPLE');
@@ -100,10 +121,35 @@ export const CreateConstraintComponent: React.FC = () => {
     const [deferred, setDeferred] = useState(false);
 
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const errorRef = useScrollToError(error);
+
+    const validateConstraintName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Constraint name is required';
+        }
+        
+        // Check for valid PostgreSQL identifier
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return 'Constraint name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+        
+        // Check for reserved prefixes
+        if (name.toLowerCase().startsWith('pg_')) {
+            return 'Constraint name cannot start with "pg_" (reserved prefix)';
+        }
+        
+        return '';
+    };
+
+    const handleConstraintNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newName = e.target.value;
+        setConstraintName(newName);
+        setValidationError(validateConstraintName(newName));
+    };
 
     useEffect(() => {
         const messageHandler = (event: MessageEvent) => {
@@ -111,6 +157,9 @@ export const CreateConstraintComponent: React.FC = () => {
             switch (message.command) {
                 case 'sqlPreview':
                     setSqlPreview(message.sql);
+                    break;
+                case 'referencedTableColumns':
+                    setAvailableReferencedColumns(message.columns || []);
                     break;
                 case 'error':
                     setError(message.error);
@@ -126,6 +175,20 @@ export const CreateConstraintComponent: React.FC = () => {
         return () => window.removeEventListener('message', messageHandler);
     }, []);
 
+    // Fetch referenced table columns when schema or table changes
+    useEffect(() => {
+        if (fkReferencedSchema && fkReferencedTable) {
+            vscode.postMessage({ 
+                command: 'fetchReferencedTableColumns', 
+                schema: fkReferencedSchema, 
+                table: fkReferencedTable 
+            });
+        } else {
+            setAvailableReferencedColumns([]);
+            setFkReferencedColumns([]);
+        }
+    }, [fkReferencedSchema, fkReferencedTable]);
+
     useEffect(() => {
         if (constraintName) {
             const constraintDef: ConstraintDefinition = {
@@ -139,7 +202,7 @@ export const CreateConstraintComponent: React.FC = () => {
                 exclusionElements: constraintType === 'exclusion' ? exclusionElements : undefined,
                 foreignKeyReferencedSchema: constraintType === 'foreignkey' ? fkReferencedSchema : undefined,
                 foreignKeyReferencedTable: constraintType === 'foreignkey' ? fkReferencedTable : undefined,
-                foreignKeyReferencedColumns: constraintType === 'foreignkey' ? fkReferencedColumns.split(',').map(c => c.trim()).filter(c => c) : undefined,
+                foreignKeyReferencedColumns: constraintType === 'foreignkey' ? fkReferencedColumns : undefined,
                 foreignKeyOnUpdate: constraintType === 'foreignkey' ? fkOnUpdate : undefined,
                 foreignKeyOnDelete: constraintType === 'foreignkey' ? fkOnDelete : undefined,
                 foreignKeyMatch: constraintType === 'foreignkey' ? fkMatch : undefined,
@@ -165,6 +228,18 @@ export const CreateConstraintComponent: React.FC = () => {
         }
     };
 
+    const handleReferencedColumnToggle = (columnName: string) => {
+        setFkReferencedColumns(prev => 
+            prev.includes(columnName) ? prev.filter(c => c !== columnName) : [...prev, columnName]
+        );
+    };
+
+    const getTablesForSchema = (schemaName: string) => {
+        return availableTables
+            .filter(t => t.schemaname === schemaName)
+            .map(t => ({ value: t.tablename, label: t.tablename }));
+    };
+
     const handleAddExclusionElement = () => {
         setExclusionElements([...exclusionElements, {element: '', operator: '='}]);
     };
@@ -180,8 +255,10 @@ export const CreateConstraintComponent: React.FC = () => {
     };
 
     const handleSubmit = () => {
-        if (!constraintName.trim()) {
-            setError('Constraint name is required');
+        const nameError = validateConstraintName(constraintName);
+        if (nameError) {
+            setError(nameError);
+            setValidationError(nameError);
             return;
         }
 
@@ -237,12 +314,12 @@ export const CreateConstraintComponent: React.FC = () => {
             )}
 
             <Section title="Constraint Details">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
+                <Input
                         label="Constraint Name"
                         value={constraintName}
-                        onChange={(e) => setConstraintName(e.target.value)}
-                        helperText="Naming conventions: chk_ for CHECK, uq_ for UNIQUE, ex_ for EXCLUSION, fk_ for FOREIGN KEY"
+                        onChange={handleConstraintNameChange}
+                        labelTooltip="Naming conventions: chk_ for CHECK, uq_ for UNIQUE, ex_ for EXCLUSION, fk_ for FOREIGN KEY"
+                        error={validationError}
                         required
                     />
 
@@ -251,16 +328,12 @@ export const CreateConstraintComponent: React.FC = () => {
                         value={constraintType}
                         onChange={(e) => setConstraintType(e.target.value as any)}
                         options={CONSTRAINT_TYPES}
-                        required
-                        helperText="CHECK validates data, UNIQUE prevents duplicates, EXCLUSION prevents overlaps, FOREIGN KEY enforces relationships"
                     />
-                </div>
             </Section>
 
             {constraintType === 'check' && (
                 <Section title="CHECK Expression">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                        <div>
+                    <div>
                             <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
                                 Expression <span style={{ color: 'var(--vscode-errorForeground)' }}>*</span>
                             </label>
@@ -290,79 +363,35 @@ export const CreateConstraintComponent: React.FC = () => {
                                 Boolean expression that must evaluate to true for all rows
                             </div>
                         </div>
-                    </div>
                 </Section>
             )}
 
             {constraintType === 'unique' && (
                 <Section title="Select Columns">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic'
-                        }}>
-                            Select one or more columns that must be unique together
-                        </div>
-
-                        <div style={{
-                            border: '1px solid var(--vscode-input-border)',
-                            borderRadius: '3px',
-                            padding: spacing.sm,
-                            maxHeight: '150px',
-                            overflowY: 'auto',
-                            backgroundColor: 'var(--vscode-input-background)'
-                        }}>
-                            {availableColumns.map(col => (
-                                <div
-                                    key={col}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: spacing.sm,
-                                        padding: '4px',
-                                        cursor: 'pointer',
-                                        borderRadius: '3px'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = 'var(--vscode-list-hoverBackground)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = 'transparent';
-                                    }}
-                                    onClick={() => handleColumnToggle(col, 'unique')}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={uniqueColumns.includes(col)}
-                                        onChange={() => handleColumnToggle(col, 'unique')}
-                                        style={{ cursor: 'pointer' }}
-                                        onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <label style={{ cursor: 'pointer', margin: 0 }}>{col}</label>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                    <ColumnSelector
+                        label=""
+                        columns={availableColumns}
+                        selectedColumns={uniqueColumns}
+                        onToggle={(col) => handleColumnToggle(col, 'unique')}
+                        helperText="Select one or more columns that must be unique together"
+                    />
                 </Section>
             )}
 
             {constraintType === 'exclusion' && (
                 <Section title="Exclusion Configuration">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                        <Select
+                    <Select
                             label="Index Method"
                             value={exclusionMethod}
                             onChange={(e) => setExclusionMethod(e.target.value)}
                             options={EXCLUSION_METHODS}
-                            required
                             helperText="B-tree is the default index method for exclusion constraints"
                         />
 
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: '500' }}>
-                                Exclusion Elements
-                            </label>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: '500' }}>
+                            Exclusion Elements
+                        </label>
                             {exclusionElements.map((elem, index) => (
                                 <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 40px', gap: spacing.sm, marginBottom: spacing.sm, alignItems: 'center' }}>
                                     <Input
@@ -427,97 +456,56 @@ export const CreateConstraintComponent: React.FC = () => {
                                 Add Element
                             </button>
                         </div>
-                    </div>
                 </Section>
             )}
 
             {constraintType === 'foreignkey' && (
                 <Section title="Foreign Key Configuration">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: '500' }}>
-                                Local Columns <span style={{ color: 'var(--vscode-errorForeground)' }}>*</span>
-                            </label>
-                            <div style={{
-                                fontSize: '12px',
-                                color: 'var(--vscode-descriptionForeground)',
-                                fontStyle: 'italic',
-                                marginBottom: spacing.sm
-                            }}>
-                                Select columns from this table that reference another table
-                            </div>
-                            <div style={{
-                                border: '1px solid var(--vscode-input-border)',
-                                borderRadius: '3px',
-                                padding: spacing.sm,
-                                maxHeight: '150px',
-                                overflowY: 'auto',
-                                backgroundColor: 'var(--vscode-input-background)'
-                            }}>
-                                {availableColumns.map(col => (
-                                    <div
-                                        key={col}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: spacing.sm,
-                                            padding: '4px',
-                                            cursor: 'pointer',
-                                            borderRadius: '3px'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.backgroundColor = 'var(--vscode-list-hoverBackground)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.backgroundColor = 'transparent';
-                                        }}
-                                        onClick={() => handleColumnToggle(col, 'foreignkey')}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={fkColumns.includes(col)}
-                                            onChange={() => handleColumnToggle(col, 'foreignkey')}
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={(e) => e.stopPropagation()}
-                                        />
-                                        <label style={{ cursor: 'pointer', margin: 0 }}>{col}</label>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                    <ColumnSelector
+                        label="Local Columns"
+                        columns={availableColumns}
+                        selectedColumns={fkColumns}
+                        onToggle={(col) => handleColumnToggle(col, 'foreignkey')}
+                        helperText="Select columns from this table that reference another table"
+                    />
 
-                        <Input
-                            label="Referenced Schema"
-                            value={fkReferencedSchema}
-                            onChange={(e) => setFkReferencedSchema(e.target.value)}
-                            helperText="Schema containing the referenced table"
-                            required
-                        />
+                    <Select
+                        label="Referenced Schema"
+                        value={fkReferencedSchema}
+                        onChange={(e) => {
+                            setFkReferencedSchema(e.target.value);
+                            setFkReferencedTable('');
+                        }}
+                        options={availableSchemas.map(s => ({ value: s, label: s }))}
+                        labelTooltip="Schema containing the referenced table"
+                        required
+                    />
 
-                        <Input
-                            label="Referenced Table"
-                            value={fkReferencedTable}
-                            onChange={(e) => setFkReferencedTable(e.target.value)}
-                            placeholder="referenced_table"
-                            helperText="Table that is being referenced"
-                            required
-                        />
+                    <Select
+                        label="Referenced Table"
+                        value={fkReferencedTable}
+                        onChange={(e) => setFkReferencedTable(e.target.value)}
+                        options={fkReferencedSchema ? getTablesForSchema(fkReferencedSchema) : []}
+                        labelTooltip="Table that is being referenced"
+                        required
+                        disabled={!fkReferencedSchema}
+                    />
 
-                        <Input
-                            label="Referenced Columns"
-                            value={fkReferencedColumns}
-                            onChange={(e) => setFkReferencedColumns(e.target.value)}
-                            placeholder="id, code"
-                            helperText="Comma-separated list of columns in the referenced table"
-                            required
-                        />
+                    <ColumnSelector
+                        label="Referenced Columns"
+                        columns={availableReferencedColumns}
+                        selectedColumns={fkReferencedColumns}
+                        onToggle={handleReferencedColumnToggle}
+                        helperText="Select columns from the referenced table (must match local columns in order and type)"
+                    />
 
-                        <Select
+                    <Select
                             label="ON DELETE"
                             value={fkOnDelete}
                             onChange={(e) => setFkOnDelete(e.target.value)}
                             options={FK_ACTIONS}
-                            helperText="Action to take when referenced row is deleted"
+                            labelTooltip="Action to take when referenced row is deleted"
+                            helperText={FK_ACTION_DESCRIPTIONS[fkOnDelete]}
                         />
 
                         <Select
@@ -525,7 +513,8 @@ export const CreateConstraintComponent: React.FC = () => {
                             value={fkOnUpdate}
                             onChange={(e) => setFkOnUpdate(e.target.value)}
                             options={FK_ACTIONS}
-                            helperText="Action to take when referenced row is updated"
+                            labelTooltip="Action to take when referenced row is updated"
+                            helperText={FK_ACTION_DESCRIPTIONS[fkOnUpdate]}
                         />
 
                         <Select
@@ -533,56 +522,28 @@ export const CreateConstraintComponent: React.FC = () => {
                             value={fkMatch}
                             onChange={(e) => setFkMatch(e.target.value)}
                             options={FK_MATCH_TYPES}
-                            helperText="How NULL values in the foreign key are handled"
+                            labelTooltip="How NULL values in the foreign key are handled"
+                            helperText={FK_MATCH_DESCRIPTIONS[fkMatch]}
                         />
-                    </div>
                 </Section>
             )}
 
             <CollapsibleSection title="Advanced Options" defaultOpen={false}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={deferrable}
-                                onChange={(e) => setDeferrable(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Deferrable</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Allows constraint checking to be deferred until end of transaction
-                        </div>
-                    </div>
+                <Checkbox
+                    label="Deferrable"
+                    checked={deferrable}
+                    onChange={(e) => setDeferrable(e.target.checked)}
+                    labelTooltip="Allows constraint checking to be deferred until end of transaction"
+                />
 
-                    {deferrable && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={deferred}
-                                    onChange={(e) => setDeferred(e.target.checked)}
-                                    style={{ cursor: 'pointer' }}
-                                />
-                                <span style={{ fontSize: '13px', fontWeight: '500' }}>Initially Deferred</span>
-                            </label>
-                            <div style={{
-                                fontSize: '12px',
-                                color: 'var(--vscode-descriptionForeground)',
-                                fontStyle: 'italic',
-                                marginLeft: '24px'
-                            }}>
-                                Constraint is deferred by default (can be changed with SET CONSTRAINTS)
-                            </div>
-                        </div>
-                    )}
-                </div>
+                {deferrable && (
+                    <Checkbox
+                        label="Initially Deferred"
+                        checked={deferred}
+                        onChange={(e) => setDeferred(e.target.checked)}
+                        labelTooltip="Constraint is deferred by default (can be changed with SET CONSTRAINTS)"
+                    />
+                )}
             </CollapsibleSection>
 
             {sqlPreview && (
@@ -755,8 +716,7 @@ export const EditConstraintComponent: React.FC = () => {
             )}
 
             <Section title="Constraint Details">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
+                <Input
                         label="Constraint Name"
                         value={constraintName}
                         onChange={(e) => setConstraintName(e.target.value)}
@@ -781,13 +741,11 @@ export const EditConstraintComponent: React.FC = () => {
                             Constraint type cannot be changed
                         </div>
                     </div>
-                </div>
             </Section>
 
             {constraintType === 'check' && (
                 <Section title="CHECK Expression">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                        <div>
+                    <div>
                             <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
                                 Expression <span style={{ color: 'var(--vscode-errorForeground)' }}>*</span>
                             </label>
@@ -817,22 +775,15 @@ export const EditConstraintComponent: React.FC = () => {
                                 Boolean expression that must evaluate to true for all rows
                             </div>
                         </div>
-                    </div>
                 </Section>
             )}
 
             {constraintType === 'unique' && (
-                <Section title="Select Columns">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic'
-                        }}>
-                            Select one or more columns that must be unique together
-                        </div>
-
-                        <div style={{
+                <Section 
+                    title="Select Columns"
+                    description="Select one or more columns that must be unique together"
+                >
+                    <div style={{
                             border: '1px solid var(--vscode-input-border)',
                             borderRadius: '3px',
                             padding: spacing.sm,
@@ -870,7 +821,6 @@ export const EditConstraintComponent: React.FC = () => {
                                 </div>
                             ))}
                         </div>
-                    </div>
                 </Section>
             )}
 
@@ -889,9 +839,8 @@ export const EditConstraintComponent: React.FC = () => {
             )}
 
             <CollapsibleSection title="Advanced Options" defaultOpen={false}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
                             <input
                                 type="checkbox"
                                 checked={deferrable}
@@ -908,9 +857,9 @@ export const EditConstraintComponent: React.FC = () => {
                         }}>
                             Allows constraint checking to be deferred until end of transaction
                         </div>
-                    </div>
+                </div>
 
-                    {deferrable && (
+                {deferrable && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
                             <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
                                 <input
@@ -929,9 +878,8 @@ export const EditConstraintComponent: React.FC = () => {
                             }}>
                                 Constraint is deferred by default (can be changed with SET CONSTRAINTS)
                             </div>
-                        </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </CollapsibleSection>
 
             {sqlPreview && (

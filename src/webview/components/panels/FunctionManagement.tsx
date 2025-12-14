@@ -271,69 +271,68 @@ export const CreateFunctionComponent: React.FC = () => {
             )}
 
             <Section title="Basic Information">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
-                        label="Function Name"
-                        value={functionName}
-                        onChange={(e) => setFunctionName(e.target.value)}
-                        placeholder="my_function"
-                        helperText="Naming convention: lowercase with underscores"
-                        required
-                        style={{ maxWidth: '500px' }}
-                    />
+                <Input
+                    label="Function Name"
+                    value={functionName}
+                    onChange={(e) => setFunctionName(e.target.value)}
+                    placeholder="my_function"
+                    helperText="Naming convention: lowercase with underscores"
+                    required
+                />
 
+                <div>
                     <Select
                         label="Return Type"
                         value={returnType}
                         onChange={(e) => setReturnType(e.target.value)}
                         options={RETURN_TYPES}
                         required
-                        style={{ maxWidth: '500px' }}
                     />
                     <div style={{
                         fontSize: '12px',
                         color: 'var(--vscode-descriptionForeground)',
                         fontStyle: 'italic',
-                        marginTop: '-8px'
+                        marginTop: spacing.xs
                     }}>
                         Use VOID for procedures, TRIGGER for trigger functions
                     </div>
+                </div>
 
+                <div>
                     <Select
                         label="Language"
                         value={language}
                         onChange={(e) => setLanguage(e.target.value)}
                         options={LANGUAGES}
-                        style={{ maxWidth: '500px' }}
                     />
                     <div style={{
                         fontSize: '12px',
                         color: 'var(--vscode-descriptionForeground)',
                         fontStyle: 'italic',
-                        marginTop: '-8px'
+                        marginTop: spacing.xs
                     }}>
                         PL/pgSQL is recommended for complex functions with variables and control structures. SQL is for simple functions.
                     </div>
+                </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
-                        <input
-                            type="checkbox"
-                            id="replaceIfExists"
-                            checked={replaceIfExists}
-                            onChange={(e) => setReplaceIfExists(e.target.checked)}
-                            style={{ cursor: 'pointer' }}
-                        />
-                        <label htmlFor="replaceIfExists" style={{ cursor: 'pointer', margin: 0 }}>
-                            CREATE OR REPLACE
-                        </label>
-                    </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
+                    <input
+                        type="checkbox"
+                        id="replaceIfExists"
+                        checked={replaceIfExists}
+                        onChange={(e) => setReplaceIfExists(e.target.checked)}
+                        style={{ cursor: 'pointer' }}
+                    />
+                    <label htmlFor="replaceIfExists" style={{ cursor: 'pointer', margin: 0 }}>
+                        CREATE OR REPLACE
+                    </label>
                 </div>
             </Section>
 
-            <Section title="Parameters">
-                <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', fontStyle: 'italic', marginBottom: spacing.md }}>
-                    Add input/output parameters for your function
-                </div>
+            <Section 
+                title="Parameters"
+                description="Add input/output parameters for your function"
+            >
                 
                 {parameters.length === 0 ? (
                     <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', fontStyle: 'italic', marginBottom: spacing.md }}>

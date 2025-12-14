@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Section, Input, Select, CollapsibleSection, ActionButtons, SqlPreview, useScrollToError } from '../shared';
+import { Section, Input, Select, CollapsibleSection, ActionButtons, SqlPreview, useScrollToError, Checkbox } from '../shared';
 import { spacing, layouts, componentStyles } from '../../design-system';
 
 // Access vscode from window (acquired in HTML before React loads)
@@ -55,10 +55,35 @@ export const CreateSequenceComponent: React.FC = () => {
     const [cycle, setCycle] = useState(false);
     
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const errorRef = useScrollToError(error);
+
+    const validateSequenceName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Sequence name is required';
+        }
+        
+        // Check for valid PostgreSQL identifier
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return 'Sequence name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+        
+        // Check for reserved prefixes
+        if (name.toLowerCase().startsWith('pg_')) {
+            return 'Sequence name cannot start with "pg_" (reserved prefix)';
+        }
+        
+        return '';
+    };
+
+    const handleSequenceNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newName = e.target.value;
+        setSequenceName(newName);
+        setValidationError(validateSequenceName(newName));
+    };
 
     useEffect(() => {
         const messageHandler = (event: MessageEvent) => {
@@ -101,13 +126,10 @@ export const CreateSequenceComponent: React.FC = () => {
     }, [sequenceName, dataType, minValue, maxValue, startValue, incrementBy, cache, cycle, initialData.schema]);
 
     const handleSubmit = () => {
-        if (!sequenceName.trim()) {
-            setError('Sequence name is required');
-            return;
-        }
-
-        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(sequenceName)) {
-            setError('Sequence name must start with a letter or underscore and contain only letters, numbers, and underscores');
+        const nameError = validateSequenceName(sequenceName);
+        if (nameError) {
+            setError(nameError);
+            setValidationError(nameError);
             return;
         }
 
@@ -160,9 +182,8 @@ export const CreateSequenceComponent: React.FC = () => {
                     <Input
                         label="Sequence Name"
                         value={sequenceName}
-                        onChange={(e) => setSequenceName(e.target.value)}
-                        placeholder="my_sequence"
-                        helperText="Name must start with a letter and contain only letters, numbers, and underscores"
+                        onChange={handleSequenceNameChange}
+                        error={validationError}
                         required
                         style={{ maxWidth: '500px' }}
                     />
@@ -172,7 +193,7 @@ export const CreateSequenceComponent: React.FC = () => {
                         value={dataType}
                         onChange={(e) => setDataType(e.target.value)}
                         options={DATA_TYPES}
-                        helperText="The data type of the sequence (BIGINT is recommended for most use cases)"
+                        labelTooltip="The data type of the sequence (BIGINT is recommended for most use cases)"
                         style={{ maxWidth: '500px' }}
                     />
                 </div>
@@ -187,7 +208,7 @@ export const CreateSequenceComponent: React.FC = () => {
                             value={minValue}
                             onChange={(e) => setMinValue(e.target.value)}
                             placeholder="Leave empty for NO MINVALUE"
-                            helperText="Minimum value of the sequence (or leave empty)"
+                            labelTooltip="Minimum value of the sequence (or leave empty)"
                         />
 
                         <Input
@@ -196,7 +217,7 @@ export const CreateSequenceComponent: React.FC = () => {
                             value={maxValue}
                             onChange={(e) => setMaxValue(e.target.value)}
                             placeholder="Leave empty for NO MAXVALUE"
-                            helperText="Maximum value of the sequence (or leave empty)"
+                            labelTooltip="Maximum value of the sequence (or leave empty)"
                         />
                     </div>
 
@@ -207,7 +228,7 @@ export const CreateSequenceComponent: React.FC = () => {
                             value={startValue}
                             onChange={(e) => setStartValue(e.target.value)}
                             placeholder="1"
-                            helperText="Initial value of the sequence (defaults to 1)"
+                            labelTooltip="Initial value of the sequence (defaults to 1)"
                         />
 
                         <Input
@@ -215,7 +236,7 @@ export const CreateSequenceComponent: React.FC = () => {
                             type="number"
                             value={incrementBy}
                             onChange={(e) => setIncrementBy(e.target.value)}
-                            helperText="Value to add to current sequence value (can be negative)"
+                            labelTooltip="Value to add to current sequence value (can be negative)"
                         />
                     </div>
 
@@ -225,30 +246,16 @@ export const CreateSequenceComponent: React.FC = () => {
                             type="number"
                             value={cache}
                             onChange={(e) => setCache(e.target.value)}
-                            helperText="Number of sequence values to pre-allocate (improves performance)"
+                            labelTooltip="Number of sequence values to pre-allocate (improves performance)"
                         />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
-                        <input
-                            type="checkbox"
-                            id="cycle"
-                            checked={cycle}
-                            onChange={(e) => setCycle(e.target.checked)}
-                            style={{ cursor: 'pointer' }}
-                        />
-                        <label htmlFor="cycle" style={{ cursor: 'pointer', margin: 0 }}>
-                            Cycle
-                        </label>
-                    </div>
-                    <div style={{
-                        fontSize: '12px',
-                        color: 'var(--vscode-descriptionForeground)',
-                        fontStyle: 'italic',
-                        marginTop: '-8px'
-                    }}>
-                        Allow sequence to wrap around when reaching max/min value
-                    </div>
+                    <Checkbox
+                        label="Cycle"
+                        checked={cycle}
+                        onChange={(e) => setCycle(e.target.checked)}
+                        labelTooltip="Allow sequence to wrap around when reaching max/min value"
+                    />
                 </div>
             </CollapsibleSection>
 

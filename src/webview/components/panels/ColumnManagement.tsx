@@ -6,6 +6,7 @@ import {
     ActionButtons,
     SqlPreview,
     CollapsibleSection,
+    Checkbox,
     useScrollToError
 } from '../shared';
 import { layouts, spacing, componentStyles } from '../../design-system';
@@ -20,6 +21,7 @@ interface ColumnDefinition {
     defaultValue?: string;
     isPrimaryKey?: boolean;
     isUnique?: boolean;
+    comment?: string;
 }
 
 interface ColumnManagementProps {
@@ -65,8 +67,10 @@ export const CreateColumnComponent: React.FC = () => {
     const [defaultValue, setDefaultValue] = useState('');
     const [isPrimaryKey, setIsPrimaryKey] = useState(false);
     const [isUnique, setIsUnique] = useState(false);
+    const [comment, setComment] = useState('');
 
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -104,17 +108,36 @@ export const CreateColumnComponent: React.FC = () => {
                 nullable,
                 defaultValue: defaultValue || undefined,
                 isPrimaryKey,
-                isUnique
+                isUnique,
+                comment: comment || undefined
             };
             vscode.postMessage({ command: 'previewSql', columnDef });
         } else {
             setSqlPreview('');
         }
-    }, [columnName, dataType, length, precision, scale, nullable, defaultValue, isPrimaryKey, isUnique]);
+    }, [columnName, dataType, length, precision, scale, nullable, defaultValue, isPrimaryKey, isUnique, comment]);
+
+    const validateColumnName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Column name is required';
+        }
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return 'Column name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+        return '';
+    };
+
+    const handleColumnNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newName = e.target.value;
+        setColumnName(newName);
+        setValidationError(validateColumnName(newName));
+    };
 
     const handleSubmit = () => {
-        if (!columnName.trim()) {
-            setError('Column name is required');
+        const nameError = validateColumnName(columnName);
+        if (nameError) {
+            setValidationError(nameError);
+            setError(nameError);
             return;
         }
 
@@ -124,6 +147,7 @@ export const CreateColumnComponent: React.FC = () => {
         }
 
         setError('');
+        setValidationError('');
         setIsSubmitting(true);
 
         const columnDef: ColumnDefinition = {
@@ -135,7 +159,8 @@ export const CreateColumnComponent: React.FC = () => {
             nullable,
             defaultValue: defaultValue || undefined,
             isPrimaryKey,
-            isUnique
+            isUnique,
+            comment: comment || undefined
         };
 
         vscode.postMessage({ command: 'createColumn', columnDef });
@@ -172,13 +197,12 @@ export const CreateColumnComponent: React.FC = () => {
                 </div>
             )}
 
-            <Section title="Column Details">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
+            <Section>
+                <Input
                         label="Column Name"
                         value={columnName}
-                        onChange={(e) => setColumnName(e.target.value)}
-                        helperText="Must start with a letter and contain only letters, numbers, and underscores"
+                        onChange={handleColumnNameChange}
+                        error={validationError}
                         required
                     />
 
@@ -189,17 +213,6 @@ export const CreateColumnComponent: React.FC = () => {
                         options={flatDataTypes}
                         required
                     />
-
-                    {needsLength(dataType) && (
-                        <Input
-                            label="Length"
-                            type="number"
-                            value={length?.toString() || ''}
-                            onChange={(e) => setLength(e.target.value ? parseInt(e.target.value) : undefined)}
-                            placeholder="255"
-                            helperText="Character length for VARCHAR/CHAR types"
-                        />
-                    )}
 
                     {needsPrecision(dataType) && (
                         <>
@@ -221,71 +234,61 @@ export const CreateColumnComponent: React.FC = () => {
                             />
                         </>
                     )}
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={nullable}
-                                onChange={(e) => setNullable(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Allow NULL</span>
-                        </label>
-                    </div>
-
-                    <Input
-                        label="Default Value"
-                        value={defaultValue}
-                        onChange={(e) => setDefaultValue(e.target.value)}
-                        placeholder="NULL, 0, 'text', NOW()"
-                        helperText="Default value expression"
-                    />
-                </div>
             </Section>
 
-            <CollapsibleSection title="Constraints" defaultOpen={false}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={isPrimaryKey}
-                                onChange={(e) => setIsPrimaryKey(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Primary Key</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Make this column the primary key
-                        </div>
-                    </div>
+            <Section 
+                title="Constraints"
+                description="Define column constraints and validation rules"
+            >
+                <Checkbox
+                    label="Allow NULL"
+                    checked={nullable}
+                    onChange={(e) => setNullable(e.target.checked)}
+                    labelTooltip="Allow NULL values in this column"
+                />
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={isUnique}
-                                onChange={(e) => setIsUnique(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Unique</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Ensure all values in this column are unique
-                        </div>
-                    </div>
-                </div>
+                <Checkbox
+                    label="Primary Key"
+                    checked={isPrimaryKey}
+                    onChange={(e) => setIsPrimaryKey(e.target.checked)}
+                    labelTooltip="Make this column the primary key"
+                />
+
+                <Checkbox
+                    label="Unique"
+                    checked={isUnique}
+                    onChange={(e) => setIsUnique(e.target.checked)}
+                    labelTooltip="Ensure all values in this column are unique"
+                />
+            </Section>
+
+            <CollapsibleSection title="Advanced options" defaultOpen={false}>
+                {needsLength(dataType) && (
+                    <Input
+                        label="Length"
+                        labelTooltip="Character length for VARCHAR/CHAR types"
+                        type="number"
+                        value={length?.toString() || ''}
+                        onChange={(e) => setLength(e.target.value ? parseInt(e.target.value) : undefined)}
+                        placeholder="255"
+                    />
+                )}
+
+                <Input
+                    label="Default Value"
+                    labelTooltip="Default value expression (e.g., NULL, 0, 'text', NOW())"
+                    value={defaultValue}
+                    onChange={(e) => setDefaultValue(e.target.value)}
+                    placeholder="NULL, 0, 'text', NOW()"
+                />
+
+                <Input
+                    label="Comment"
+                    labelTooltip="Add a comment to describe this column"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Optional column description"
+                />
             </CollapsibleSection>
 
             {sqlPreview && (
@@ -329,6 +332,7 @@ export const EditColumnComponent: React.FC = () => {
     const [originalDefaultValue] = useState(currentColumn.column_default || '');
     const [originalIsPrimaryKey] = useState(currentColumn.is_primary_key || false);
     const [originalIsUnique] = useState(currentColumn.is_unique || false);
+    const [originalComment] = useState(currentColumn.comment || '');
     
     const [columnName, setColumnName] = useState(currentColumn.column_name || '');
     const [dataType, setDataType] = useState(normalizeDataType(currentColumn.data_type));
@@ -339,6 +343,7 @@ export const EditColumnComponent: React.FC = () => {
     const [defaultValue, setDefaultValue] = useState(currentColumn.column_default || '');
     const [isPrimaryKey, setIsPrimaryKey] = useState(currentColumn.is_primary_key || false);
     const [isUnique, setIsUnique] = useState(currentColumn.is_unique || false);
+    const [comment, setComment] = useState(currentColumn.comment || '');
 
     const [error, setError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
@@ -357,6 +362,7 @@ export const EditColumnComponent: React.FC = () => {
         if (defaultValue !== originalDefaultValue) return true;
         if (isPrimaryKey !== originalIsPrimaryKey) return true;
         if (isUnique !== originalIsUnique) return true;
+        if (comment !== originalComment) return true;
         return false;
     };
 
@@ -397,13 +403,14 @@ export const EditColumnComponent: React.FC = () => {
                 nullable,
                 defaultValue: defaultValue || undefined,
                 isPrimaryKey,
-                isUnique
+                isUnique,
+                comment: comment || undefined
             };
             vscode.postMessage({ command: 'previewSql', columnDef });
         } else {
             setSqlPreview('');
         }
-    }, [columnName, dataType, length, precision, scale, nullable, defaultValue, isPrimaryKey, isUnique]);
+    }, [columnName, dataType, length, precision, scale, nullable, defaultValue, isPrimaryKey, isUnique, comment]);
 
     const handleSubmit = () => {
         if (!columnName.trim()) {
@@ -428,7 +435,8 @@ export const EditColumnComponent: React.FC = () => {
             nullable,
             defaultValue: defaultValue || undefined,
             isPrimaryKey,
-            isUnique
+            isUnique,
+            comment: comment || undefined
         };
 
         vscode.postMessage({ command: 'editColumn', columnDef });
@@ -468,8 +476,7 @@ export const EditColumnComponent: React.FC = () => {
             )}
 
             <Section title="Column Details">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
+                <Input
                         label="Column Name"
                         value={columnName}
                         onChange={(e) => setColumnName(e.target.value)}
@@ -484,17 +491,6 @@ export const EditColumnComponent: React.FC = () => {
                         options={flatDataTypes}
                         required
                     />
-
-                    {needsLength(dataType) && (
-                        <Input
-                            label="Length"
-                            type="number"
-                            value={length?.toString() || ''}
-                            onChange={(e) => setLength(e.target.value ? parseInt(e.target.value) : undefined)}
-                            placeholder="255"
-                            helperText="Character length for VARCHAR/CHAR types"
-                        />
-                    )}
 
                     {needsPrecision(dataType) && (
                         <>
@@ -516,71 +512,61 @@ export const EditColumnComponent: React.FC = () => {
                             />
                         </>
                     )}
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={nullable}
-                                onChange={(e) => setNullable(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Allow NULL</span>
-                        </label>
-                    </div>
-
-                    <Input
-                        label="Default Value"
-                        value={defaultValue}
-                        onChange={(e) => setDefaultValue(e.target.value)}
-                        placeholder="NULL, 0, 'text', NOW()"
-                        helperText="Default value expression"
-                    />
-                </div>
             </Section>
 
-            <CollapsibleSection title="Constraints" defaultOpen={false}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={isPrimaryKey}
-                                onChange={(e) => setIsPrimaryKey(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Primary Key</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Make this column the primary key
-                        </div>
-                    </div>
+            <Section 
+                title="Constraints"
+                description="Define column constraints and validation rules"
+            >
+                <Checkbox
+                    label="Allow NULL"
+                    checked={nullable}
+                    onChange={(e) => setNullable(e.target.checked)}
+                    labelTooltip="Allow NULL values in this column"
+                />
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={isUnique}
-                                onChange={(e) => setIsUnique(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Unique</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Ensure all values in this column are unique
-                        </div>
-                    </div>
-                </div>
+                <Checkbox
+                    label="Primary Key"
+                    checked={isPrimaryKey}
+                    onChange={(e) => setIsPrimaryKey(e.target.checked)}
+                    labelTooltip="Make this column the primary key"
+                />
+
+                <Checkbox
+                    label="Unique"
+                    checked={isUnique}
+                    onChange={(e) => setIsUnique(e.target.checked)}
+                    labelTooltip="Ensure all values in this column are unique"
+                />
+            </Section>
+
+            <CollapsibleSection title="Advanced options" defaultOpen={false}>
+                {needsLength(dataType) && (
+                    <Input
+                        label="Length"
+                        labelTooltip="Character length for VARCHAR/CHAR types"
+                        type="number"
+                        value={length?.toString() || ''}
+                        onChange={(e) => setLength(e.target.value ? parseInt(e.target.value) : undefined)}
+                        placeholder="255"
+                    />
+                )}
+
+                <Input
+                    label="Default Value"
+                    labelTooltip="Default value expression (e.g., NULL, 0, 'text', NOW())"
+                    value={defaultValue}
+                    onChange={(e) => setDefaultValue(e.target.value)}
+                    placeholder="NULL, 0, 'text', NOW()"
+                />
+
+                <Input
+                    label="Comment"
+                    labelTooltip="Add a comment to describe this column"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Optional column description"
+                />
             </CollapsibleSection>
 
             {sqlPreview && (

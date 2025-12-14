@@ -29,6 +29,7 @@ const CreateDatabaseView: React.FC<CreateDatabaseViewProps> = ({ existingRoles, 
     const [dbName, setDbName] = useState('');
     const [owner, setOwner] = useState(currentUser);
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const errorRef = useScrollToError(error);
@@ -71,14 +72,34 @@ const CreateDatabaseView: React.FC<CreateDatabaseViewProps> = ({ existingRoles, 
         return null;
     };
 
+    // Validate on input change
+    const handleDbNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setDbName(value);
+        
+        // Only show validation error if the user has typed something
+        if (value.trim()) {
+            // Validate the new value
+            if (!/^[a-z_][a-z0-9_]*$/i.test(value.trim())) {
+                setValidationError('Database name must start with a letter or underscore and contain only letters, numbers, and underscores');
+            } else {
+                setValidationError('');
+            }
+        } else {
+            setValidationError('');
+        }
+    };
+
     const handleCreate = () => {
-        const validationError = validateDatabase();
-        if (validationError) {
-            setError(validationError);
+        const validationErr = validateDatabase();
+        if (validationErr) {
+            setValidationError(validationErr);
+            setError(validationErr);
             return;
         }
 
         setError('');
+        setValidationError('');
         setIsSubmitting(true);
 
         vscode.postMessage({
@@ -110,29 +131,20 @@ const CreateDatabaseView: React.FC<CreateDatabaseViewProps> = ({ existingRoles, 
                 <Input
                     label="Database Name"
                     value={dbName}
-                    onChange={(e) => setDbName(e.target.value)}
-                    helperText="Must contain only letters, numbers, and underscores"
-                    error={error && dbName ? undefined : error}
+                    onChange={handleDbNameChange}
+                    error={validationError}
                     fullWidth={true}
+                    required
                 />
 
-                    <div>
-                        <Select
-                            label="Owner"
-                            value={owner}
-                            onChange={(e) => setOwner(e.target.value)}
-                            options={existingRoles.map((role) => ({ value: role, label: role }))}
-                            fullWidth={true}
-                        />
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginTop: spacing.xs
-                        }}>
-                            The database owner role
-                        </div>
-                    </div>
+                    <Select
+                        label="Owner"
+                        labelTooltip="The database owner role. This role will have full privileges on the database and can grant access to other roles."
+                        value={owner}
+                        onChange={(e) => setOwner(e.target.value)}
+                        options={existingRoles.map((role) => ({ value: role, label: role }))}
+                        fullWidth={true}
+                    />
                 </Section>
 
             <ActionButtons

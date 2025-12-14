@@ -6,7 +6,8 @@ import {
     ActionButtons,
     SqlPreview,
     CollapsibleSection,
-    useScrollToError
+    useScrollToError,
+    Checkbox
 } from '../shared';
 import { layouts, spacing, componentStyles } from '../../design-system';
 
@@ -59,10 +60,35 @@ export const CreateIndexComponent: React.FC = () => {
     const [whereClause, setWhereClause] = useState('');
 
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const errorRef = useScrollToError(error);
+
+    const validateIndexName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Index name is required';
+        }
+        
+        // Check for valid PostgreSQL identifier
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return 'Index name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+        
+        // Check for reserved prefixes
+        if (name.toLowerCase().startsWith('pg_')) {
+            return 'Index name cannot start with "pg_" (reserved prefix)';
+        }
+        
+        return '';
+    };
+
+    const handleIndexNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newName = e.target.value;
+        setIndexName(newName);
+        setValidationError(validateIndexName(newName));
+    };
 
     useEffect(() => {
         const messageHandler = (event: MessageEvent) => {
@@ -114,8 +140,10 @@ export const CreateIndexComponent: React.FC = () => {
     };
 
     const handleSubmit = () => {
-        if (!indexName.trim()) {
-            setError('Index name is required');
+        const nameError = validateIndexName(indexName);
+        if (nameError) {
+            setError(nameError);
+            setValidationError(nameError);
             return;
         }
 
@@ -168,74 +196,41 @@ export const CreateIndexComponent: React.FC = () => {
             )}
 
             <Section title="Index Details">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
-                        label="Index Name"
-                        value={indexName}
-                        onChange={(e) => setIndexName(e.target.value)}
-                        helperText="Naming convention: idx_tablename_columnname"
-                        required
-                    />
+                <Input
+                    label="Index Name"
+                    value={indexName}
+                    onChange={handleIndexNameChange}
+                    error={validationError}
+                    required
+                />
 
-                    <Select
-                        label="Index Type"
-                        value={indexType}
-                        onChange={(e) => setIndexType(e.target.value)}
-                        options={INDEX_TYPES}
-                        helperText={INDEX_TYPE_DESCRIPTIONS[indexType] || 'Select an index type'}
-                    />
+                <Select
+                    label="Index Type"
+                    value={indexType}
+                    onChange={(e) => setIndexType(e.target.value)}
+                    options={INDEX_TYPES}
+                    helperText={INDEX_TYPE_DESCRIPTIONS[indexType] || 'Select an index type'}
+                />
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={unique}
-                                onChange={(e) => setUnique(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Unique Index</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Ensures all values in the indexed columns are unique
-                        </div>
-                    </div>
+                <Checkbox
+                    label="Unique Index"
+                    checked={unique}
+                    onChange={(e) => setUnique(e.target.checked)}
+                    labelTooltip="Ensures all values in the indexed columns are unique"
+                />
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={concurrent}
-                                onChange={(e) => setConcurrent(e.target.checked)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Create Concurrently</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Allows reads/writes during index creation (slower but non-blocking)
-                        </div>
-                    </div>
-                </div>
+                <Checkbox
+                    label="Create Concurrently"
+                    checked={concurrent}
+                    onChange={(e) => setConcurrent(e.target.checked)}
+                    labelTooltip="Allows reads/writes during index creation (slower but non-blocking)"
+                />
             </Section>
 
-            <Section title="Select Columns">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <div style={{
-                        fontSize: '12px',
-                        color: 'var(--vscode-descriptionForeground)',
-                        fontStyle: 'italic'
-                    }}>
-                        Select columns in the order they should appear in the index
-                    </div>
+            <Section 
+                title="Select Columns"
+                description="Select columns in the order they should appear in the index"
+            >
 
                     <div style={{
                         border: '1px solid var(--vscode-input-border)',
@@ -306,19 +301,16 @@ export const CreateIndexComponent: React.FC = () => {
                             ))
                         )}
                     </div>
-                </div>
             </Section>
 
             <CollapsibleSection title="Advanced Options" defaultOpen={false}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
-                        label="WHERE Clause (Partial Index)"
-                        value={whereClause}
-                        onChange={(e) => setWhereClause(e.target.value)}
-                        placeholder="e.g., status = 'active'"
-                        helperText="Index only rows that match this condition (smaller, faster index)"
-                    />
-                </div>
+                <Input
+                    label="WHERE Clause (Partial Index)"
+                    value={whereClause}
+                    onChange={(e) => setWhereClause(e.target.value)}
+                    placeholder="e.g., status = 'active'"
+                    labelTooltip="Index only rows that match this condition (smaller, faster index)"
+                />
             </CollapsibleSection>
 
             {sqlPreview && (

@@ -54,6 +54,7 @@ export const CreateTableView: React.FC = () => {
         isUnique: false
     }]);
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [sqlPreview, setSqlPreview] = useState('-- Add columns to see SQL preview');
     const [showPreview, setShowPreview] = useState(false);
@@ -114,7 +115,7 @@ export const CreateTableView: React.FC = () => {
     const addColumn = () => {
         setColumns([...columns, {
             name: '',
-            dataType: 'INTEGER',
+            dataType: 'TEXT',
             nullable: true,
             isPrimaryKey: false,
             isUnique: false
@@ -140,16 +141,38 @@ export const CreateTableView: React.FC = () => {
         setColumns(newColumns);
     };
 
+    const validateTableName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Table name is required';
+        }
+
+        if (!/^[a-z_][a-z0-9_]*$/i.test(name.trim())) {
+            return 'Table name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+
+        return '';
+    };
+
+    const handleTableNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setTableName(value);
+        
+        // Only show validation error if the user has typed something
+        if (value.trim()) {
+            const error = validateTableName(value);
+            setValidationError(error);
+        } else {
+            setValidationError('');
+        }
+    };
+
     const validateTable = (): boolean => {
         setError('');
 
-        if (!tableName.trim()) {
-            setError('Table name is required');
-            return false;
-        }
-
-        if (!/^[a-z_][a-z0-9_]*$/i.test(tableName)) {
-            setError('Table name must start with a letter or underscore and contain only letters, numbers, and underscores');
+        const validationErr = validateTableName(tableName);
+        if (validationErr) {
+            setError(validationErr);
+            setValidationError(validationErr);
             return false;
         }
 
@@ -238,6 +261,13 @@ export const CreateTableView: React.FC = () => {
                type.includes('DECIMAL');
     };
 
+    const hasLengthColumn = (): boolean => {
+        return columns.some(col => {
+            const type = col.dataType.toUpperCase();
+            return type.includes('VARCHAR') || type.includes('CHAR');
+        });
+    };
+
     return (
         <div style={{ ...layouts.container, maxWidth: '1200px', margin: '0 auto' }}>
             <h1 style={componentStyles.panelTitle}>
@@ -264,11 +294,11 @@ export const CreateTableView: React.FC = () => {
                 <Input
                     label="Table Name"
                     value={tableName}
-                    onChange={(e) => setTableName(e.target.value)}
-                    helperText="Must start with a letter or underscore and contain only letters, numbers, and underscores"
-                    error={error && tableName ? undefined : error}
+                    onChange={handleTableNameChange}
+                    error={validationError}
                     fullWidth={true}
                     style={{ maxWidth: '500px' }}
+                    required
                 />
 
                 <Select
@@ -282,11 +312,9 @@ export const CreateTableView: React.FC = () => {
                 />
             </Section>
 
-            <Section title="Columns">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
-                    <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)' }}>
-                        Define the columns for your table. At least one column is required.
-                    </div>
+            <Section 
+                title="Columns"
+                headerActions={
                     <Button 
                         variant="secondary" 
                         onClick={() => setShowAdvanced(!showAdvanced)}
@@ -296,7 +324,8 @@ export const CreateTableView: React.FC = () => {
                         <span style={{ marginRight: '4px' }}>{showAdvanced ? '▼' : '▶'}</span>
                         {showAdvanced ? 'Hide' : 'Show'} Advanced Options
                     </Button>
-                </div>
+                }
+            >
                 <div style={{ 
                     overflowX: 'auto',
                     overflowY: 'auto',
@@ -314,7 +343,7 @@ export const CreateTableView: React.FC = () => {
                                 <th style={{...headerCellStyle, textAlign: 'center'}}>Nullable</th>
                                 <th style={{...headerCellStyle, textAlign: 'center'}}>Unique</th>
                                 <th style={{...headerCellStyle, textAlign: 'center'}}>Primary Key</th>
-                                {showAdvanced && <th style={headerCellStyle}>Length</th>}
+                                {showAdvanced && hasLengthColumn() && <th style={headerCellStyle}>Length</th>}
                                 {showAdvanced && <th style={headerCellStyle}>Default</th>}
                                 {showAdvanced && <th style={headerCellStyle}>Comment</th>}
                                 <th style={headerCellStyle}>Actions</th>
@@ -373,7 +402,7 @@ export const CreateTableView: React.FC = () => {
                                             />
                                         </div>
                                     </td>
-                                    {showAdvanced && (
+                                    {showAdvanced && hasLengthColumn() && (
                                         <td style={cellStyle}>
                                             <Input
                                                 type="number"

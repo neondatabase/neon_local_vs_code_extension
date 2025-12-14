@@ -204,141 +204,110 @@ export const CreateTriggerComponent: React.FC = () => {
             )}
 
             <Section title="Trigger Details">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Input
-                        label="Trigger Name"
-                        value={triggerName}
-                        onChange={(e) => setTriggerName(e.target.value)}
-                        placeholder="tr_tablename_action"
-                        helperText="Naming convention: tr_tablename_action (e.g., tr_users_update)"
-                        required
-                        style={{ maxWidth: '500px' }}
-                    />
+                <Input
+                    label="Trigger Name"
+                    value={triggerName}
+                    onChange={(e) => setTriggerName(e.target.value)}
+                    placeholder="tr_tablename_action"
+                    helperText="Naming convention: tr_tablename_action (e.g., tr_users_update)"
+                    required
+                />
 
-                    <Select
-                        label="Timing"
-                        value={timing}
-                        onChange={(e) => setTiming(e.target.value)}
-                        options={TIMING_OPTIONS}
-                        required
-                        style={{ maxWidth: '500px' }}
-                    />
-                    <div style={{
-                        fontSize: '12px',
-                        color: 'var(--vscode-descriptionForeground)',
-                        fontStyle: 'italic',
-                        marginTop: '-8px'
-                    }}>
-                        When the trigger fires relative to the event
-                    </div>
+                <Select
+                    label="Timing"
+                    value={timing}
+                    onChange={(e) => setTiming(e.target.value)}
+                    options={TIMING_OPTIONS}
+                    required
+                    helperText="When the trigger fires relative to the event"
+                />
 
-                    <div>
-                        <label style={{ display: 'block', marginBottom: spacing.sm, fontSize: '13px', fontWeight: '500' }}>
-                            Events <span style={{ color: 'var(--vscode-errorForeground)' }}>*</span>
+                <div>
+                    <label style={{ display: 'block', marginBottom: spacing.sm, fontSize: '13px', fontWeight: '500' }}>
+                        Events <span style={{ color: 'var(--vscode-errorForeground)' }}>*</span>
+                    </label>
+                    <div style={{ display: 'flex', gap: spacing.md, flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={eventInsert}
+                                onChange={(e) => setEventInsert(e.target.checked)}
+                                style={{ cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '13px' }}>INSERT</span>
                         </label>
-                        <div style={{ display: 'flex', gap: spacing.md, flexWrap: 'wrap' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={eventInsert}
-                                    onChange={(e) => setEventInsert(e.target.checked)}
-                                    style={{ cursor: 'pointer' }}
-                                />
-                                <span style={{ fontSize: '13px' }}>INSERT</span>
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={eventUpdate}
-                                    onChange={(e) => setEventUpdate(e.target.checked)}
-                                    style={{ cursor: 'pointer' }}
-                                />
-                                <span style={{ fontSize: '13px' }}>UPDATE</span>
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={eventDelete}
-                                    onChange={(e) => setEventDelete(e.target.checked)}
-                                    style={{ cursor: 'pointer' }}
-                                />
-                                <span style={{ fontSize: '13px' }}>DELETE</span>
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={eventTruncate}
-                                    onChange={(e) => setEventTruncate(e.target.checked)}
-                                    style={{ cursor: 'pointer' }}
-                                />
-                                <span style={{ fontSize: '13px' }}>TRUNCATE</span>
-                            </label>
-                        </div>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginTop: spacing.sm
-                        }}>
-                            Select at least one event that will fire the trigger
-                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={eventUpdate}
+                                onChange={(e) => setEventUpdate(e.target.checked)}
+                                style={{ cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '13px' }}>UPDATE</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={eventDelete}
+                                onChange={(e) => setEventDelete(e.target.checked)}
+                                style={{ cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '13px' }}>DELETE</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={eventTruncate}
+                                onChange={(e) => setEventTruncate(e.target.checked)}
+                                style={{ cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '13px' }}>TRUNCATE</span>
+                        </label>
                     </div>
-
-                    <Select
-                        label="Trigger Level"
-                        value={level}
-                        onChange={(e) => setLevel(e.target.value)}
-                        options={LEVEL_OPTIONS}
-                        required
-                        style={{ maxWidth: '500px' }}
-                    />
                     <div style={{
                         fontSize: '12px',
                         color: 'var(--vscode-descriptionForeground)',
                         fontStyle: 'italic',
-                        marginTop: '-8px'
+                        marginTop: spacing.sm
                     }}>
-                        Whether to fire once per row or once per statement
+                        Select at least one event that will fire the trigger
                     </div>
                 </div>
+
+                <Select
+                    label="Trigger Level"
+                    value={level}
+                    onChange={(e) => setLevel(e.target.value)}
+                    options={LEVEL_OPTIONS}
+                    required
+                    helperText="Whether to fire once per row or once per statement"
+                />
             </Section>
 
             <Section title="Trigger Function">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <Select
-                        label="Function"
-                        value={triggerFunction}
-                        onChange={(e) => setTriggerFunction(e.target.value)}
-                        options={functionOptions}
-                        required
-                        style={{ maxWidth: '500px' }}
-                    />
-                    <div style={{
-                        fontSize: '12px',
-                        color: 'var(--vscode-descriptionForeground)',
-                        fontStyle: 'italic',
-                        marginTop: '-8px'
-                    }}>
-                        Function must return type TRIGGER
-                    </div>
+                <Select
+                    label="Function"
+                    value={triggerFunction}
+                    onChange={(e) => setTriggerFunction(e.target.value)}
+                    options={functionOptions}
+                    required
+                    helperText="Function must return type TRIGGER"
+                />
 
-                    <Input
-                        label="Function Arguments (Optional)"
-                        value={functionArgs}
-                        onChange={(e) => setFunctionArgs(e.target.value)}
-                        placeholder="'arg1', 'arg2'"
-                        helperText="Comma-separated arguments to pass to the trigger function"
-                        style={{ maxWidth: '500px' }}
-                    />
-                </div>
+                <Input
+                    label="Function Arguments (Optional)"
+                    value={functionArgs}
+                    onChange={(e) => setFunctionArgs(e.target.value)}
+                    placeholder="'arg1', 'arg2'"
+                    helperText="Comma-separated arguments to pass to the trigger function"
+                />
             </Section>
 
             <CollapsibleSection title="WHEN Condition (Optional)" defaultOpen={false}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
-                            Condition Expression
-                        </label>
+                <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: '500' }}>
+                        Condition Expression
+                    </label>
                         <textarea
                             value={whenCondition}
                             onChange={(e) => setWhenCondition(e.target.value)}
@@ -365,32 +334,31 @@ export const CreateTriggerComponent: React.FC = () => {
                         }}>
                             Boolean expression to filter when trigger executes. Use OLD and NEW to reference row values.
                         </div>
-                    </div>
-
-                    {availableColumns.length > 0 && (
-                        <div>
-                            <div style={{ fontSize: '12px', fontWeight: '500', marginBottom: spacing.sm }}>
-                                Available Columns:
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm }}>
-                                {availableColumns.map(col => (
-                                    <span
-                                        key={col.column_name}
-                                        style={{
-                                            backgroundColor: 'var(--vscode-badge-background)',
-                                            color: 'var(--vscode-badge-foreground)',
-                                            padding: '4px 8px',
-                                            borderRadius: '3px',
-                                            fontSize: '11px'
-                                        }}
-                                    >
-                                        {col.column_name} ({col.data_type})
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
+
+                {availableColumns.length > 0 && (
+                    <div>
+                        <div style={{ fontSize: '12px', fontWeight: '500', marginBottom: spacing.sm }}>
+                            Available Columns:
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm }}>
+                            {availableColumns.map(col => (
+                                <span
+                                    key={col.column_name}
+                                    style={{
+                                        backgroundColor: 'var(--vscode-badge-background)',
+                                        color: 'var(--vscode-badge-foreground)',
+                                        padding: '4px 8px',
+                                        borderRadius: '3px',
+                                        fontSize: '11px'
+                                    }}
+                                >
+                                    {col.column_name} ({col.data_type})
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </CollapsibleSection>
 
             {sqlPreview && (

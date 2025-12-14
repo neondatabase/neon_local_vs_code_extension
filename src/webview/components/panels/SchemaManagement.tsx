@@ -29,6 +29,7 @@ export const CreateSchemaView: React.FC = () => {
     const [schemaName, setSchemaName] = useState('');
     const [owner, setOwner] = useState('');
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [sqlPreview, setSqlPreview] = useState('-- Generating SQL preview...');
     const [showPreview, setShowPreview] = useState(false);
@@ -81,23 +82,44 @@ export const CreateSchemaView: React.FC = () => {
         });
     };
 
-    const validateSchema = (): boolean => {
-        setError('');
-
-        if (!schemaName.trim()) {
-            setError('Schema name is required');
-            return false;
+    const validateSchemaName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Schema name is required';
         }
 
-        if (!/^[a-z_][a-z0-9_]*$/i.test(schemaName)) {
-            setError('Schema name must start with a letter or underscore and contain only letters, numbers, and underscores');
-            return false;
+        if (!/^[a-z_][a-z0-9_]*$/i.test(name.trim())) {
+            return 'Schema name must start with a letter or underscore and contain only letters, numbers, and underscores';
         }
 
         // Check for reserved prefixes
         const reserved = ['pg_', 'information_schema', 'pg_catalog', 'pg_toast'];
-        if (reserved.some(r => schemaName.toLowerCase().startsWith(r.toLowerCase()))) {
-            setError('Cannot use reserved schema name prefix');
+        if (reserved.some(r => name.toLowerCase().startsWith(r.toLowerCase()))) {
+            return 'Cannot use reserved schema name prefix';
+        }
+
+        return '';
+    };
+
+    const handleSchemaNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setSchemaName(value);
+        
+        // Only show validation error if the user has typed something
+        if (value.trim()) {
+            const error = validateSchemaName(value);
+            setValidationError(error);
+        } else {
+            setValidationError('');
+        }
+    };
+
+    const validateSchema = (): boolean => {
+        setError('');
+
+        const validationErr = validateSchemaName(schemaName);
+        if (validationErr) {
+            setError(validationErr);
+            setValidationError(validationErr);
             return false;
         }
 
@@ -149,10 +171,10 @@ export const CreateSchemaView: React.FC = () => {
                 <Input
                     label="Schema Name"
                     value={schemaName}
-                    onChange={(e) => setSchemaName(e.target.value)}
-                    helperText="Must start with a letter or underscore and contain only letters, numbers, and underscores. Cannot use reserved prefixes (pg_, information_schema)."
-                    error={error && schemaName ? undefined : error}
+                    onChange={handleSchemaNameChange}
+                    error={validationError}
                     fullWidth={true}
+                    required
                 />
 
                 <Select
@@ -160,8 +182,8 @@ export const CreateSchemaView: React.FC = () => {
                     value={owner}
                     onChange={(e) => setOwner(e.target.value)}
                     options={existingRoles.map((role: string) => ({ value: role, label: role }))}
-                    helperText="Only the database owner or roles in which the database owner is a member can be selected"
                     fullWidth={true}
+                    disabled={true}
                 />
             </Section>
 
@@ -188,15 +210,54 @@ export const EditSchemaView: React.FC = () => {
     const [schemaName, setSchemaName] = useState(originalSchemaName);
     const [owner, setOwner] = useState(currentOwner);
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [sqlPreview, setSqlPreview] = useState('-- Generating SQL preview...');
     const [showPreview, setShowPreview] = useState(false);
 
     const errorRef = useScrollToError(error);
 
+    const hasChanges = (): boolean => {
+        // Only check schema name since owner field is disabled
+        return schemaName !== originalSchemaName;
+    };
+
+    const validateSchemaName = (name: string): string => {
+        if (!name.trim()) {
+            return 'Schema name is required';
+        }
+
+        if (!/^[a-z_][a-z0-9_]*$/i.test(name.trim())) {
+            return 'Schema name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+
+        // Check for reserved prefixes
+        const reserved = ['pg_', 'information_schema', 'pg_catalog', 'pg_toast'];
+        if (reserved.some(r => name.toLowerCase().startsWith(r.toLowerCase()))) {
+            return 'Cannot use reserved schema name prefix';
+        }
+
+        return '';
+    };
+
+    const handleSchemaNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setSchemaName(value);
+        
+        // Only show validation error if the user has typed something
+        if (value.trim()) {
+            const error = validateSchemaName(value);
+            setValidationError(error);
+        } else {
+            setValidationError('');
+        }
+    };
+
     useEffect(() => {
         // Update SQL preview whenever inputs change
-        if (schemaName || owner) {
+        if (!hasChanges()) {
+            setSqlPreview('-- No changes will be applied');
+        } else if (schemaName || owner) {
             updatePreview();
         }
     }, [schemaName, owner]);
@@ -232,28 +293,13 @@ export const EditSchemaView: React.FC = () => {
         });
     };
 
-    const hasChanges = (): boolean => {
-        // Only check schema name since owner field is disabled
-        return schemaName !== originalSchemaName;
-    };
-
     const validateSchema = (): boolean => {
         setError('');
 
-        if (!schemaName.trim()) {
-            setError('Schema name is required');
-            return false;
-        }
-
-        if (!/^[a-z_][a-z0-9_]*$/i.test(schemaName)) {
-            setError('Schema name must start with a letter or underscore and contain only letters, numbers, and underscores');
-            return false;
-        }
-
-        // Check for reserved prefixes
-        const reserved = ['pg_', 'information_schema', 'pg_catalog', 'pg_toast'];
-        if (reserved.some(r => schemaName.toLowerCase().startsWith(r.toLowerCase()))) {
-            setError('Cannot use reserved schema name prefix');
+        const validationErr = validateSchemaName(schemaName);
+        if (validationErr) {
+            setError(validationErr);
+            setValidationError(validationErr);
             return false;
         }
 
@@ -307,10 +353,10 @@ export const EditSchemaView: React.FC = () => {
                 <Input
                     label="Schema Name"
                     value={schemaName}
-                    onChange={(e) => setSchemaName(e.target.value)}
-                    helperText="Must start with a letter or underscore and contain only letters, numbers, and underscores. Cannot use reserved prefixes (pg_, information_schema)."
-                    error={error && schemaName ? undefined : error}
+                    onChange={handleSchemaNameChange}
+                    error={validationError}
                     fullWidth={true}
+                    required
                 />
 
                 <Select

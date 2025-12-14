@@ -183,7 +183,10 @@ export const ExportDataView: React.FC = () => {
 
                     {exportType === 'query' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.xs }}>
-                            <label style={{ fontSize: '13px', fontWeight: '500' }}>SQL Query</label>
+                            <label style={{ fontSize: '13px', fontWeight: '500' }}>
+                                SQL Query
+                                <span style={{ color: 'var(--vscode-errorForeground)', marginLeft: '2px' }}>*</span>
+                            </label>
                             <textarea
                                 value={sqlQuery}
                                 onChange={(e) => setSqlQuery(e.target.value)}
@@ -202,6 +205,7 @@ export const ExportDataView: React.FC = () => {
                                     resize: 'vertical',
                                     boxSizing: 'border-box'
                                 }}
+                                required
                             />
                         </div>
                     )}
@@ -229,6 +233,7 @@ export const ExportDataView: React.FC = () => {
                             marginBottom: spacing.xs 
                         }}>
                             Destination File
+                            <span style={{ color: 'var(--vscode-errorForeground)', marginLeft: '2px' }}>*</span>
                         </label>
                         <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
                             <Input
@@ -237,6 +242,7 @@ export const ExportDataView: React.FC = () => {
                                 placeholder="No file selected"
                                 fullWidth
                                 noWrapper
+                                required
                             />
                             <Button onClick={handleSelectFile} style={{ minWidth: '120px', flexShrink: 0 }}>
                                 Browse...

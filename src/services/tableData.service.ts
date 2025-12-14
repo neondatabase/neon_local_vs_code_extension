@@ -47,6 +47,15 @@ export class TableDataService {
         return await this.connectionPool.getConnection(database);
     }
 
+    /**
+     * Quote an identifier (table name, column name, etc.) for use in SQL
+     * Escapes any double quotes in the identifier and wraps it in double quotes
+     */
+    private quoteIdentifier(identifier: string): string {
+        const escaped = identifier.replace(/"/g, '""');
+        return `"${escaped}"`;
+    }
+
     async getTableData(
         schema: string, 
         table: string, 
@@ -63,11 +72,11 @@ export class TableDataService {
             const columns = await this.getTableColumns(client, schema, table);
             
             // Get total count
-            const countResult = await client.query(`SELECT COUNT(*) as total FROM ${schema}.${table}`);
+            const countResult = await client.query(`SELECT COUNT(*) as total FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`);
             const totalCount = parseInt(countResult.rows[0].total);
             
             // Get data with pagination
-            const dataQuery = `SELECT * FROM ${schema}.${table} LIMIT ${limit} OFFSET ${offset}`;
+            const dataQuery = `SELECT * FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)} LIMIT ${limit} OFFSET ${offset}`;
             const dataResult = await client.query(dataQuery);
             
             // Add row IDs for tracking
@@ -145,10 +154,11 @@ export class TableDataService {
             const columns = Object.keys(rowData).filter(key => rowData[key] !== undefined);
             const values = columns.map(col => rowData[col]);
             const placeholders = columns.map((_, index) => `$${index + 1}`);
+            const quotedColumns = columns.map(col => this.quoteIdentifier(col));
 
             // First, try the insert with RETURNING clause
             let insertQuery = `
-                INSERT INTO ${schema}.${table} (${columns.join(', ')})
+                INSERT INTO ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)} (${quotedColumns.join(', ')})
                 VALUES (${placeholders.join(', ')})
                 RETURNING *
             `;
@@ -163,7 +173,7 @@ export class TableDataService {
                 console.debug('RETURNING clause failed, falling back to standard INSERT:', returningError);
                 
                 insertQuery = `
-                    INSERT INTO ${schema}.${table} (${columns.join(', ')})
+                    INSERT INTO ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)} (${quotedColumns.join(', ')})
                     VALUES (${placeholders.join(', ')})
                 `;
                 
@@ -238,11 +248,11 @@ export class TableDataService {
 
             // Build SET clause
             const setColumns = Object.keys(updateData.newValues);
-            const setClause = setColumns.map((col, index) => `${col} = $${index + 1}`).join(', ');
+            const setClause = setColumns.map((col, index) => `${this.quoteIdentifier(col)} = $${index + 1}`).join(', ');
 
             // Build WHERE clause for primary key
             const whereColumns = Object.keys(updateData.primaryKeyValues);
-            const whereClause = whereColumns.map((col, index) => `${col} = $${setColumns.length + index + 1}`).join(' AND ');
+            const whereClause = whereColumns.map((col, index) => `${this.quoteIdentifier(col)} = $${setColumns.length + index + 1}`).join(' AND ');
 
             // Validate that we have a proper WHERE clause
             if (!whereClause.trim()) {
@@ -254,7 +264,7 @@ export class TableDataService {
 
             // First, try the update with RETURNING clause
             let updateQuery = `
-                UPDATE ${schema}.${table}
+                UPDATE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}
                 SET ${setClause}
                 WHERE ${whereClause}
                 RETURNING *
@@ -270,7 +280,7 @@ export class TableDataService {
                 console.debug('RETURNING clause failed, falling back to standard UPDATE:', returningError);
                 
                 updateQuery = `
-                    UPDATE ${schema}.${table}
+                    UPDATE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}
                     SET ${setClause}
                     WHERE ${whereClause}
                 `;
@@ -282,9 +292,11 @@ export class TableDataService {
                 }
                 
                 // Fetch the updated row with a separate SELECT query
+                // Rebuild WHERE clause with parameters starting from $1 for the SELECT
+                const selectWhereClause = whereColumns.map((col, index) => `${this.quoteIdentifier(col)} = $${index + 1}`).join(' AND ');
                 const selectQuery = `
-                    SELECT * FROM ${schema}.${table}
-                    WHERE ${whereClause}
+                    SELECT * FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}
+                    WHERE ${selectWhereClause}
                 `;
                 
                 const selectValues = Object.values(updateData.primaryKeyValues);
@@ -327,11 +339,11 @@ export class TableDataService {
 
             // Build WHERE clause for primary key
             const whereColumns = Object.keys(primaryKeyValues);
-            const whereClause = whereColumns.map((col, index) => `${col} = $${index + 1}`).join(' AND ');
+            const whereClause = whereColumns.map((col, index) => `${this.quoteIdentifier(col)} = $${index + 1}`).join(' AND ');
             const values = Object.values(primaryKeyValues);
 
             const deleteQuery = `
-                DELETE FROM ${schema}.${table}
+                DELETE FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}
                 WHERE ${whereClause}
             `;
 

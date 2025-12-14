@@ -82,12 +82,32 @@ export class ConstraintManagementPanel {
 
         try {
             const schemaService = new SchemaService(stateService, context);
+            const sqlService = new SqlQueryService(stateService, context);
+            
             const columns = await schemaService.getColumns(database || 'neondb', schema, tableName);
+            
+            // Get all schemas (excluding system schemas)
+            const schemasResult = await sqlService.executeQuery(`
+                SELECT schema_name 
+                FROM information_schema.schemata 
+                WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+                ORDER BY schema_name
+            `, [], database);
+            
+            // Get all tables from all user schemas
+            const tablesResult = await sqlService.executeQuery(`
+                SELECT schemaname, tablename 
+                FROM pg_tables 
+                WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                ORDER BY schemaname, tablename
+            `, [], database);
             
             const initialData = {
                 schema,
                 tableName,
                 columns: columns.map(col => col.name),
+                schemas: schemasResult.rows.map((row: any) => row.schema_name),
+                tables: tablesResult.rows,
                 mode: 'create'
             };
 
@@ -107,6 +127,26 @@ export class ConstraintManagementPanel {
                     case 'previewSql':
                         const sql = ConstraintManagementPanel.generateCreateConstraintSql(message.constraintDef);
                         panel.webview.postMessage({ command: 'sqlPreview', sql });
+                        break;
+                    case 'fetchReferencedTableColumns':
+                        try {
+                            const schemaService = new SchemaService(stateService, context);
+                            const refColumns = await schemaService.getColumns(
+                                database || 'neondb', 
+                                message.schema, 
+                                message.table
+                            );
+                            panel.webview.postMessage({ 
+                                command: 'referencedTableColumns', 
+                                columns: refColumns.map(col => col.name) 
+                            });
+                        } catch (error) {
+                            panel.webview.postMessage({ 
+                                command: 'referencedTableColumns', 
+                                columns: [],
+                                error: error instanceof Error ? error.message : 'Failed to fetch columns'
+                            });
+                        }
                         break;
                     case 'cancel':
                         panel.dispose();

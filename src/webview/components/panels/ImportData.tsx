@@ -180,6 +180,7 @@ export const ImportDataView: React.FC = () => {
                             marginBottom: spacing.xs 
                         }}>
                             File Path
+                            <span style={{ color: 'var(--vscode-errorForeground)', marginLeft: '2px' }}>*</span>
                         </label>
                         <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
                             <Input
@@ -188,6 +189,7 @@ export const ImportDataView: React.FC = () => {
                                 placeholder="No file selected"
                                 fullWidth
                                 noWrapper
+                                required
                             />
                             <Button onClick={handleSelectFile} style={{ minWidth: '120px', flexShrink: 0 }}>
                                 Browse...

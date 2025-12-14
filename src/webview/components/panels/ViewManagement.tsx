@@ -6,7 +6,8 @@ import {
     ActionButtons,
     SqlPreview,
     Button,
-    useScrollToError
+    useScrollToError,
+    Checkbox
 } from '../shared';
 import { layouts, spacing, componentStyles } from '../../design-system';
 
@@ -48,10 +49,35 @@ export const CreateViewComponent: React.FC = () => {
     const [existingRoles] = useState(initialData.existingRoles || []);
 
     const [error, setError] = useState('');
+    const [validationError, setValidationError] = useState('');
     const [sqlPreview, setSqlPreview] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const errorRef = useScrollToError(error);
+
+    const validateViewName = (name: string): string => {
+        if (!name.trim()) {
+            return 'View name is required';
+        }
+        
+        // Check for valid PostgreSQL identifier
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return 'View name must start with a letter or underscore and contain only letters, numbers, and underscores';
+        }
+        
+        // Check for reserved prefixes
+        if (name.toLowerCase().startsWith('pg_')) {
+            return 'View name cannot start with "pg_" (reserved prefix)';
+        }
+        
+        return '';
+    };
+
+    const handleViewNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newName = e.target.value;
+        setViewName(newName);
+        setValidationError(validateViewName(newName));
+    };
 
     useEffect(() => {
         const messageHandler = (event: MessageEvent) => {
@@ -96,8 +122,10 @@ export const CreateViewComponent: React.FC = () => {
     };
 
     const handleSubmit = () => {
-        if (!viewName.trim()) {
-            setError('View name is required');
+        const nameError = validateViewName(viewName);
+        if (nameError) {
+            setError(nameError);
+            setValidationError(nameError);
             return;
         }
 
@@ -150,17 +178,10 @@ export const CreateViewComponent: React.FC = () => {
             <Section title="View Details">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
                     <Input
-                        label="Schema"
-                        value={schema}
-                        readOnly
-                        helperText="The schema where this view will be created"
-                    />
-
-                    <Input
                         label="View Name"
                         value={viewName}
-                        onChange={(e) => setViewName(e.target.value)}
-                        helperText="Naming convention: lowercase with underscores"
+                        onChange={handleViewNameChange}
+                        error={validationError}
                         required
                     />
 
@@ -172,51 +193,25 @@ export const CreateViewComponent: React.FC = () => {
                         disabled={true}
                     />
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={materialized}
-                                onChange={(e) => {
-                                    setMaterialized(e.target.checked);
-                                    if (e.target.checked) {
-                                        setReplaceIfExists(false);
-                                    }
-                                }}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>Materialized View</span>
-                        </label>
-                        <div style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            fontStyle: 'italic',
-                            marginLeft: '24px'
-                        }}>
-                            Materialized views store query results and must be refreshed
-                        </div>
-                    </div>
+                    <Checkbox
+                        label="Materialized View"
+                        checked={materialized}
+                        onChange={(e) => {
+                            setMaterialized(e.target.checked);
+                            if (e.target.checked) {
+                                setReplaceIfExists(false);
+                            }
+                        }}
+                        labelTooltip="Materialized views store query results and must be refreshed"
+                    />
 
                     {!materialized && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={replaceIfExists}
-                                    onChange={(e) => setReplaceIfExists(e.target.checked)}
-                                    style={{ cursor: 'pointer' }}
-                                />
-                                <span style={{ fontSize: '13px', fontWeight: '500' }}>Replace if Exists</span>
-                            </label>
-                            <div style={{
-                                fontSize: '12px',
-                                color: 'var(--vscode-descriptionForeground)',
-                                fontStyle: 'italic',
-                                marginLeft: '24px'
-                            }}>
-                                Use CREATE OR REPLACE (not available for materialized views)
-                            </div>
-                        </div>
+                        <Checkbox
+                            label="Replace if Exists"
+                            checked={replaceIfExists}
+                            onChange={(e) => setReplaceIfExists(e.target.checked)}
+                            labelTooltip="Use CREATE OR REPLACE (not available for materialized views)"
+                        />
                     )}
                 </div>
             </Section>

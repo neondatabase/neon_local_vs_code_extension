@@ -336,6 +336,7 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
 
     private schemaCache = new Map<string, SchemaItem[]>();
     private isPreloading = false;
+    private autoExpand = false; // Flag to auto-expand on next render
 
     constructor(
         private schemaService: SchemaService,
@@ -351,10 +352,16 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
             }
         });
     }
+    
+    // Method to enable auto-expansion on next refresh
+    public enableAutoExpand(): void {
+        this.autoExpand = true;
+    }
 
     refresh(): void {
         this.clearCache();
         this._onDidChangeTreeData.fire();
+        // Don't reset autoExpand here - it will be reset after use in getTreeItem
     }
 
     public clearCache(): void {
@@ -375,11 +382,36 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
 
     getTreeItem(element: SchemaItem): vscode.TreeItem {
         const hasChildren = this.hasChildren(element);
-        const collapsibleState = hasChildren ? 
+        let collapsibleState = hasChildren ? 
             vscode.TreeItemCollapsibleState.Collapsed : 
             vscode.TreeItemCollapsibleState.None;
         
+        // Auto-expand connection and Databases container when autoExpand flag is set
+        if (this.autoExpand && hasChildren) {
+            if (element.type === 'connection') {
+                collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+                console.debug('Schema view: Auto-expanding connection node');
+            } else if (element.type === 'container' && element.name === 'Databases') {
+                collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+                console.debug('Schema view: Auto-expanding Databases container');
+                // Reset the flag after expanding the Databases container (the last node we care about)
+                this.autoExpand = false;
+                console.debug('Schema view: Auto-expand flag reset');
+            }
+        }
+        
         return new SchemaTreeItem(element, collapsibleState);
+    }
+
+    getParent(element: SchemaItem): SchemaItem | undefined {
+        // Return the parent based on the element type
+        if (!element.parent) {
+            return undefined; // Root element (connection) has no parent
+        }
+        
+        // For now, we don't cache parent items, so we return undefined
+        // The reveal will still work for direct children
+        return undefined;
     }
 
     private hasChildren(element: SchemaItem): boolean {
@@ -1319,6 +1351,9 @@ export class SchemaViewProvider {
                     }
                     // Use force refresh to ensure complete cache clear and tree update
                     this.treeDataProvider.forceRefresh();
+                    
+                    // Auto-expand the connection and database nodes
+                    await this.autoExpandOnConnection();
                 } else if (wasConnectedBefore && !isConnectedNow) {
                     console.debug('Schema view: Connection lost - clearing all caches and closing pools');
                     // Close all connection pools when disconnecting
@@ -1330,7 +1365,7 @@ export class SchemaViewProvider {
         );
 
         // Store initial connection state and refresh if already connected
-        this.stateService.getViewData().then(viewData => {
+        this.stateService.getViewData().then(async viewData => {
             this.lastConnectionState = viewData.connected;
             this.lastConnectedBranch = viewData.currentlyConnectedBranch || '';
             console.debug('Schema view: Initial state stored', { 
@@ -1342,8 +1377,30 @@ export class SchemaViewProvider {
             if (viewData.connected) {
                 console.debug('Schema view: Already connected on startup - force refreshing with current branch data');
                 this.treeDataProvider.forceRefresh();
+                
+                // Auto-expand the connection and database nodes
+                await this.autoExpandOnConnection();
             }
         });
+    }
+
+    /**
+     * Auto-expand connection and database nodes when connected
+     */
+    private async autoExpandOnConnection(): Promise<void> {
+        try {
+            console.debug('Schema view: Enabling auto-expansion for next refresh');
+            
+            // Enable auto-expand and trigger a refresh
+            // This will cause getTreeItem to return Expanded state for connection and Databases container
+            this.treeDataProvider.enableAutoExpand();
+            this.treeDataProvider.refresh();
+            
+            console.debug('Schema view: Auto-expansion enabled and refresh triggered');
+        } catch (error) {
+            // Don't throw - auto-expansion is a nice-to-have feature
+            console.debug('Schema view: Error during auto-expansion:', error);
+        }
     }
 
     private showItemDetails(item: SchemaItem): void {
@@ -2966,7 +3023,6 @@ export class SchemaViewProvider {
             case 'schema':
                 actions.push(
                     { label: '$(edit) Edit Schema', command: 'neonLocal.schema.editSchema' },
-                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(trash) Drop Schema', command: 'neonLocal.schema.dropSchema' }
                 );
                 break;
@@ -2976,7 +3032,6 @@ export class SchemaViewProvider {
                     { label: '$(edit) Edit Table', command: 'neonLocal.schema.editTable', description: 'Modify table structure' },
                     { label: '$(export) Import Data', command: 'neonLocal.schema.importData', description: 'Import CSV/JSON' },
                     { label: '$(desktop-download) Export Data', command: 'neonLocal.schema.exportData', description: 'Export to CSV/JSON/SQL' },
-                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(clear-all) Truncate Table', command: 'neonLocal.schema.truncateTable', description: 'Delete all rows' },
                     { label: '$(trash) Drop Table', command: 'neonLocal.schema.dropTable', description: 'Delete table' }
                 );
