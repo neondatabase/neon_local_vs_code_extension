@@ -3046,7 +3046,6 @@ export class SchemaViewProvider {
                     actions.push({ label: '$(refresh) Refresh Materialized View', command: 'neonLocal.schema.refreshMaterializedView', description: 'Refresh data' });
                 }
                 actions.push(
-                    { label: '$(shield) Manage Permissions', command: 'neonLocal.schema.manageObjectPermissions', description: 'Grant/revoke privileges' },
                     { label: '$(trash) Drop View', command: 'neonLocal.schema.dropView', description: 'Delete view' }
                 );
                 break;

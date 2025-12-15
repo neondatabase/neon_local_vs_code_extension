@@ -101,19 +101,26 @@ export const CreateViewComponent: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (viewName && sqlDefinition) {
-            const viewDef: ViewDefinition = {
-                schema,
-                viewName,
-                sqlDefinition,
-                materialized,
-                replaceIfExists: materialized ? false : replaceIfExists,
-                owner: owner || undefined
-            };
-            vscode.postMessage({ command: 'previewSql', viewDef });
-        } else {
-            setSqlPreview('');
+        if (!viewName || !sqlDefinition) {
+            if (!viewName && !sqlDefinition) {
+                setSqlPreview('-- Enter a view name and SQL definition to preview');
+            } else if (!viewName) {
+                setSqlPreview('-- Enter a view name to preview SQL');
+            } else {
+                setSqlPreview('-- Enter a SQL definition to preview');
+            }
+            return;
         }
+
+        const viewDef: ViewDefinition = {
+            schema,
+            viewName,
+            sqlDefinition,
+            materialized,
+            replaceIfExists: materialized ? false : replaceIfExists,
+            owner: owner || undefined
+        };
+        vscode.postMessage({ command: 'previewSql', viewDef });
     }, [schema, viewName, sqlDefinition, materialized, replaceIfExists, owner]);
 
     const handleInsertTable = (tableName: string) => {
@@ -311,9 +318,7 @@ export const CreateViewComponent: React.FC = () => {
                 </div>
             </Section>
 
-            {sqlPreview && (
-                <SqlPreview sql={sqlPreview} />
-            )}
+            <SqlPreview sql={sqlPreview} />
 
             <ActionButtons
                 onSave={handleSubmit}
@@ -380,20 +385,27 @@ export const EditViewComponent: React.FC = () => {
             return;
         }
 
-        if (viewName && sqlDefinition) {
-            const viewDef: ViewDefinition = {
-                schema,
-                viewName,
-                sqlDefinition,
-                materialized,
-                replaceIfExists: false,
-                owner: owner || undefined,
-                originalViewName
-            };
-            vscode.postMessage({ command: 'previewSql', viewDef });
-        } else {
-            setSqlPreview('');
+        if (!viewName || !sqlDefinition) {
+            if (!viewName && !sqlDefinition) {
+                setSqlPreview('-- Enter a view name and SQL definition to preview');
+            } else if (!viewName) {
+                setSqlPreview('-- Enter a view name to preview SQL');
+            } else {
+                setSqlPreview('-- Enter a SQL definition to preview');
+            }
+            return;
         }
+
+        const viewDef: ViewDefinition = {
+            schema,
+            viewName,
+            sqlDefinition,
+            materialized,
+            replaceIfExists: false,
+            owner: owner || undefined,
+            originalViewName
+        };
+        vscode.postMessage({ command: 'previewSql', viewDef });
     }, [schema, viewName, sqlDefinition, materialized, owner, originalViewName]);
 
     const handleInsertTable = (tableName: string) => {
@@ -593,9 +605,7 @@ export const EditViewComponent: React.FC = () => {
                 </div>
             </Section>
 
-            {sqlPreview && (
-                <SqlPreview sql={sqlPreview} />
-            )}
+            <SqlPreview sql={sqlPreview} />
 
             <ActionButtons
                 onSave={handleSubmit}

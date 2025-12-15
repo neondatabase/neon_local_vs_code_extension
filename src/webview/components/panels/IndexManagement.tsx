@@ -112,21 +112,28 @@ export const CreateIndexComponent: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (indexName && selectedColumns.length > 0) {
-            const indexDef: IndexDefinition = {
-                indexName,
-                tableName,
-                schema,
-                columns: selectedColumns,
-                indexType,
-                unique,
-                concurrent,
-                whereClause: whereClause || undefined
-            };
-            vscode.postMessage({ command: 'previewSql', indexDef });
-        } else {
-            setSqlPreview('');
+        if (!indexName || selectedColumns.length === 0) {
+            if (!indexName && selectedColumns.length === 0) {
+                setSqlPreview('-- Enter an index name and select at least one column to preview SQL');
+            } else if (!indexName) {
+                setSqlPreview('-- Enter an index name to preview SQL');
+            } else {
+                setSqlPreview('-- Select at least one column to preview SQL');
+            }
+            return;
         }
+
+        const indexDef: IndexDefinition = {
+            indexName,
+            tableName,
+            schema,
+            columns: selectedColumns,
+            indexType,
+            unique,
+            concurrent,
+            whereClause: whereClause || undefined
+        };
+        vscode.postMessage({ command: 'previewSql', indexDef });
     }, [indexName, tableName, schema, selectedColumns, indexType, unique, concurrent, whereClause]);
 
     const handleColumnToggle = (columnName: string) => {
@@ -313,9 +320,7 @@ export const CreateIndexComponent: React.FC = () => {
                 />
             </CollapsibleSection>
 
-            {sqlPreview && (
-                <SqlPreview sql={sqlPreview} />
-            )}
+            <SqlPreview sql={sqlPreview} />
 
             <ActionButtons
                 onSave={handleSubmit}

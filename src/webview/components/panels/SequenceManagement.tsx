@@ -344,18 +344,38 @@ export const EditSequenceComponent: React.FC = () => {
             return;
         }
 
-        const seqDef = {
+        // Only include changed fields
+        const seqDef: any = {
             originalName: initialData.sequenceName,
-            name: sequenceName,
-            schema: initialData.schema,
-            dataType,
-            currentValue: currentValue ? parseInt(currentValue) : undefined,
-            incrementBy: incrementBy ? parseInt(incrementBy) : 1,
-            minValue: minValue ? parseInt(minValue) : undefined,
-            maxValue: maxValue ? parseInt(maxValue) : undefined,
-            cache: cache ? parseInt(cache) : 1,
-            cycle
+            schema: initialData.schema
         };
+        
+        // Only add fields that have actually changed
+        if (sequenceName !== originalSequenceName) {
+            seqDef.newSequenceName = sequenceName;
+        }
+        if (dataType !== originalDataType) {
+            seqDef.dataType = dataType;
+        }
+        if (currentValue !== originalCurrentValue) {
+            seqDef.currentValue = currentValue; // Keep as string!
+        }
+        if (incrementBy !== originalIncrementBy) {
+            seqDef.incrementBy = incrementBy; // Keep as string!
+        }
+        if (minValue !== originalMinValue) {
+            seqDef.minValue = minValue; // Keep as string!
+        }
+        if (maxValue !== originalMaxValue) {
+            seqDef.maxValue = maxValue; // Keep as string!
+        }
+        if (cache !== originalCache) {
+            seqDef.cache = cache; // Keep as string!
+        }
+        if (cycle !== originalCycle) {
+            seqDef.cycle = cycle;
+        }
+        
         vscode.postMessage({ command: 'previewAlterSql', seqDef });
     }, [sequenceName, dataType, currentValue, minValue, maxValue, incrementBy, cache, cycle, initialData.schema, initialData.sequenceName]);
 
@@ -373,18 +393,37 @@ export const EditSequenceComponent: React.FC = () => {
         setError('');
         setIsSubmitting(true);
 
-        const seqDef = {
+        // Only include changed fields
+        const seqDef: any = {
             originalName: initialData.sequenceName,
-            name: sequenceName,
-            schema: initialData.schema,
-            dataType,
-            currentValue: currentValue ? parseInt(currentValue) : undefined,
-            incrementBy: incrementBy ? parseInt(incrementBy) : 1,
-            minValue: minValue ? parseInt(minValue) : undefined,
-            maxValue: maxValue ? parseInt(maxValue) : undefined,
-            cache: cache ? parseInt(cache) : 1,
-            cycle
+            schema: initialData.schema
         };
+        
+        // Only add fields that have actually changed
+        if (sequenceName !== originalSequenceName) {
+            seqDef.newSequenceName = sequenceName;
+        }
+        if (dataType !== originalDataType) {
+            seqDef.dataType = dataType;
+        }
+        if (currentValue !== originalCurrentValue) {
+            seqDef.currentValue = currentValue; // Keep as string!
+        }
+        if (incrementBy !== originalIncrementBy) {
+            seqDef.incrementBy = incrementBy; // Keep as string!
+        }
+        if (minValue !== originalMinValue) {
+            seqDef.minValue = minValue; // Keep as string!
+        }
+        if (maxValue !== originalMaxValue) {
+            seqDef.maxValue = maxValue; // Keep as string!
+        }
+        if (cache !== originalCache) {
+            seqDef.cache = cache; // Keep as string!
+        }
+        if (cycle !== originalCycle) {
+            seqDef.cycle = cycle;
+        }
 
         vscode.postMessage({ command: 'alterSequence', seqDef });
     };
