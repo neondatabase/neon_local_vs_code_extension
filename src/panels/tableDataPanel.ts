@@ -308,9 +308,9 @@ export class TableDataPanel {
             display: flex;
             align-items: center;
             padding: 4px 8px;
-            background-color: var(--vscode-toolbar-activeBackground, var(--vscode-tab-activeBackground));
-            color: var(--vscode-badge-foreground);
-            border: 1px solid var(--vscode-badge-background);
+            background-color: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+            color: var(--vscode-foreground);
+            border: 1px solid var(--vscode-panel-border);
             border-radius: 12px;
             font-size: 11px;
             font-weight: 500;
@@ -329,7 +329,7 @@ export class TableDataPanel {
         .table-indicator .table-icon svg {
             width: 100%;
             height: 100%;
-            color: var(--vscode-badge-foreground);
+            color: var(--vscode-foreground);
         }
 
         .btn {
@@ -913,7 +913,17 @@ export class TableDataPanel {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-right: 12px;
+            margin-right: 4px;
+            min-width: 0;
+            flex: 1;
+            max-width: 200px;
+        }
+        
+        .icon-buttons {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
         }
 
         .filter-input {
@@ -923,7 +933,8 @@ export class TableDataPanel {
             border-radius: 3px;
             padding: 4px 8px;
             font-size: 12px;
-            width: 200px;
+            width: 100%;
+            min-width: 80px;
         }
 
         .filter-input:focus {
@@ -1001,7 +1012,6 @@ export class TableDataPanel {
     <div class="toolbar">
         <div class="toolbar-left">
             <button class="btn" id="addRowBtn">Add Row</button>
-            <button class="btn btn-secondary" id="refreshBtn">Refresh</button>
             <span class="table-indicator" title="Current table">
                 <span class="table-icon">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1015,14 +1025,28 @@ export class TableDataPanel {
         <div class="toolbar-right">
             <div class="filter-controls">
                 <input type="text" id="filterInput" placeholder="Filter data..." class="filter-input" />
+            </div>
+            <div class="icon-buttons">
+                <button id="refreshBtn" class="control-btn" title="Refresh">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M13.5 8c0 3.038-2.462 5.5-5.5 5.5S2.5 11.038 2.5 8 4.962 2.5 8 2.5c1.804 0 3.407.869 4.412 2.212" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        <path d="M12 1.5v3.5h-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
                 <button id="columnVisibilityBtn" class="control-btn" title="Show/Hide Columns">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                         <path d="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h12v1H2V9zm0 3h12v1H2v-1z"/>
                         <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11z" fill="none" stroke="currentColor" stroke-width="0.5"/>
                     </svg>
                 </button>
+                <button id="openNeonConsoleBtn" class="control-btn" title="Open in Neon console">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 2H14V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M14 2L8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        <path d="M12 9V13C12 13.5523 11.5523 14 11 14H3C2.44772 14 2 13.5523 2 13V5C2 4.44772 2.44772 4 3 4H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
             </div>
-            <button class="btn btn-secondary" id="openNeonConsoleBtn" title="Open this table in Neon console">Open in Neon console</button>
         </div>
     </div>
     

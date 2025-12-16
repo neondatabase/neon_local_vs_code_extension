@@ -61,9 +61,29 @@
         "title": "Neon Local Connect: Configure OAuth Port"
       },
       {
+        "command": "neonLocal.connect.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "neonLocal.schema.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "neonLocal.mcpServer.refresh",
+        "title": "Refresh MCP Server Status",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "neonLocal.mcpServer.enable",
+        "title": "Enable MCP Server",
+        "icon": "$(check)"
+      },
+      {
+        "command": "neonLocal.mcpServer.disable",
+        "title": "Disable MCP Server",
+        "icon": "$(circle-slash)"
       },
       {
         "command": "neonLocal.schema.openSqlQuery",
@@ -468,14 +488,40 @@
           "id": "neonLocalSchema",
           "name": "Databases",
           "when": "neonLocal.connected"
+        },
+        {
+          "type": "webview",
+          "id": "neonLocalMcpServer",
+          "name": "MCP Server",
+          "when": "neonLocal.authenticated"
         }
       ]
     },
     "menus": {
       "view/title": [
         {
+          "command": "neonLocal.connect.refresh",
+          "when": "view == neonLocalConnect",
+          "group": "navigation"
+        },
+        {
           "command": "neonLocal.schema.refresh",
           "when": "view == neonLocalSchema",
+          "group": "navigation"
+        },
+        {
+          "command": "neonLocal.mcpServer.refresh",
+          "when": "view == neonLocalMcpServer",
+          "group": "navigation"
+        },
+        {
+          "command": "neonLocal.mcpServer.enable",
+          "when": "view == neonLocalMcpServer && !neonLocal.mcpServer.autoConfigEnabled",
+          "group": "navigation"
+        },
+        {
+          "command": "neonLocal.mcpServer.disable",
+          "when": "view == neonLocalMcpServer && neonLocal.mcpServer.autoConfigEnabled",
           "group": "navigation"
         }
       ],

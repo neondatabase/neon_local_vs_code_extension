@@ -126,7 +126,8 @@ export class AuthManager {
           console.debug('AuthManager: Current access token available:', !!this._tokenSet?.access_token);
           
           const apiService = new NeonApiService(this.context);
-          const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+          const now = new Date();
+          const timestamp = now.toISOString().replace('T', ' ').substring(0, 19); // YYYY-MM-DD HH:MM:SS format
           const keyName = `VS Code Extension (${timestamp})`;
           
           console.debug('AuthManager: Calling API to create key with name:', keyName);

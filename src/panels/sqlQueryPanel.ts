@@ -400,6 +400,34 @@ export class SqlQueryPanel {
             background-color: var(--vscode-button-secondaryHoverBackground) !important;
         }
 
+        .icon-buttons {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .control-btn {
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+            border-radius: 3px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .control-btn:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .database-indicator {
             display: flex;
             align-items: center;
@@ -852,12 +880,25 @@ export class SqlQueryPanel {
             <div class="toolbar">
                 <div class="toolbar-left">
                     <button id="executeBtn">Run Query</button>
-                    <button id="exportBtn" disabled>Export Results</button>
                     <span id="databaseIndicator" class="database-indicator" title="Current database"></span>
                     <span id="statusText"></span>
                 </div>
                 <div class="toolbar-right">
-                    <button id="openNeonConsoleBtn" class="secondary-btn" title="Open SQL editor in Neon console">Open in Neon console</button>
+                    <div class="icon-buttons">
+                        <button id="exportBtn" class="control-btn" disabled title="Export Results">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 2v8M8 10L5 7M8 10l3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M3 12v1.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                        <button id="openNeonConsoleBtn" class="control-btn" title="Open in Neon console">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M10 2H14V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M14 2L8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <path d="M12 9V13C12 13.5523 11.5523 14 11 14H3C2.44772 14 2 13.5523 2 13V5C2 4.44772 2.44772 4 3 4H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
             

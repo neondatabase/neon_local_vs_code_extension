@@ -3,6 +3,7 @@ import { WebViewService } from './services/webview.service';
 import { StateService } from './services/state.service';
 import { ConnectViewProvider } from './views/connectView';
 import { SchemaViewProvider } from './views/schemaView';
+import { MCPServerViewProvider } from './views/mcpServerView';
 // import { MigrationsViewProvider } from './views/migrationsView';
 // import { ORMViewProvider } from './views/ormView';
 import { ViewData } from './types';
@@ -408,31 +409,65 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Register view providers
+  const mcpServerViewProvider = new MCPServerViewProvider(
+    context.extensionUri,
+    context
+  );
+  
   disposables.push(
-    vscode.window.registerWebviewViewProvider('neonLocalConnect', connectViewProvider)
+    vscode.window.registerWebviewViewProvider('neonLocalConnect', connectViewProvider),
+    vscode.window.registerWebviewViewProvider('neonLocalMcpServer', mcpServerViewProvider)
+  );
+  
+  // Register MCP Server commands
+  disposables.push(
+    vscode.commands.registerCommand('neonLocal.mcpServer.refresh', async () => {
+      await mcpServerViewProvider.refreshView();
+    }),
+    vscode.commands.registerCommand('neonLocal.mcpServer.enable', async () => {
+      await mcpServerViewProvider.enableMcpServer();
+    }),
+    vscode.commands.registerCommand('neonLocal.mcpServer.disable', async () => {
+      await mcpServerViewProvider.disableMcpServer();
+    })
   );
 
-  // Update context for schema view visibility (requires both authentication and connection)
-  const updateSchemaViewContext = async () => {
+  // Register Connect View commands
+  disposables.push(
+    vscode.commands.registerCommand('neonLocal.connect.refresh', async () => {
+      await connectViewProvider.refresh();
+    })
+  );
+  
+  // Auto-configure MCP server if enabled
+  mcpServerViewProvider.autoConfigureIfNeeded();
+
+  // Update context for view visibility
+  const updateViewContexts = async () => {
     const viewData = await stateService.getViewData();
     const isAuthenticated = authManager.isAuthenticated;
+    
+    // Set authenticated context for MCP Server view
+    vscode.commands.executeCommand('setContext', 'neonLocal.authenticated', isAuthenticated);
+    
+    // Set connected context for schema view (requires both authentication and connection)
     const shouldShowSchemaView = isAuthenticated && viewData.connected;
     vscode.commands.executeCommand('setContext', 'neonLocal.connected', shouldShowSchemaView);
   };
 
   // Initial context update
-  updateSchemaViewContext();
+  updateViewContexts();
 
   // Listen for authentication state changes to update context
   const authListener = authManager.onDidChangeAuthentication(async () => {
-    await updateSchemaViewContext();
+    await updateViewContexts();
   });
 
   // Listen for connection state changes to update context
   const originalSetIsProxyRunning = stateService.setIsProxyRunning.bind(stateService);
   stateService.setIsProxyRunning = async (value: boolean) => {
     await originalSetIsProxyRunning(value);
-    await updateSchemaViewContext();
+    await updateViewContexts();
   };
 
   context.subscriptions.push(...disposables, authListener);

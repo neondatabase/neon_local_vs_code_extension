@@ -246,31 +246,9 @@ export class NeonApiService {
             console.debug('Raw organizations response:', JSON.stringify(response, null, 2));
 
             // Ensure we return an array of organizations
-            let orgs = Array.isArray(response) ? response : response.organizations || [];
-            console.debug('Organizations array before processing:', JSON.stringify(orgs, null, 2));
+            const orgs = Array.isArray(response) ? response : response.organizations || [];
+            console.debug('Organizations:', orgs.length);
             
-            // Check if user has access to personal account by attempting to get projects
-            try {
-                await this.getProjects('personal_account');
-                // If successful, add Personal account as the first option
-                orgs = [
-                    { id: 'personal_account', name: 'Personal account' },
-                    ...orgs
-                ];
-            } catch (error) {
-                // If we get the specific error about org_id being required, don't add personal account
-                if (error instanceof Error && error.message.includes('org_id is required')) {
-                    console.debug('User does not have access to personal account, skipping...');
-                } else {
-                    // For other errors, still add personal account as it might be a temporary issue
-                    orgs = [
-                        { id: 'personal_account', name: 'Personal account' },
-                        ...orgs
-                    ];
-                }
-            }
-
-            console.debug('Final processed organizations:', JSON.stringify(orgs, null, 2));
             return orgs;
         } catch (error: unknown) {
             console.error('Error fetching organizations:', error);
@@ -279,15 +257,19 @@ export class NeonApiService {
     }
 
     public async getProjects(orgId: string): Promise<NeonProject[]> {
-        console.debug(`Fetching projects from URL: /projects for orgId: ${orgId}`);
+        if (!orgId) {
+            console.warn('getProjects called without orgId');
+            return [];
+        }
+        
+        console.debug(`Fetching projects for orgId: ${orgId}`);
         let retryCount = 0;
         const maxRetries = 3;
         const retryDelay = 1000;
 
         while (retryCount < maxRetries) {
             try {
-                // For personal account, don't include org_id parameter
-                const path = orgId === 'personal_account' ? '/projects' : `/projects?org_id=${orgId}`;
+                const path = `/projects?org_id=${orgId}`;
                 console.debug(`Fetching projects from path: ${path}`);
                 
                 const response = await this.makeRequest<any>(path);
@@ -338,6 +320,87 @@ export class NeonApiService {
         } catch (error: unknown) {
             console.error(`❌ Error fetching branches for project="${projectId}":`, error);
             throw new Error(`Failed to fetch branches: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    public async getEndpointInfo(endpointId: string): Promise<{ project_id: string; branch_id: string; id: string } | null> {
+        try {
+            console.debug(`🔍 API Request - getEndpointInfo: endpointId="${endpointId}"`);
+            
+            // The endpoint ID format is typically ep-xxx-xxx, we need to find which project it belongs to
+            // Unfortunately, there's no direct API to look up an endpoint by ID without knowing the project
+            // So we need to search through projects
+            const orgs = await this.getOrgs();
+            
+            for (const org of orgs) {
+                const projects = await this.getProjects(org.id);
+                
+                for (const project of projects) {
+                    try {
+                        // Get endpoints for this project
+                        const response = await this.makeRequest<any>(`/projects/${project.id}/endpoints`);
+                        const endpoints = Array.isArray(response) ? response : response.endpoints || [];
+                        
+                        const endpoint = endpoints.find((ep: any) => ep.id === endpointId);
+                        if (endpoint) {
+                            console.debug(`✅ Found endpoint:`, endpoint);
+                            return {
+                                id: endpoint.id,
+                                project_id: endpoint.project_id || project.id,
+                                branch_id: endpoint.branch_id
+                            };
+                        }
+                    } catch (error) {
+                        // Continue searching other projects
+                        console.debug(`No endpoint found in project ${project.id}`);
+                    }
+                }
+            }
+            
+            console.warn(`❌ Endpoint ${endpointId} not found in any project`);
+            return null;
+        } catch (error: unknown) {
+            console.error(`❌ Error fetching endpoint info for "${endpointId}":`, error);
+            return null;
+        }
+    }
+
+    public async getProject(projectId: string): Promise<{ id: string; name: string; org_id?: string } | null> {
+        try {
+            console.debug(`🔍 API Request - getProject: projectId="${projectId}"`);
+            console.debug(`📡 Making API request to: /projects/${projectId}`);
+            
+            const response = await this.makeRequest<any>(`/projects/${projectId}`);
+            console.debug(`✅ getProject response:`, response);
+            
+            const project = response.project || response;
+            return {
+                id: project.id,
+                name: project.name,
+                org_id: project.org_id
+            };
+        } catch (error: unknown) {
+            console.error(`❌ Error fetching project "${projectId}":`, error);
+            return null;
+        }
+    }
+
+    public async getBranch(projectId: string, branchId: string): Promise<{ id: string; name: string } | null> {
+        try {
+            console.debug(`🔍 API Request - getBranch: projectId="${projectId}", branchId="${branchId}"`);
+            console.debug(`📡 Making API request to: /projects/${projectId}/branches/${branchId}`);
+            
+            const response = await this.makeRequest<any>(`/projects/${projectId}/branches/${branchId}`);
+            console.debug(`✅ getBranch response:`, response);
+            
+            const branch = response.branch || response;
+            return {
+                id: branch.id,
+                name: branch.name
+            };
+        } catch (error: unknown) {
+            console.error(`❌ Error fetching branch for project="${projectId}", branch="${branchId}":`, error);
+            return null;
         }
     }
 
