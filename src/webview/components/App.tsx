@@ -927,7 +927,7 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
             <div className="form-content">
               {isLoadingConnections ? (
                 <div style={{ 
-                  padding: '40px 24px', 
+                  padding: '20px 24px', 
                   textAlign: 'center',
                   background: 'var(--vscode-editor-background)',
                   border: '1px solid var(--vscode-panel-border)',

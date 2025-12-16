@@ -1,4 +1,4 @@
-# Neon Local Connect - Test Suite
+# Neon - Serverless Postgres - Test Suite
 
 This extension has two types of tests: **Unit Tests** and **Integration Tests**.
 
@@ -141,7 +141,7 @@ This means you can always run `npm test` safely, and integration tests will only
 ### Successful Unit Tests
 
 ```
-Neon Local Connect Extension Tests
+Neon - Serverless Postgres Extension Tests
   Extension Basics
     ✓ Extension should be present
     ✓ Extension should activate without errors

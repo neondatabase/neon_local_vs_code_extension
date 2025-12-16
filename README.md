@@ -1,13 +1,14 @@
 
-# Neon Local Connect your IDE Extension
+# Neon - Serverless Postgres IDE Extension
 
-Connect any app to any Neon branch over localhost, and manage your database directly from your IDE. Browse schemas, run queries, and edit table data - all without leaving your IDE. Built on Docker-based [Neon Local](https://github.com/neondatabase-labs/neon_local) with a powerful database management interface.
+Connect to any Neon branch and manage your database directly from your IDE. Browse schemas, run queries, edit table data, and get connection strings for your app—all without leaving your editor. Plus, automatic MCP server configuration enables seamless AI-powered database interactions with your coding agent.
 
 ## ✨ Features
 
+- **Branch Connection**: Connect to any Neon branch and get the connection string to add to your app's `.env` file
+- **AI Agent Integration**: Automatically configures the Neon MCP server for enhanced AI coding assistant integration
+- **Connection String Detection**: Automatically detects Neon connection strings in your workspace and shows which branches your app is connected to
 - **Database Visualization**: Browse your database schema with an intuitive tree view showing databases, schemas, tables, columns, and relationships
-- **Migrations & Queries View**: Automatically discover and execute SQL migrations and queries from your project
-- **ORM Integration**: Visual ORM model and migration management with schema drift detection for Django and Prisma
 - **Database Management**: Professional-grade PostgreSQL management tools including:
   - **Database Operations**: Create and drop databases with full control
   - **Schema Management**: Create, rename, and manage database schemas
@@ -22,26 +23,22 @@ Connect any app to any Neon branch over localhost, and manage your database dire
   - **Data Import/Export**: Import from CSV/JSON files, export to CSV/JSON/SQL
 - **Built-in SQL Editor**: Write and execute SQL queries directly in your IDE with syntax highlighting, results display, and export capabilities  
 - **Table Data Management**: View, edit, insert, and delete table data with a spreadsheet-like interface without leaving your IDE
-- **Branch Management**: Create and connect to Neon branches using a local connection string without leaving your IDE
-- **Ephemeral Workflows**: Easily incorporate ephemeral Neon branches into your local development and testing workflows
 - **Multiple Query Options**: Query your database using the built-in SQL editor, terminal, or via the Neon console
-- **Driver Support**: Supports both Postgres and Neon serverless drivers
-- **Container Management**: The extension manages a Neon Local Docker container for you, no manual Docker commands required
 
 ## 📋 Requirements
 
-- Docker must be installed and running
-- your IDE 1.85.0 or later
+- VS Code or Cursor 1.85.0 or later
 - A [Neon account](https://neon.tech)
 
-## 🚀 Quick start
+## 🚀 Quick Start
 
-### 1. **Install the extension**
+### 1. **Install the Extension**
 
-Find "Neon Local Connect" in the your IDE Marketplace and click **Install**.
+Find "Neon - Serverless Postgres" in the VS Code/Cursor Marketplace and click **Install**.
 
 ### 2. **Sign in to Neon**
-Open the Neon Local Connect panel in the sidebar (look for the Neon logo).
+
+Open the Neon - Serverless Postgres panel in the sidebar (look for the Neon logo).
 
 Click **Sign in**
 
@@ -49,43 +46,33 @@ Click **Sign in**
 
 OAuth sign in will ask to launch authentication in an external browser.
 
-
 ![neon OAuth authorization in browser](/resources/authorize.png)
 
-You can also import a Neon API key to make it so that you don't need to resign into the extension after closing your IDE. All auth tokens or API keys are securely stored and encrypted by the extension.
+Once signed in, the extension automatically configures the **Neon MCP server** for your IDE, enabling AI-powered database features with your coding agent.
 
-### 3. **Connect to a branch**
+### 3. **Connect to a Branch**
 
-You have two main choices:
+The extension automatically scans your workspace for existing Neon connection strings and shows which branches your app is connected to. You can also manually select an organization, project, and branch to connect to.
 
-- **Existing branch:**  
-  Use this if you want to connect to a long-lived branch (like `main`, `development`, or a feature branch) that you or your team will use repeatedly. This is best for ongoing development, team collaboration, or when you want your changes to persist.
+Select your **Organization**, **Project**, and **Branch** from the dropdowns, then click **Connect**.
 
-  ![persistent branch connected](/resources/connected.png)
+![branch connection](/resources/connected.png)
 
-- **Ephemeral branch:**  
-  Choose this for a temporary, disposable branch that's created just for your current development session. Perfect for testing, experiments, or CI runs. Your branch (and any changes) will be automatically deleted when you disconnect.
+### 4. **Get Your Connection String**
 
-   ![ephemeral branch connected](/resources/ephemeral_connected.png)
+After connecting, copy the connection string from the extension panel and add it to your app's `.env` file:
 
-
-### 4. **Use the static connection string**
-
-After connecting, you can find your local connection string in the extension panel. Copy the connection string, update it with your database name, and then add it to your app's `.env` or config. The local connection string will not change as you switch between branches:
-
-![Local connection details](/resources/connection_string.png)
+![Connection string](/resources/connection_string.png)
 
 Example `.env`:
 
 ```env
-DATABASE_URL="postgres://neon:npg@localhost:5432/neondb"
+DATABASE_URL="postgresql://user:password@ep-example-123456.us-east-2.aws.neon.tech/neondb?sslmode=require"
 ```
 
-The local connection string can support both traditional postgres connections and connections using the Neon serverless driver.
+### 5. **Run Your App**
 
-### 5. **Run your app**
-
-Your app now talks to Neon via `localhost:5432`. No code changes needed when you switch branches!
+Your app now connects directly to your Neon branch. When you need to switch branches, just select a different branch in the extension and update your connection string.
 
 **Example:**
 
@@ -96,19 +83,24 @@ const client = new Client({ connectionString: process.env.DATABASE_URL });
 await client.connect();
 ```
 
-or
+## 🤖 AI Agent Integration (MCP Server)
 
-```bash
-psql $DATABASE_URL
-```
+The extension automatically configures the **Neon MCP (Model Context Protocol) server** when you sign in, enabling powerful AI-assisted database features:
 
-## 🗂️ Database Schema View
+- **Chat with your database**: Ask your AI coding assistant questions about your database schema, data, and queries
+- **AI-powered SQL generation**: Let your coding agent help write complex SQL queries
+- **Schema understanding**: Your AI assistant can understand your database structure and provide contextual help
+- **Automatic configuration**: No manual setup required—the MCP server is configured automatically
 
-Once connected, the extension provides a comprehensive **Database Schema** view in the sidebar that lets you explore your database structure visually:
+The MCP server status is visible in the extension panel, where you can also manually enable or disable it if needed.
+
+## 🗂️ Databases View
+
+Once connected, the extension provides a comprehensive **Databases** view in the sidebar that lets you explore your database structure visually:
 
 ![Database Schema View](/resources/database_schema_view.png)
 
-### What you can see:
+### What You Can See:
 - **Databases**: All available databases in your connected branch
 - **Schemas**: Database schemas organized in a tree structure  
 - **Tables & Views**: All tables and views with their column definitions
@@ -116,7 +108,7 @@ Once connected, the extension provides a comprehensive **Database Schema** view 
 - **Primary Keys**: Clearly marked primary key columns
 - **Foreign Keys**: Visual indicators for foreign key relationships
 
-### What you can do:
+### What You Can Do:
 - **Right-click the connection** to:
   - **Create Database**: Create a new database with full control over encoding and templates
 - **Right-click any database** to:
@@ -160,7 +152,7 @@ Once connected, the extension provides a comprehensive **Database Schema** view 
 - **Refresh** the schema view to see the latest structural changes
 - **Expand/collapse** database objects to focus on what you need
 
-The schema view automatically updates when you switch between branches, so you always see the current state of your connected database.
+The Databases view automatically updates when you switch between branches, so you always see the current state of your connected database.
 
 ## ⚡ Built-in SQL Editor
 
@@ -179,10 +171,9 @@ Execute SQL queries directly in your IDE with the integrated SQL Editor:
 - **Query History**: Access your previous queries
 - **Database Context**: Automatically connects to the selected database
 
-### How to use:
-1. **From Schema View**: Right-click any table and select "Query Table" for a pre-filled SELECT query
-2. **From Actions Panel**: Click "Open SQL Editor" to start with a blank query
-3. **From Command Palette**: Use `Ctrl+Shift+P` and search for "Neon: Open SQL Editor"
+### How to Use:
+1. **From Databases View**: Right-click any table and select "Query Table" for a pre-filled SELECT query
+2. **From Command Palette**: Use `Ctrl+Shift+P` and search for "Neon: Open SQL Editor"
 
 The SQL Editor integrates seamlessly with your database connection, so you can query any database in your current branch without additional setup.
 
@@ -207,8 +198,8 @@ View and edit your table data with a powerful, spreadsheet-like interface:
 
 > **Note**: Row editing and deletion require tables to have a primary key defined. This ensures data integrity by uniquely identifying rows for safe updates.
 
-### How to access:
-1. **From Schema View**: Right-click any table and select "View Table Data"
+### How to Access:
+1. **From Databases View**: Right-click any table and select "View Table Data"
 2. The data opens in a new tab with full editing capabilities
 3. Changes are immediately applied to your database
 4. Use the refresh button to see updates from other sources
@@ -243,153 +234,13 @@ Optimize your database performance with comprehensive index management tools:
 - **Index Statistics**: View primary keys and unique constraints
 - **Safety Features**: Protection against dropping primary keys
 
-### How to access:
+### How to Access:
 1. **Create Index**: Right-click any table → "Create Index"
 2. **Manage Indexes**: Right-click any table → "Manage Indexes"
 3. Configure index settings and preview SQL
 4. Monitor and optimize database performance
 
 Perfect for performance tuning, query optimization, and ensuring efficient database operations.
-
-## 🚀 Migrations & Queries View
-
-Automatically discover and execute SQL migrations and queries from your project. The extension scans your workspace for migration files and SQL scripts, allowing you to execute them directly.
-
-### Supported Frameworks & Patterns:
-- **Knex**: `migrations/*.{js,ts,sql}`
-- **Sequelize**: `migrations/*.{js,ts}`
-- **TypeORM**: `migration/*.{js,ts}`
-- **Prisma**: `prisma/migrations/*/*.sql`
-- **Flyway**: `db/migration/*.sql`
-- **Liquibase**: `db/changelog/*.{sql,xml,json,yaml}`
-- **Rails**: `db/migrate/*.{rb,sql}`
-- **Laravel**: `database/migrations/*.{php,sql}`
-- **Django**: `migrations/*.py`
-- **Generic SQL**: `queries/*.sql`, `sql/*.sql`, `scripts/*.sql`
-- **Seeds**: `seeds/*.{sql,js,ts}`, `seeders/*.{sql,js,ts}`
-
-### Features:
-- **Auto-Discovery**: Automatically finds migration files in your project
-- **Smart Filtering**: Excludes generated files and build artifacts automatically
-- **Execute Single File**: Run individual migration files with one click
-- **Batch Execution**: Execute all migrations in a folder sequentially
-- **SQL Preview**: Preview SQL before execution
-- **Framework Detection**: Identifies migration framework automatically
-- **Real-time Updates**: Watches for new migration files
-- **Safety Confirmations**: Prompts before executing destructive operations
-
-### How to use:
-1. Open the **Migrations & Queries** view in the Neon Local Connect sidebar
-2. The extension automatically scans for migration files in your workspace
-3. **Execute Single Migration**: Right-click a `.sql` file → "Execute Migration"
-4. **Execute All Migrations**: Right-click a folder → "Execute All Migrations"
-5. **Open File**: Click any file to view its contents
-6. Use the refresh button if you add new migration files
-
-### Framework-Specific Support:
-
-**Django Migrations** (✨ Native Support):
-- Right-click a Django migrations folder → "Execute All Migrations"
-- Extension automatically detects `manage.py` and runs migrations with proper Python interpreter
-- **Smart venv detection**: Automatically finds and uses your virtual environment's Python
-  - Checks VS Code's Python extension settings first
-  - Searches for `venv/`, `.venv/`, `env/`, `virtualenv/` directories
-  - Falls back to system Python if no venv found
-  - Works on Windows (`Scripts/python.exe`) and Unix (`bin/python`)
-- Option to run migrations for specific app or all apps
-- Connection string automatically passed via `DATABASE_URL` environment variable
-- Terminal output shows which Python interpreter is being used
-
-**Other Frameworks**:
-For TypeScript, JavaScript, Ruby, PHP migrations, use the appropriate CLI tool:
-- **Knex**: `npx knex migrate:latest`
-- **Sequelize**: `npx sequelize-cli db:migrate`
-- **TypeORM**: `npx typeorm migration:run`
-- **Prisma**: `npx prisma migrate deploy`
-- **Rails**: `rails db:migrate`
-- **Laravel**: `php artisan migrate`
-
-## 🎯 ORM Integration
-
-Get a comprehensive view of your ORM models and migrations directly in VS Code. The extension automatically detects Django and Prisma projects and provides visual management tools with real-time schema drift detection.
-
-### Key Features:
-
-**📦 Visual Model Tree**:
-- Browse all your ORM models organized by app (Django) or schema (Prisma)
-- See real-time sync status for each model:
-  - ✅ **Green**: Model synced with database
-  - ⚠️ **Yellow**: Schema has changes (drift detected)
-  - ❌ **Red**: Table doesn't exist in database yet
-- Click any model to open its definition file
-- View table directly in database schema panel
-
-**🗄️ Migration Tracking**:
-- Visual list of all migrations with applied/pending status
-- ✅ Applied migrations show green checkmark
-- ⏳ Pending migrations show yellow clock
-- Click to open migration files
-- Grouped by app for easy navigation
-
-**⚡ Quick Actions**:
-- **Django**:
-  - Make Migrations (`python manage.py makemigrations`)
-  - Run All Migrations (`python manage.py migrate`)
-  - Open Django Shell
-  - Test Database
-  - Generate Model from Table
-- **Prisma**:
-  - Pull Schema from DB (`prisma db pull`)
-  - Push Schema to DB (`prisma db push`)
-  - Open Prisma Studio
-  - Generate Client
-  - Validate Schema
-  - Migrate Dev/Deploy
-
-**🔍 Schema Drift Detection**:
-- Automatically compares model definitions with actual database tables
-- Detects missing fields (in model but not in DB)
-- Detects extra fields (in DB but not in model)
-- Visual indicators show which models need attention
-- Helps prevent schema inconsistencies before deployment
-
-### Supported ORMs:
-
-**Django** (Full Support):
-- Parses all `models.py` files in your project
-- Detects apps and model classes automatically
-- Supports custom table names (`Meta.db_table`)
-- Tracks migrations from `django_migrations` table
-- Smart virtual environment detection
-
-**Prisma** (Full Support):
-- Parses `schema.prisma` file
-- Detects all models and fields
-- Supports custom table names (`@@map`)
-- Tracks migrations from `_prisma_migrations` table
-- Direct integration with Prisma CLI
-
-**Coming Soon**: TypeORM, Sequelize, Rails ActiveRecord, Laravel Eloquent
-
-### How to Use:
-
-1. **Open ORM Panel**: Click the Neon logo in sidebar, then expand "ORM" section
-2. **Browse Models**: Expand "Models" to see all your ORM models
-3. **Check Status**: Look for visual indicators (green/yellow/red)
-4. **View Migrations**: Expand "Migrations" to see applied/pending migrations
-5. **Quick Actions**: Use "Quick Actions" for common ORM commands
-6. **Context Menu**: Right-click models for actions like "View Table in Database"
-
-### Example Workflow:
-
-1. Edit your Django model to add a new field
-2. Extension detects change and shows ⚠️ yellow indicator
-3. Click "Make Migrations" in Quick Actions
-4. New migration appears in Migrations section with ⏳ pending status
-5. Click "Run All Migrations" to apply
-6. Model turns ✅ green, migration shows ✓ applied
-
-This tight integration keeps your models and database in perfect sync!
 
 ## 👁️ View Management
 
@@ -425,7 +276,7 @@ Create and manage PostgreSQL views to simplify complex queries and improve code 
 - **Refresh Materialized View**: Update data with concurrent option
 - **Dependencies**: See which tables/views a view depends on
 
-### How to access:
+### How to Access:
 1. **Create View**: Right-click Schema/Database → "Create View"
 2. **Edit View**: Right-click View → "Edit View"
 3. **View Properties**: Right-click View → "View Properties"
@@ -464,7 +315,7 @@ Import and export data easily with support for multiple formats:
   - Quote character configuration
   - NULL value representation
 
-### How to use:
+### How to Use:
 1. **Import**: Right-click Table → "Import Data"
    - Select file (CSV or JSON)
    - Preview data
@@ -479,51 +330,27 @@ Import and export data easily with support for multiple formats:
 
 Perfect for migrating data, seeding databases, backing up table data, and integrating with external systems.
 
-## 🖱️ Panel actions
-
-Once connected, the Neon Local Connect panel provides quick access to common database operations:
-
-### Branch Management:
-- **Reset from Parent Branch:** Instantly reset your branch to match its parent's state  
-  [Docs: Branch reset](https://neon.com/docs/guides/reset-from-parent)
-
-### Database Tools (available in the main panel):
-- **Open SQL Editor (Browser):** Launch the Neon SQL Editor in your browser for advanced queries  
-  [Docs: SQL Editor](https://neon.com/docs/get-started-with-neon/query-with-neon-sql-editor)
-- **Open Table View (Browser):** Browse your database schema and data in the Neon Console  
-  [Docs: Tables](https://neon.com/docs/guides/tables)
-- **Launch PSQL:** Open a psql shell in the integrated terminal for direct SQL access  
-  [Docs: Using psql with Neon](https://neon.com/docs/connect/query-with-psql-editor)
-
-### Built-in Database Tools (new in your IDE):
-- **Database Schema View:** Explore your database structure in the sidebar with expandable tree view
-- **Built-in SQL Editor:** Write and execute queries directly in your IDE with results display
-- **Table Data Editor:** View and edit table data with a spreadsheet-like interface
-- **Context Menus:** Right-click databases, tables, and views for quick actions like querying and data management
-
-## 💡 Why this matters
+## 💡 Why Neon - Serverless Postgres?
 
 - **Unified Development Experience**: Manage your database schema, run queries, and edit data without leaving your IDE
-- **No Dynamic Connection Strings**: Just use `localhost:5432` everywhere, no matter which branch you're on
+- **AI-Powered Workflows**: Automatic MCP server configuration enables your coding agent to understand and work with your database
 - **Visual Database Management**: See your database structure at a glance and interact with it through intuitive UI
 - **Faster Development Cycles**: Query, test, and modify data instantly without switching between tools
-- **Branch-Aware Workflows**: Switch branches for features, tests, or teammates without touching your app code
-- **Universal Compatibility**: Works with any language or framework that supports Postgres
-- **Powered by Neon Local**: All the power of [Neon Local](https://github.com/neondatabase-labs/neon_local) with an enhanced your IDE UI
+- **Branch-Aware Workflows**: Easily switch between Neon branches for features, tests, or different environments
+- **Connection String Management**: Get connection strings for any branch directly from your IDE
 
 ## 🛠️ Troubleshooting
 
-- Docker must be running for the extension to work.
-- If you see "connection refused," check that Docker is running and port 5432 is available.
+- If you see connection errors, verify your Neon account is active and you have access to the selected project
+- Check the MCP Server panel to ensure AI features are properly configured
+- Use the refresh button to update the Databases view after making changes outside the extension
 
-## 📚 Learn more
+## 📚 Learn More
 
 - [Neon Docs](https://neon.tech/docs/)
-- [Neon Local Documentation](https://neon.tech/docs/local/neon-local)
 - [Neon Serverless Driver](https://neon.tech/docs/serverless/serverless-driver)
+- [Neon MCP Server](https://neon.tech/docs/ai/neon-mcp-server)
 - [Community & Support](https://discord.gg/92vNTzKDGp)
-- [Neon Local Example React Express App](https://github.com/neondatabase-labs/neon-local-example-react-express-application)
-
 
 ## 📄 License
 

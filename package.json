@@ -30,35 +30,35 @@
     "commands": [
       {
         "command": "neon-local-connect.configure",
-        "title": "Neon Local Connect: Import API Key"
+        "title": "Neon - Serverless Postgres: Import API Key"
       },
       {
         "command": "neonLocal.importApiToken",
-        "title": "Neon Local Connect: Import API Token"
+        "title": "Neon - Serverless Postgres: Import API Token"
       },
       {
         "command": "neon-local-connect.clearAuth",
-        "title": "Neon Local Connect: Clear Authentication"
+        "title": "Neon - Serverless Postgres: Clear Authentication"
       },
       {
         "command": "neon-local-connect.stopProxy",
-        "title": "Neon Local Connect: Disconnect"
+        "title": "Neon - Serverless Postgres: Disconnect"
       },
       {
         "command": "neon-local-connect.openSqlEditor",
-        "title": "Neon Local Connect: Open SQL Editor"
+        "title": "Neon - Serverless Postgres: Open SQL Editor"
       },
       {
         "command": "neon-local-connect.openTableView",
-        "title": "Neon Local Connect: Open Table View"
+        "title": "Neon - Serverless Postgres: Open Table View"
       },
       {
         "command": "neon-local-connect.launchPsql",
-        "title": "Neon Local Connect: Launch PSQL"
+        "title": "Neon - Serverless Postgres: Launch PSQL"
       },
       {
         "command": "neon-local-connect.configureOAuthPort",
-        "title": "Neon Local Connect: Configure OAuth Port"
+        "title": "Neon - Serverless Postgres: Configure OAuth Port"
       },
       {
         "command": "neonLocal.connect.refresh",
@@ -396,7 +396,7 @@
       }
     ],
     "configuration": {
-      "title": "Neon Local Connect",
+      "title": "Neon - Serverless Postgres",
       "properties": {
         "neonLocal.apiKey": {
           "type": "string",
@@ -471,7 +471,7 @@
       "activitybar": [
         {
           "id": "neon-local-connect",
-          "title": "Neon Local Connect",
+          "title": "Neon - Serverless Postgres",
           "icon": "resources/Neon_logo.png"
         }
       ]
