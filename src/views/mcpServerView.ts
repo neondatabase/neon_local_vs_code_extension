@@ -80,6 +80,9 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             await this.installToMcpJson('user');
             console.log('[MCP Server] Auto-configuration completed successfully');
 
+            // Refresh the view to show configured status
+            await this.refreshView();
+
             // Optionally notify user (silent notification, doesn't interrupt workflow)
             const appName = this._isCursor ? 'Cursor' : 'VS Code';
             vscode.window.showInformationMessage(
@@ -323,6 +326,10 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 case 'openSettings':
                     console.log('[MCP Server] Handling openSettings message');
                     await this.openSettings(message.scope);
+                    break;
+                case 'openMcpConfigFile':
+                    console.log('[MCP Server] Handling openMcpConfigFile message');
+                    await this.openMcpConfigFile();
                     break;
             }
         });
@@ -618,6 +625,48 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    /**
+     * Open the MCP configuration file that contains the Neon server config
+     */
+    private async openMcpConfigFile(): Promise<void> {
+        // First check workspace config, then fall back to user config
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        let mcpPath: string | null = null;
+
+        // Check workspace config first
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            const workspaceMcpPath = path.join(workspaceFolders[0].uri.fsPath, '.vscode', 'mcp.json');
+            if (fs.existsSync(workspaceMcpPath)) {
+                const content = fs.readFileSync(workspaceMcpPath, 'utf8');
+                try {
+                    const config = JSON.parse(content);
+                    // Check if Neon config is in workspace
+                    if ((config.mcpServers && config.mcpServers.Neon) || 
+                        (config.servers && config.servers.Neon)) {
+                        mcpPath = workspaceMcpPath;
+                    }
+                } catch (e) {
+                    // Ignore parse errors
+                }
+            }
+        }
+
+        // Fall back to user config
+        if (!mcpPath) {
+            const userMcpPath = this.getMcpJsonPath();
+            if (fs.existsSync(userMcpPath)) {
+                mcpPath = userMcpPath;
+            }
+        }
+
+        if (mcpPath) {
+            const uri = vscode.Uri.file(mcpPath);
+            await vscode.window.showTextDocument(uri);
+        } else {
+            vscode.window.showWarningMessage('MCP configuration file not found');
+        }
+    }
+
     private getWebviewContent(): string {
         return `<!DOCTYPE html>
 <html lang="en">
@@ -693,6 +742,19 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             opacity: 0.5;
             cursor: not-allowed;
         }
+        
+        .view-config-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: var(--vscode-textLink-foreground);
+            font-size: 12px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        
+        .view-config-link:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -707,6 +769,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             <div class="status-text">
                 <strong>Neon MCP server is configured</strong>
                 <div class="status-secondary" id="configured-message">Auto-configuration is enabled.</div>
+                <a href="#" id="view-config-link" class="view-config-link">View configuration</a>
             </div>
         </div>
     </div>
@@ -739,6 +802,12 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             this.disabled = true;
             this.textContent = 'Configuring...';
             vscode.postMessage({ command: 'configureMcpServer' });
+        });
+        
+        // View configuration link click handler
+        document.getElementById('view-config-link').addEventListener('click', function(e) {
+            e.preventDefault();
+            vscode.postMessage({ command: 'openMcpConfigFile' });
         });
         
         // Handle messages from extension

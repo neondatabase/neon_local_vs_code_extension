@@ -459,8 +459,17 @@ export async function activate(context: vscode.ExtensionContext) {
   updateViewContexts();
 
   // Listen for authentication state changes to update context
-  const authListener = authManager.onDidChangeAuthentication(async () => {
+  const authListener = authManager.onDidChangeAuthentication(async (isAuthenticated) => {
     await updateViewContexts();
+    
+    // When user signs in, attempt to auto-configure MCP server if not already configured
+    if (isAuthenticated) {
+      console.debug('User signed in, checking MCP server auto-configuration...');
+      // Small delay to ensure persistent API token is stored
+      setTimeout(async () => {
+        await mcpServerViewProvider.autoConfigureIfNeeded();
+      }, 1000);
+    }
   });
 
   // Listen for connection state changes to update context

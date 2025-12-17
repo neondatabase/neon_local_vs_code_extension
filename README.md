@@ -15,15 +15,12 @@ Connect to any Neon branch and manage your database directly from your IDE. Brow
   - **Table Management**: Create and edit tables with visual designer
   - **Index Management**: Create and optimize indexes (B-tree, GIN, GiST, BRIN, etc.)
   - **Foreign Key Management**: Create and manage foreign key constraints with referential integrity
-  - **Trigger Management**: Create, view, enable/disable, and manage database triggers
   - **View Management**: Create and manage regular and materialized views
-  - **Function Management**: Create and manage functions and stored procedures (PL/pgSQL, SQL, etc.)
   - **Sequence Management**: Create and manage sequences for auto-incrementing values
-  - **User & Permission Management**: Create users, drop users, change passwords, manage roles, and control permissions
+  - **User & Permission Management**: Create users, drop users, change passwords, and manage roles
   - **Data Import/Export**: Import from CSV/JSON files, export to CSV/JSON/SQL
 - **Built-in SQL Editor**: Write and execute SQL queries directly in your IDE with syntax highlighting, results display, and export capabilities  
 - **Table Data Management**: View, edit, insert, and delete table data with a spreadsheet-like interface without leaving your IDE
-- **Multiple Query Options**: Query your database using the built-in SQL editor, terminal, or via the Neon console
 
 ## 📋 Requirements
 

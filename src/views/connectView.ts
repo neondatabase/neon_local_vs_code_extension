@@ -77,7 +77,7 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                 // User has signed out, clear state and show sign-in
                 await this._stateService.clearState();
                 if (this._view && this._signInView) {
-                    this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your database", true);
+                    this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your Neon branch", true);
                 }
             }
         });
@@ -123,7 +123,7 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                 if (!isAuthenticated) {
                     console.debug('ConnectViewProvider: Not authenticated, showing sign-in');
                     if (this._view && this._signInView) {
-                        this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your database", true);
+                        this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your Neon branch", true);
                     }
                     return;
                 }
@@ -329,7 +329,7 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                 case 'clearAuth':
                     // Show sign-in view without clearing state
                     if (this._view && this._signInView) {
-                        this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your database", true);
+                        this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your Neon branch", true);
                     }
                     break;
                 case 'openNeonConsole':
@@ -1218,7 +1218,7 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
             if (!isAuthenticated) {
                 console.debug('ConnectViewProvider: Not authenticated, showing sign-in message');
                 if (this._view && this._signInView) {
-                    this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your database", true);
+                    this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your Neon branch", true);
                 }
                 return;
             }
@@ -1384,6 +1384,34 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
             'drizzle.config.js'
         ];
 
+        // First pass: find all connection strings (before API enrichment)
+        let totalConnectionsFound = 0;
+        for (const file of filesToCheck) {
+            const filePath = path.join(workspaceRoot, file);
+            if (fs.existsSync(filePath)) {
+                try {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    const matches = content.match(neonConnRegex);
+                    if (matches) {
+                        totalConnectionsFound += matches.length;
+                    }
+                } catch (error) {
+                    // Ignore read errors for now, we'll handle them in the detailed pass
+                }
+            }
+        }
+
+        // If connection strings were found, notify frontend to show loading state
+        // while API calls happen for enrichment
+        if (totalConnectionsFound > 0 && this._view) {
+            console.debug(`Found ${totalConnectionsFound} connection strings, enriching with API data...`);
+            this._view.webview.postMessage({
+                command: 'connectionStringsFound',
+                count: totalConnectionsFound
+            });
+        }
+
+        // Second pass: extract details and enrich with API data
         for (const file of filesToCheck) {
             const filePath = path.join(workspaceRoot, file);
             if (fs.existsSync(filePath)) {

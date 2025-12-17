@@ -2,7 +2,7 @@
   "name": "neon-local-connect",
   "displayName": "Neon",
   "description": "Local development environment for Neon Databases with branch management",
-  "version": "1.0.9",
+  "version": "2.0.0",
   "publisher": "databricks",
   "repository": {
     "type": "git",

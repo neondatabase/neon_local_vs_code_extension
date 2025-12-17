@@ -138,14 +138,14 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
       !isLoadingConnections;
 
     if (shouldRunBackgroundScans) {
-      console.debug('Setting up background rescan interval (30s)');
+      console.debug('Setting up background rescan interval (10s)');
       backgroundScanIntervalRef.current = setInterval(() => {
         if (!isBackgroundScanning && !isLoadingConnections) {
           console.debug('Running background rescan for connection strings...');
           setIsBackgroundScanning(true);
           vscode.postMessage({ command: 'backgroundScanWorkspaceForConnections' });
         }
-      }, 30000); // 30 seconds
+      }, 10000); // 10 seconds
     }
 
     // Cleanup on unmount or when conditions change
@@ -184,8 +184,28 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
     let effectiveOrgId = state.connection.selectedOrgId;
     let effectiveProjectId = state.connection.selectedProjectId;
 
-    // Auto-select org if there's only one and on app tab
-    if (activeTab === 'app' && orgsForApp.length === 1 && !state.connection.selectedOrgId) {
+    // On app tab, if current org selection is not in the filtered list, clear all selections
+    if (activeTab === 'app' && state.connection.selectedOrgId && !uniqueOrgIds.has(state.connection.selectedOrgId)) {
+      console.debug('Clearing stale org selection (not in detected connections):', state.connection.selectedOrgId);
+      effectiveOrgId = '';
+      effectiveProjectId = undefined;
+      updateState({
+        connection: {
+          ...state.connection,
+          selectedOrgId: '',
+          selectedOrgName: '',
+          selectedProjectId: undefined,
+          selectedProjectName: undefined,
+          selectedBranchId: undefined,
+          selectedBranchName: undefined
+        }
+      });
+    }
+
+    // Auto-select org if there's only one and on app tab (or if selection was just cleared)
+    const shouldAutoSelectOrg = activeTab === 'app' && orgsForApp.length === 1 &&
+      (!state.connection.selectedOrgId || !uniqueOrgIds.has(state.connection.selectedOrgId));
+    if (shouldAutoSelectOrg) {
       const org = orgsForApp[0];
       console.debug('Auto-selecting org:', org.id, org.name);
       effectiveOrgId = org.id;
@@ -230,8 +250,27 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
       const projectsForApp = state.projects.filter(p => uniqueProjectIds.has(p.id));
       setFilteredProjects(projectsForApp);
 
-      // Auto-select project if there's only one and on app tab
-      if (activeTab === 'app' && projectsForApp.length === 1 && !state.connection.selectedProjectId) {
+      // On app tab, if current selection is not in the filtered list, clear it
+      // This handles when there's a stale selection from a previous session
+      if (activeTab === 'app' && state.connection.selectedProjectId && !uniqueProjectIds.has(state.connection.selectedProjectId)) {
+        console.debug('Clearing stale project selection (not in detected connections):', state.connection.selectedProjectId);
+        updateState({
+          connection: {
+            ...state.connection,
+            selectedProjectId: undefined,
+            selectedProjectName: undefined,
+            selectedBranchId: undefined,
+            selectedBranchName: undefined
+          }
+        });
+        // Also reset the effective IDs for this render cycle
+        effectiveProjectId = undefined;
+      }
+
+      // Auto-select project if there's only one and on app tab (or if selection was just cleared)
+      const shouldAutoSelectProject = activeTab === 'app' && projectsForApp.length === 1 && 
+        (!state.connection.selectedProjectId || !uniqueProjectIds.has(state.connection.selectedProjectId));
+      if (shouldAutoSelectProject) {
         const project = projectsForApp[0];
         console.debug('Auto-selecting project:', project.id, project.name);
         // Set effective project ID for branch filtering in this same render
@@ -295,8 +334,22 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
       });
       setFilteredBranches(branchesForApp);
 
-      // Auto-select branch if there's only one and on app tab
-      if (activeTab === 'app' && branchesForApp.length === 1 && !state.connection.selectedBranchId) {
+      // On app tab, if current branch selection is not in the filtered list, clear it
+      if (activeTab === 'app' && state.connection.selectedBranchId && !uniqueBranchIds.has(state.connection.selectedBranchId)) {
+        console.debug('Clearing stale branch selection (not in detected connections):', state.connection.selectedBranchId);
+        updateState({
+          connection: {
+            ...state.connection,
+            selectedBranchId: undefined,
+            selectedBranchName: undefined
+          }
+        });
+      }
+
+      // Auto-select branch if there's only one and on app tab (or if selection was just cleared)
+      const shouldAutoSelectBranch = activeTab === 'app' && branchesForApp.length === 1 &&
+        (!state.connection.selectedBranchId || !uniqueBranchIds.has(state.connection.selectedBranchId));
+      if (shouldAutoSelectBranch) {
         const branch = branchesForApp[0];
         console.debug('Auto-selecting branch:', branch.id, branch.name);
         updateState({
@@ -408,6 +461,15 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
             if (activeTabRef.current === 'app') {
               setIsLoadingConnections(true);
               setDetectedConnections([]);
+            }
+            break;
+          
+          case 'connectionStringsFound':
+            // Connection strings were found, but API calls are still in progress to get org/project/branch info
+            // Show loading state while enrichment happens
+            console.debug('Connection strings found, enriching with API data...', message.count);
+            if (activeTabRef.current === 'app' && !isBackgroundScanning) {
+              setIsLoadingConnections(true);
             }
             break;
           
@@ -1017,7 +1079,7 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
                     fontSize: '13px',
                     color: 'var(--vscode-descriptionForeground)'
                   }}>
-                    <div style={{ fontWeight: 500, marginBottom: '8px', color: 'var(--vscode-foreground)' }}>
+                    <div style={{ fontWeight: 500, fontSize: '14px', marginBottom: '8px', color: 'var(--vscode-foreground)' }}>
                       {detectedConnections.length === 0 
                         ? 'No Neon connection strings detected in this repo.'
                         : 'No accessible Neon branches found.'}
@@ -1061,8 +1123,7 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
                       >
                         <span>Get started with Neon</span>
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M10.75 1.75H4.25C3.97386 1.75 3.75 1.97386 3.75 2.25V11.25C3.75 11.5261 3.97386 11.75 4.25 11.75H10.75C11.0261 11.75 11.25 11.5261 11.25 11.25V2.25C11.25 1.97386 11.0261 1.75 10.75 1.75Z" stroke="currentColor" strokeWidth="1.5"/>
-                          <path d="M12.25 4.25H13.75V13.75H5.75V12.25" stroke="currentColor" strokeWidth="1.5"/>
+                          <path d="M14 1H2C1.44772 1 1 1.44772 1 2V10C1 10.5523 1.44772 11 2 11H4V14L8 11H14C14.5523 11 15 10.5523 15 10V2C15 1.44772 14.5523 1 14 1Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       </button>
                     )}
