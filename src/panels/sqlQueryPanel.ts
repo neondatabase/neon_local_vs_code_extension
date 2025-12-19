@@ -583,20 +583,6 @@ export class SqlQueryPanel {
             outline: 1px solid var(--vscode-focusBorder);
         }
 
-        .control-btn {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            border: none;
-            border-radius: 3px;
-            padding: 4px 8px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-
-        .control-btn:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-
         .sortable-header {
             cursor: pointer;
             user-select: none;

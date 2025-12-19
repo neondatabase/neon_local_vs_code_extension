@@ -10,12 +10,58 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
     private readonly _isCursor: boolean;
     private readonly _context: vscode.ExtensionContext;
     private static readonly AUTO_CONFIG_ENABLED_KEY = 'neon.mcpServer.autoConfigEnabled';
+    
+    // Expected Neon MCP server configuration (HTTP format)
+    private static readonly EXPECTED_NEON_CONFIG = {
+        type: 'http',
+        url: 'https://mcp.neon.tech/mcp'
+    };
 
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
         this._context = context;
         // Detect if running in Cursor
         this._isCursor = vscode.env.appName.toLowerCase().includes('cursor');
+    }
+
+    /**
+     * Find a Neon server key in the servers object (case-insensitive)
+     * Returns the actual key name if found, null otherwise
+     */
+    private findNeonServerKey(servers: Record<string, any> | undefined): string | null {
+        if (!servers) {
+            return null;
+        }
+        
+        for (const key of Object.keys(servers)) {
+            if (key.toLowerCase() === 'neon') {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Check if a Neon server configuration matches what the extension would configure
+     */
+    private isExtensionManagedConfig(serverConfig: any): boolean {
+        if (!serverConfig) {
+            return false;
+        }
+        
+        // Check if it's an HTTP-based config pointing to our expected URL
+        const isHttpType = serverConfig.type === 'http';
+        const hasExpectedUrl = serverConfig.url === MCPServerViewProvider.EXPECTED_NEON_CONFIG.url;
+        
+        // Check if the config has an Authorization header with a Bearer token
+        const authHeader = serverConfig.headers?.Authorization;
+        const hasBearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') && authHeader.length > 7;
+        
+        // Check if the token starts with 'napi_' (Neon API token format)
+        const token = hasBearerToken ? authHeader.substring(7) : '';
+        const hasNeonApiToken = token.startsWith('napi_');
+        
+        return isHttpType && hasExpectedUrl && hasBearerToken && hasNeonApiToken;
     }
 
     /**
@@ -61,9 +107,13 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const isConfigured = await this.isConfigured();
-            if (isConfigured) {
-                console.log('[MCP Server] Already configured, skipping auto-configuration');
+            const config = await this.getMcpConfiguration();
+            if (config.isConfigured) {
+                if (config.isManaged) {
+                    console.log('[MCP Server] Already configured with managed config, skipping auto-configuration');
+                } else {
+                    console.log('[MCP Server] Non-managed Neon MCP server detected, skipping auto-configuration');
+                }
                 return;
             }
 
@@ -147,6 +197,80 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             console.error('[MCP Server] Configuration from button failed:', error);
             vscode.window.showErrorMessage(
                 `Failed to configure MCP Server: ${error instanceof Error ? error.message : 'Unknown error'}`
+            );
+            
+            if (this._view) {
+                this._view.webview.postMessage({ command: 'configurationFailed' });
+            }
+        }
+    }
+
+    /**
+     * Re-configure MCP server when a non-managed configuration is detected
+     * This will remove the existing configuration and install a new managed one
+     */
+    private async reconfigureMcpServer(): Promise<void> {
+        try {
+            console.log('[MCP Server] Re-configuring MCP server...');
+            
+            // Check for API token
+            const apiToken = await this._context.secrets.get('neon.persistentApiToken');
+            if (!apiToken) {
+                vscode.window.showWarningMessage(
+                    'Please sign in to the Neon extension before re-configuring the MCP server.',
+                    'Sign In'
+                ).then(selection => {
+                    if (selection === 'Sign In') {
+                        vscode.commands.executeCommand('neonLocal.signIn');
+                    }
+                });
+                
+                if (this._view) {
+                    this._view.webview.postMessage({ command: 'configurationFailed' });
+                }
+                return;
+            }
+            
+            // Show confirmation dialog
+            const confirmation = await vscode.window.showWarningMessage(
+                'This will replace the existing Neon MCP server configuration with the extension-managed configuration. Continue?',
+                { modal: true },
+                'Re-configure',
+                'Cancel'
+            );
+            
+            if (confirmation !== 'Re-configure') {
+                if (this._view) {
+                    this._view.webview.postMessage({ command: 'configurationFailed' });
+                }
+                return;
+            }
+            
+            // Remove existing configuration first
+            await this.removeMcpConfiguration();
+            
+            // Install new managed configuration
+            await this.installToMcpJson('user');
+            console.log('[MCP Server] Re-configuration completed successfully');
+            
+            const appName = this._isCursor ? 'Cursor' : 'VS Code';
+            vscode.window.showInformationMessage(
+                `Neon MCP Server re-configured successfully in ${appName}!`,
+                'Reload Window'
+            ).then(selection => {
+                if (selection === 'Reload Window') {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            });
+            
+            // Notify webview of success and refresh
+            if (this._view) {
+                this._view.webview.postMessage({ command: 'configurationComplete' });
+            }
+        } catch (error) {
+            console.error('[MCP Server] Re-configuration failed:', error);
+            vscode.window.showErrorMessage(
+                `Failed to re-configure MCP Server: ${error instanceof Error ? error.message : 'Unknown error'}`
             );
             
             if (this._view) {
@@ -241,7 +365,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Remove Neon MCP server from a specific mcp.json file
+     * Remove Neon MCP server from a specific mcp.json file (case-insensitive)
      */
     private async removeMcpFromFile(mcpPath: string, scope: 'user' | 'workspace'): Promise<void> {
         try {
@@ -258,15 +382,22 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
 
             const mcpConfig = JSON.parse(mcpContent);
             
-            // Cursor uses mcpServers.Neon, VS Code uses servers.Neon
-            if (mcpConfig.mcpServers && mcpConfig.mcpServers.Neon) {
-                delete mcpConfig.mcpServers.Neon;
-                console.log(`[MCP Server] Removed Neon from mcpServers at ${mcpPath}`);
+            // Remove Neon from mcpServers (case-insensitive)
+            if (mcpConfig.mcpServers) {
+                const neonKey = this.findNeonServerKey(mcpConfig.mcpServers);
+                if (neonKey) {
+                    delete mcpConfig.mcpServers[neonKey];
+                    console.log(`[MCP Server] Removed '${neonKey}' from mcpServers at ${mcpPath}`);
+                }
             }
             
-            if (mcpConfig.servers && mcpConfig.servers.Neon) {
-                delete mcpConfig.servers.Neon;
-                console.log(`[MCP Server] Removed Neon from servers at ${mcpPath}`);
+            // Remove Neon from servers (case-insensitive)
+            if (mcpConfig.servers) {
+                const neonKey = this.findNeonServerKey(mcpConfig.servers);
+                if (neonKey) {
+                    delete mcpConfig.servers[neonKey];
+                    console.log(`[MCP Server] Removed '${neonKey}' from servers at ${mcpPath}`);
+                }
             }
             
             // Also check for legacy formats and clean them up
@@ -322,6 +453,10 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 case 'configureMcpServer':
                     console.log('[MCP Server] Handling configureMcpServer message');
                     await this.configureFromButton();
+                    break;
+                case 'reconfigureMcpServer':
+                    console.log('[MCP Server] Handling reconfigureMcpServer message');
+                    await this.reconfigureMcpServer();
                     break;
                 case 'openSettings':
                     console.log('[MCP Server] Handling openSettings message');
@@ -379,6 +514,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         console.log('[MCP Server] Configuration check:', {
             isCursor: this._isCursor,
             isConfigured: config.isConfigured,
+            isManaged: config.isManaged,
             configScope: config.configScope,
             autoConfigEnabled
         });
@@ -394,6 +530,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
 
     private async getMcpConfiguration(): Promise<{
         isConfigured: boolean;
+        isManaged: boolean;
         configScope: 'user' | 'workspace' | null;
         configPath: string | null;
     }> {
@@ -404,6 +541,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
 
     private async checkMcpJsonConfiguration(): Promise<{
         isConfigured: boolean;
+        isManaged: boolean;
         configScope: 'user' | 'workspace' | null;
         configPath: string | null;
     }> {
@@ -421,14 +559,18 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                     if (mcpContent.trim()) {
                         const mcpConfig = JSON.parse(mcpContent);
                         console.log('[MCP Server] Workspace mcp.json content:', JSON.stringify(mcpConfig, null, 2));
-                        // Cursor uses mcpServers.Neon, VS Code uses servers.Neon
-                        const hasNeonServer = this._isCursor 
-                            ? !!(mcpConfig?.mcpServers?.Neon)
-                            : !!(mcpConfig?.servers?.Neon);
-                        console.log(`[MCP Server] Workspace has Neon MCP server:`, hasNeonServer);
+                        // Cursor uses mcpServers, VS Code uses servers - check case-insensitively
+                        const serversObj = this._isCursor ? mcpConfig?.mcpServers : mcpConfig?.servers;
+                        const neonKey = this.findNeonServerKey(serversObj);
+                        const hasNeonServer = neonKey !== null;
+                        console.log(`[MCP Server] Workspace has Neon MCP server:`, hasNeonServer, 'key:', neonKey);
                         if (hasNeonServer) {
+                            const serverConfig = serversObj[neonKey];
+                            const isManaged = this.isExtensionManagedConfig(serverConfig);
+                            console.log(`[MCP Server] Workspace Neon config is managed:`, isManaged);
                             return {
                                 isConfigured: true,
+                                isManaged,
                                 configScope: 'workspace',
                                 configPath: workspaceMcpPath
                             };
@@ -452,14 +594,18 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 if (mcpContent.trim()) {
                     const mcpConfig = JSON.parse(mcpContent);
                     console.log('[MCP Server] User mcp.json content:', JSON.stringify(mcpConfig, null, 2));
-                    // Cursor uses mcpServers.Neon, VS Code uses servers.Neon
-                    const hasNeonServer = this._isCursor 
-                        ? !!(mcpConfig?.mcpServers?.Neon)
-                        : !!(mcpConfig?.servers?.Neon);
-                    console.log(`[MCP Server] User mcp.json has Neon MCP server:`, hasNeonServer);
+                    // Cursor uses mcpServers, VS Code uses servers - check case-insensitively
+                    const serversObj = this._isCursor ? mcpConfig?.mcpServers : mcpConfig?.servers;
+                    const neonKey = this.findNeonServerKey(serversObj);
+                    const hasNeonServer = neonKey !== null;
+                    console.log(`[MCP Server] User mcp.json has Neon MCP server:`, hasNeonServer, 'key:', neonKey);
                     if (hasNeonServer) {
+                        const serverConfig = serversObj[neonKey];
+                        const isManaged = this.isExtensionManagedConfig(serverConfig);
+                        console.log(`[MCP Server] User Neon config is managed:`, isManaged);
                         return {
                             isConfigured: true,
+                            isManaged,
                             configScope: 'user',
                             configPath: userMcpPath
                         };
@@ -473,6 +619,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         console.log('[MCP Server] No configuration found in mcp.json files');
         return {
             isConfigured: false,
+            isManaged: false,
             configScope: null,
             configPath: null
         };
@@ -640,9 +787,10 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 const content = fs.readFileSync(workspaceMcpPath, 'utf8');
                 try {
                     const config = JSON.parse(content);
-                    // Check if Neon config is in workspace
-                    if ((config.mcpServers && config.mcpServers.Neon) || 
-                        (config.servers && config.servers.Neon)) {
+                    // Check if Neon config is in workspace (case-insensitive)
+                    const hasMcpServersNeon = this.findNeonServerKey(config.mcpServers) !== null;
+                    const hasServersNeon = this.findNeonServerKey(config.servers) !== null;
+                    if (hasMcpServersNeon || hasServersNeon) {
                         mcpPath = workspaceMcpPath;
                     }
                 } catch (e) {
@@ -684,7 +832,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         
         .status-message {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 8px;
             padding: 12px;
             background: var(--vscode-editor-background);
@@ -698,6 +846,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             display: flex;
             align-items: center;
             justify-content: center;
+            margin-top: 2px;
         }
         
         .status-icon svg {
@@ -743,6 +892,26 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             cursor: not-allowed;
         }
         
+        .secondary-button {
+            margin-top: 8px;
+            padding: 6px 14px;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        
+        .secondary-button:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+        
+        .secondary-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
         .view-config-link {
             display: inline-block;
             margin-top: 8px;
@@ -754,6 +923,13 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         
         .view-config-link:hover {
             text-decoration: underline;
+        }
+        
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 12px;
         }
     </style>
 </head>
@@ -770,6 +946,28 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 <strong>Neon MCP server is configured</strong>
                 <div class="status-secondary" id="configured-message">Auto-configuration is enabled.</div>
                 <a href="#" id="view-config-link" class="view-config-link">View configuration</a>
+            </div>
+        </div>
+    </div>
+    
+    <div id="non-managed-view" class="hidden">
+        <div class="status-message">
+            <span class="status-icon">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="8" cy="8" r="7" stroke="var(--vscode-editorInfo-foreground)" stroke-width="1.5"/>
+                    <path d="M8 4.5V5" stroke="var(--vscode-editorInfo-foreground)" stroke-width="1.5" stroke-linecap="round"/>
+                    <path d="M8 7V11.5" stroke="var(--vscode-editorInfo-foreground)" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+            </span>
+            <div class="status-text">
+                <strong>Non-managed Neon MCP server detected</strong>
+                <div class="status-secondary" id="non-managed-message">
+                    A Neon MCP server configuration was detected that differs from the extension-managed configuration. The extension was unable to automatically configure the MCP server.
+                </div>
+                <div class="button-group">
+                    <a href="#" id="non-managed-view-config-link" class="view-config-link" style="margin-top: 0;">View configuration</a>
+                    <button id="reconfigure-button" class="secondary-button">Re-configure MCP Server</button>
+                </div>
             </div>
         </div>
     </div>
@@ -804,8 +1002,20 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             vscode.postMessage({ command: 'configureMcpServer' });
         });
         
-        // View configuration link click handler
+        // Reconfigure button click handler
+        document.getElementById('reconfigure-button').addEventListener('click', function() {
+            this.disabled = true;
+            this.textContent = 'Re-configuring...';
+            vscode.postMessage({ command: 'reconfigureMcpServer' });
+        });
+        
+        // View configuration link click handlers
         document.getElementById('view-config-link').addEventListener('click', function(e) {
+            e.preventDefault();
+            vscode.postMessage({ command: 'openMcpConfigFile' });
+        });
+        
+        document.getElementById('non-managed-view-config-link').addEventListener('click', function(e) {
             e.preventDefault();
             vscode.postMessage({ command: 'openMcpConfigFile' });
         });
@@ -816,19 +1026,31 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             
             if (message.command === 'configurationStatus') {
                 const configureButton = document.getElementById('configure-button');
+                const reconfigureButton = document.getElementById('reconfigure-button');
+                
+                // Hide all views first
+                document.getElementById('configured-view').classList.add('hidden');
+                document.getElementById('non-managed-view').classList.add('hidden');
+                document.getElementById('not-configured-view').classList.add('hidden');
                 
                 if (message.isConfigured) {
-                    document.getElementById('configured-view').classList.remove('hidden');
-                    document.getElementById('not-configured-view').classList.add('hidden');
-                    
-                    const configuredMsg = document.getElementById('configured-message');
-                    if (message.autoConfigEnabled) {
-                        configuredMsg.textContent = 'Auto-configuration is enabled.';
+                    if (message.isManaged) {
+                        // Show configured view for managed configs
+                        document.getElementById('configured-view').classList.remove('hidden');
+                        
+                        const configuredMsg = document.getElementById('configured-message');
+                        if (message.autoConfigEnabled) {
+                            configuredMsg.textContent = 'Auto-configuration is enabled.';
+                        } else {
+                            configuredMsg.textContent = 'Auto-configuration is disabled.';
+                        }
                     } else {
-                        configuredMsg.textContent = 'Auto-configuration is disabled.';
+                        // Show non-managed view for non-managed configs
+                        document.getElementById('non-managed-view').classList.remove('hidden');
+                        reconfigureButton.disabled = false;
+                        reconfigureButton.textContent = 'Re-configure MCP Server';
                     }
                 } else {
-                    document.getElementById('configured-view').classList.add('hidden');
                     document.getElementById('not-configured-view').classList.remove('hidden');
                     
                     const notConfiguredMsg = document.getElementById('not-configured-message');
@@ -847,8 +1069,11 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 vscode.postMessage({ command: 'checkConfiguration' });
             } else if (message.command === 'configurationFailed') {
                 const configureButton = document.getElementById('configure-button');
+                const reconfigureButton = document.getElementById('reconfigure-button');
                 configureButton.disabled = false;
                 configureButton.textContent = 'Configure MCP Server';
+                reconfigureButton.disabled = false;
+                reconfigureButton.textContent = 'Re-configure MCP Server';
                 // The error message will be shown via VS Code notification
             }
         });

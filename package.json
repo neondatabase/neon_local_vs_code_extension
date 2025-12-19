@@ -30,7 +30,7 @@
     "commands": [
       {
         "command": "neon-local-connect.configure",
-        "title": "Neon - Serverless Postgres: Import API Key"
+        "title": "Neon: Import API Key"
       },
       {
         "command": "neonLocal.importApiToken",
@@ -134,11 +134,7 @@
         "title": "Edit Table Schema",
         "icon": "$(edit)"
       },
-      {
-        "command": "neonLocal.schema.manageObjectPermissions",
-        "title": "Manage Permissions",
-        "icon": "$(shield)"
-      },
+
       {
         "command": "neonLocal.schema.createSchema",
         "title": "Create Schema",
@@ -206,7 +202,7 @@
       },
       {
         "command": "neonLocal.schema.createUser",
-        "title": "Create User/Role",
+        "title": "Create Role",
         "icon": "$(add)"
       },
       {
@@ -224,21 +220,13 @@
         "title": "Reset Password (Neon API)",
         "icon": "$(sync)"
       },
-      {
-        "command": "neonLocal.schema.managePermissions",
-        "title": "Manage Permissions",
-        "icon": "$(shield)"
-      },
+
       {
         "command": "neonLocal.schema.editRole",
         "title": "Edit Role",
         "icon": "$(edit)"
       },
-      {
-        "command": "neonLocal.schema.manageRolePermissions",
-        "title": "Manage Role Permissions",
-        "icon": "$(shield)"
-      },
+
       {
         "command": "neonLocal.schema.dropRole",
         "title": "Drop Role",
@@ -393,6 +381,11 @@
         "command": "neonLocal.schema.dropColumn",
         "title": "Drop Column",
         "icon": "$(trash)"
+      },
+      {
+        "command": "neonLocal.schema.openInConsole",
+        "title": "Open in Neon Console",
+        "icon": "$(link-external)"
       }
     ],
     "configuration": {
@@ -526,54 +519,10 @@
         }
       ],
       "view/item/context": [
+        
         {
           "command": "neonLocal.schema.showContextMenu",
           "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == regularView || viewItem == materializedView || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == triggerEnabled || viewItem == triggerDisabled || viewItem == regularRole || viewItem == neonSuperuserRole || viewItem == container || viewItem == column || viewItem == index || viewItem == constraint || viewItem == policy)",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createDatabase",
-          "when": "view == neonLocalSchema && viewItem == databasesContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createUser",
-          "when": "view == neonLocalSchema && viewItem == rolesContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createSchema",
-          "when": "view == neonLocalSchema && viewItem == schemasContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createTable",
-          "when": "view == neonLocalSchema && viewItem == tablesContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createIndex",
-          "when": "view == neonLocalSchema && viewItem == indexesContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createView",
-          "when": "view == neonLocalSchema && viewItem == viewsContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createFunction",
-          "when": "view == neonLocalSchema && viewItem == functionsContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.createSequence",
-          "when": "view == neonLocalSchema && viewItem == sequencesContainer",
-          "group": "inline"
-        },
-        {
-          "command": "neonLocal.schema.viewTableData",
-          "when": "view == neonLocalSchema && viewItem == table",
           "group": "inline"
         },
         {
@@ -581,310 +530,312 @@
           "when": "view == neonLocalSchema && (viewItem == table || viewItem == regularView || viewItem == materializedView)",
           "group": "inline"
         },
+
+
+
+
         {
           "command": "neonLocal.schema.resetFromParent",
-          "when": "view == neonLocalSchema && viewItem == connection",
-          "group": "2_reset"
+          "when": "view == neonLocalSchema && viewItem == connection"
         },
         {
-          "command": "neonLocal.schema.openSqlQuery",
-          "when": "view == neonLocalSchema && viewItem == foreignkey",
-          "group": "4_query"
+          "command": "neonLocal.schema.openInConsole",
+          "when": "view == neonLocalSchema && viewItem == connection"
+        },
+
+
+
+
+        {
+          "command": "neonLocal.schema.createDatabase",
+          "when": "view == neonLocalSchema && viewItem == databasesContainer",
+          "group": "inline"
         },
         {
-          "command": "neonLocal.schema.truncateTable",
-          "when": "view == neonLocalSchema && viewItem == table",
-          "group": "5_modify"
+          "command": "neonLocal.schema.createDatabase",
+          "when": "view == neonLocalSchema && (viewItem == databasesContainer)"
         },
+
+
         {
-          "command": "neonLocal.schema.dropTable",
-          "when": "view == neonLocalSchema && viewItem == table",
-          "group": "5_modify"
+          "command": "neonLocal.schema.launchPsql",
+          "when": "view == neonLocalSchema && viewItem == database"        
         },
+
+
+
+
         {
-          "command": "neonLocal.schema.createTable",
-          "when": "view == neonLocalSchema && (viewItem == schema || viewItem == database)",
-          "group": "3_create"
-        },
-        {
-          "command": "neonLocal.schema.editTable",
-          "when": "view == neonLocalSchema && viewItem == table",
-          "group": "5_modify"
-        },
-        {
-          "command": "neonLocal.schema.manageObjectPermissions",
-          "when": "view == neonLocalSchema && viewItem == table",
-          "group": "5_modify"
+          "command": "neonLocal.schema.createSchema",
+          "when": "view == neonLocalSchema && viewItem == schemasContainer",
+          "group": "inline"
         },
         {
           "command": "neonLocal.schema.createSchema",
-          "when": "view == neonLocalSchema && viewItem == database",
-          "group": "2_schema"
+          "when": "view == neonLocalSchema && viewItem == schemasContainer"
         },
-        {
-          "command": "neonLocal.schema.showSchemaProperties",
-          "when": "view == neonLocalSchema && viewItem == schema",
-          "group": "1_info"
-        },
+
+
         {
           "command": "neonLocal.schema.editSchema",
           "when": "view == neonLocalSchema && viewItem == schema",
-          "group": "6_schema_modify"
-        },
-        {
-          "command": "neonLocal.schema.manageObjectPermissions",
-          "when": "view == neonLocalSchema && viewItem == schema",
-          "group": "6_schema_modify"
+          "group": "schema_actions@1"
         },
         {
           "command": "neonLocal.schema.dropSchema",
           "when": "view == neonLocalSchema && viewItem == schema",
-          "group": "7_schema_delete"
+          "group": "schema_actions@2"
+        },
+
+
+
+
+        {
+          "command": "neonLocal.schema.createTable",
+          "when": "view == neonLocalSchema && viewItem == tablesContainer",
+          "group": "inline"
         },
         {
-          "command": "neonLocal.schema.createIndex",
+          "command": "neonLocal.schema.createTable",
+          "when": "view == neonLocalSchema && viewItem == tablesContainer"
+        },
+
+
+        {
+          "command": "neonLocal.schema.viewTableData",
           "when": "view == neonLocalSchema && viewItem == table",
-          "group": "4_index"
+          "group": "inline"
         },
         {
-          "command": "neonLocal.schema.manageIndexes",
+          "command": "neonLocal.schema.queryTable",
           "when": "view == neonLocalSchema && viewItem == table",
-          "group": "4_index"
+          "group": "1_table_use@1"
         },
         {
-          "command": "neonLocal.schema.editView",
-          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
-          "group": "2_view_modify"
-        },
-        {
-          "command": "neonLocal.schema.refreshMaterializedView",
-          "when": "view == neonLocalSchema && viewItem == materializedView",
-          "group": "2_view_modify"
-        },
-        {
-          "command": "neonLocal.schema.manageObjectPermissions",
-          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
-          "group": "2_view_modify"
-        },
-        {
-          "command": "neonLocal.schema.dropView",
-          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
-          "group": "9_view_delete"
-        },
-        {
-          "command": "neonLocal.schema.createDatabase",
-          "when": "view == neonLocalSchema && (viewItem == connection || viewItem == databasesContainer)",
-          "group": "1_database"
-        },
-        {
-          "command": "neonLocal.schema.dropDatabase",
-          "when": "view == neonLocalSchema && viewItem == database",
-          "group": "9_database_delete"
-        },
-        {
-          "command": "neonLocal.schema.launchPsql",
-          "when": "view == neonLocalSchema && viewItem == database",
-          "group": "1_database_operations"
-        },
-        {
-          "command": "neonLocal.schema.showUsers",
-          "when": "view == neonLocalSchema && viewItem == database",
-          "group": "8_users"
-        },
-        {
-          "command": "neonLocal.schema.createUser",
-          "when": "view == neonLocalSchema && viewItem == database",
-          "group": "8_users"
+          "command": "neonLocal.schema.viewTableData",
+          "when": "view == neonLocalSchema && viewItem == table",
+          "group": "1_table_use@2"
         },
         {
           "command": "neonLocal.schema.importData",
           "when": "view == neonLocalSchema && viewItem == table",
-          "group": "9_data"
+          "group": "1_table_use@3"
         },
         {
           "command": "neonLocal.schema.exportData",
           "when": "view == neonLocalSchema && viewItem == table",
-          "group": "9_data"
+          "group": "1_table_use@4"
         },
         {
-          "command": "neonLocal.schema.createFunction",
-          "when": "view == neonLocalSchema && (viewItem == schema || viewItem == database)",
-          "group": "3_function"
-        },
-        {
-          "command": "neonLocal.schema.editFunction",
-          "when": "view == neonLocalSchema && viewItem == function",
-          "group": "2_function_modify"
-        },
-        {
-          "command": "neonLocal.schema.manageObjectPermissions",
-          "when": "view == neonLocalSchema && viewItem == function",
-          "group": "2_function_modify"
-        },
-        {
-          "command": "neonLocal.schema.dropFunction",
-          "when": "view == neonLocalSchema && viewItem == function",
-          "group": "9_function_delete"
-        },
-        {
-          "command": "neonLocal.schema.createSequence",
-          "when": "view == neonLocalSchema && (viewItem == schema || viewItem == database)",
-          "group": "3_sequence"
-        },
-        {
-          "command": "neonLocal.schema.alterSequence",
-          "when": "view == neonLocalSchema && viewItem == sequence",
-          "group": "2_sequence_modify"
-        },
-        {
-          "command": "neonLocal.schema.manageObjectPermissions",
-          "when": "view == neonLocalSchema && viewItem == sequence",
-          "group": "2_sequence_modify"
-        },
-        {
-          "command": "neonLocal.schema.dropSequence",
-          "when": "view == neonLocalSchema && viewItem == sequence",
-          "group": "9_sequence_delete"
-        },
-        {
-          "command": "neonLocal.schema.createForeignKey",
+          "command": "neonLocal.schema.editTable",
           "when": "view == neonLocalSchema && viewItem == table",
-          "group": "4_foreignkey"
+          "group": "1_table_use@5"
         },
         {
-          "command": "neonLocal.schema.viewForeignKeyProperties",
-          "when": "view == neonLocalSchema && viewItem == foreignkey",
-          "group": "1_foreignkey_info"
-        },
-        {
-          "command": "neonLocal.schema.dropForeignKey",
-          "when": "view == neonLocalSchema && viewItem == foreignkey",
-          "group": "9_foreignkey_delete"
-        },
-        {
-          "command": "neonLocal.schema.createTrigger",
+          "command": "neonLocal.schema.truncateTable",
           "when": "view == neonLocalSchema && viewItem == table",
-          "group": "5_trigger"
+          "group": "2_table_danger@1"
         },
         {
-          "command": "neonLocal.schema.editTrigger",
-          "when": "view == neonLocalSchema && (viewItem == triggerEnabled || viewItem == triggerDisabled)",
-          "group": "1_trigger_edit"
+          "command": "neonLocal.schema.dropTable",
+          "when": "view == neonLocalSchema && viewItem == table",
+          "group": "2_table_danger@2"
         },
-        {
-          "command": "neonLocal.schema.enableTrigger",
-          "when": "view == neonLocalSchema && viewItem == triggerDisabled",
-          "group": "2_trigger_toggle"
-        },
-        {
-          "command": "neonLocal.schema.disableTrigger",
-          "when": "view == neonLocalSchema && viewItem == triggerEnabled",
-          "group": "2_trigger_toggle"
-        },
-        {
-          "command": "neonLocal.schema.dropTrigger",
-          "when": "view == neonLocalSchema && (viewItem == triggerEnabled || viewItem == triggerDisabled)",
-          "group": "9_trigger_delete"
-        },
+
+
+
+
         {
           "command": "neonLocal.schema.createColumn",
           "when": "view == neonLocalSchema && viewItem == columnsContainer",
           "group": "inline"
         },
         {
+          "command": "neonLocal.schema.createColumn",
+          "when": "view == neonLocalSchema && viewItem == columnsContainer"
+        },
+        
+
+        {
+          "command": "neonLocal.schema.editColumn",
+          "when": "view == neonLocalSchema && viewItem == column",
+          "group": "column_actions@1"
+        },
+        {
+          "command": "neonLocal.schema.dropColumn",
+          "when": "view == neonLocalSchema && viewItem == column",
+          "group": "column_actions@2"
+        },
+
+
+
+
+        {
+          "command": "neonLocal.schema.createIndex",
+          "when": "view == neonLocalSchema && viewItem == indexesContainer",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.createIndex",
+          "when": "view == neonLocalSchema && viewItem == indexesContainer"
+        },
+
+
+        {
+          "command": "neonLocal.schema.reindexIndex",
+          "when": "view == neonLocalSchema && viewItem == index",
+          "group": "index_actions@1"
+        },
+        {
+          "command": "neonLocal.schema.dropIndex",
+          "when": "view == neonLocalSchema && viewItem == index",
+          "group": "index_actions@2"
+        },
+
+
+
+
+        {
           "command": "neonLocal.schema.createConstraint",
           "when": "view == neonLocalSchema && viewItem == constraintsContainer",
           "group": "inline"
         },
         {
-          "command": "neonLocal.schema.createTrigger",
-          "when": "view == neonLocalSchema && viewItem == triggersContainer",
-          "group": "inline"
+          "command": "neonLocal.schema.createConstraint",
+          "when": "view == neonLocalSchema && viewItem == constraintsContainer"
         },
+
+
+        {
+          "command": "neonLocal.schema.editConstraint",
+          "when": "view == neonLocalSchema && viewItem == constraint",
+          "group": "constraint_actions@1"
+        },
+        {
+          "command": "neonLocal.schema.dropConstraint",
+          "when": "view == neonLocalSchema && viewItem == constraint",
+          "group": "constraint_actions@2"
+        },
+
+
+
+
         {
           "command": "neonLocal.schema.createPolicy",
           "when": "view == neonLocalSchema && viewItem == policiesContainer",
           "group": "inline"
         },
         {
-          "command": "neonLocal.schema.editColumn",
-          "when": "view == neonLocalSchema && viewItem == column",
-          "group": "1_column_edit"
+          "command": "neonLocal.schema.createPolicy",
+          "when": "view == neonLocalSchema && viewItem == policiesContainer"
         },
-        {
-          "command": "neonLocal.schema.dropColumn",
-          "when": "view == neonLocalSchema && viewItem == column",
-          "group": "9_column_delete"
-        },
+
+
         {
           "command": "neonLocal.schema.editPolicy",
           "when": "view == neonLocalSchema && viewItem == policy",
-          "group": "1_policy_edit"
+          "group": "policy_actions@1"
         },
         {
           "command": "neonLocal.schema.dropPolicy",
           "when": "view == neonLocalSchema && viewItem == policy",
-          "group": "9_policy_delete"
+          "group": "policy_actions@2"
+        },
+
+
+
+
+        {
+          "command": "neonLocal.schema.createView",
+          "when": "view == neonLocalSchema && viewItem == viewsContainer",
+          "group": "inline"
         },
         {
-          "command": "neonLocal.schema.editConstraint",
-          "when": "view == neonLocalSchema && viewItem == constraint",
-          "group": "1_constraint_edit"
+          "command": "neonLocal.schema.createView",
+          "when": "view == neonLocalSchema && viewItem == viewsContainer"
+        },
+
+
+        {
+          "command": "neonLocal.schema.queryTable",
+          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
+          "group": "view_actions@1"
         },
         {
-          "command": "neonLocal.schema.dropConstraint",
-          "when": "view == neonLocalSchema && viewItem == constraint",
-          "group": "9_constraint_delete"
+          "command": "neonLocal.schema.refreshMaterializedView",
+          "when": "view == neonLocalSchema && viewItem == materializedView",
+          "group": "view_actions@2"
         },
         {
-          "command": "neonLocal.schema.reindexIndex",
-          "when": "view == neonLocalSchema && viewItem == index",
-          "group": "1_index_operations"
+          "command": "neonLocal.schema.editView",
+          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
+          "group": "view_actions@3"
         },
         {
-          "command": "neonLocal.schema.dropIndex",
-          "when": "view == neonLocalSchema && viewItem == index",
-          "group": "9_index_delete"
+          "command": "neonLocal.schema.dropView",
+          "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
+          "group": "view_actions@4"
+        },
+
+
+
+
+
+        {
+          "command": "neonLocal.schema.createSequence",
+          "when": "view == neonLocalSchema && viewItem == sequencesContainer",
+          "group": "inline"
         },
         {
-          "command": "neonLocal.schema.createSchema",
-          "when": "view == neonLocalSchema && viewItem == schemasContainer",
-          "group": "1_schema_create"
+          "command": "neonLocal.schema.createSequence",
+          "when": "view == neonLocalSchema && viewItem == sequencesContainer"
         },
+
+
+        {
+          "command": "neonLocal.schema.alterSequence",
+          "when": "view == neonLocalSchema && viewItem == sequence",
+          "group": "sequence_actions@1"
+        },
+        {
+          "command": "neonLocal.schema.dropSequence",
+          "when": "view == neonLocalSchema && viewItem == sequence",
+          "group": "sequence_actions@2"
+        },
+
+
+
+
         {
           "command": "neonLocal.schema.createUser",
           "when": "view == neonLocalSchema && viewItem == rolesContainer",
-          "group": "1_role_create"
+          "group": "inline"
         },
         {
-          "command": "neonLocal.schema.createTable",
-          "when": "view == neonLocalSchema && viewItem == tablesContainer",
-          "group": "1_table_create"
+          "command": "neonLocal.schema.createUser",
+          "when": "view == neonLocalSchema && viewItem == rolesContainer"
         },
+
+
         {
           "command": "neonLocal.schema.editRole",
           "when": "view == neonLocalSchema && viewItem == regularRole",
-          "group": "1_role_info"
+          "group": "role_actions@1"
         },
         {
           "command": "neonLocal.schema.changePassword",
           "when": "view == neonLocalSchema && viewItem == regularRole",
-          "group": "2_role_modify"
+          "group": "role_actions@2"
         },
         {
           "command": "neonLocal.schema.resetRolePassword",
           "when": "view == neonLocalSchema && viewItem == neonSuperuserRole",
-          "group": "2_role_modify"
-        },
-        {
-          "command": "neonLocal.schema.manageRolePermissions",
-          "when": "view == neonLocalSchema && viewItem == regularRole",
-          "group": "3_role_permissions"
+          "group": "role_actions@3"
         },
         {
           "command": "neonLocal.schema.dropRole",
           "when": "view == neonLocalSchema && (viewItem == regularRole || viewItem == neonSuperuserRole)",
-          "group": "9_role_delete"
+          "group": "role_actions@4"
         }
       ]
     }

@@ -1261,7 +1261,7 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
             Logger.error('Failed to update view', error);
             
             if (this._view && this._signInView) {
-                this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your database", true);
+                this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your Neon branch", true);
             }
         } finally {
             this._isUpdating = false;

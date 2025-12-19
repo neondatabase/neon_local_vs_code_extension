@@ -949,10 +949,18 @@ export class TableDataPanel {
             padding: 4px 8px;
             cursor: pointer;
             font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .control-btn:hover {
             background-color: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .sortable-header {
