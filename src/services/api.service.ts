@@ -269,7 +269,8 @@ export class NeonApiService {
 
         while (retryCount < maxRetries) {
             try {
-                const path = `/projects?org_id=${orgId}`;
+                // Request up to 100 projects (Neon API default is 10)
+                const path = `/projects?org_id=${orgId}&limit=100`;
                 console.debug(`Fetching projects from path: ${path}`);
                 
                 const response = await this.makeRequest<any>(path);
