@@ -10,6 +10,8 @@ import { ViewData } from './types';
 import { NeonApiService } from './services/api.service';
 import { SchemaService } from './services/schema.service';
 import { AuthManager } from './auth/authManager';
+import { SqlQueryPanel } from './panels/sqlQueryPanel';
+import { TableDataPanel } from './panels/tableDataPanel';
 
 export async function activate(context: vscode.ExtensionContext) {
   // Initialize services
@@ -361,6 +363,591 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(`Failed to launch PSQL: ${error instanceof Error ? error.message : String(error)}`);
       }
     }),
+    vscode.commands.registerCommand('neon-local-connect.stopProxy', async () => {
+      try {
+        // Clear connection state (same as the Disconnect button in the webview)
+        await stateService.setBranchConnectionInfos([]);
+        await stateService.setIsProxyRunning(false);
+        await stateService.setCurrentlyConnectedBranch('');
+        vscode.window.showInformationMessage('Disconnected from Neon database');
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to disconnect: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand('neon-local-connect.connect', async () => {
+      try {
+        // Check if authenticated
+        if (!authManager.isAuthenticated) {
+          // Focus on the Branch Connection view to show sign-in
+          await vscode.commands.executeCommand('neonLocalConnect.focus');
+          return;
+        }
+
+        // Get organizations
+        const orgs = await apiService.getOrgs();
+        if (!orgs || orgs.length === 0) {
+          throw new Error('No organizations found.');
+        }
+
+        // Select organization (skip prompt if only one)
+        let selectedOrg: { id: string; name: string };
+        if (orgs.length === 1) {
+          selectedOrg = { id: orgs[0].id, name: orgs[0].name };
+        } else {
+          const orgPick = await vscode.window.showQuickPick(
+            orgs.map(org => ({ label: org.name, id: org.id })),
+            { placeHolder: 'Select an organization', title: 'Connect - Select Organization' }
+          );
+          if (!orgPick) {
+            return; // User cancelled
+          }
+          selectedOrg = { id: orgPick.id, name: orgPick.label };
+        }
+
+        // Get projects for selected organization
+        const projects = await apiService.getProjects(selectedOrg.id);
+        if (!projects || projects.length === 0) {
+          throw new Error('No projects found in the selected organization.');
+        }
+
+        // Select project (skip prompt if only one)
+        let selectedProject: { id: string; name: string };
+        if (projects.length === 1) {
+          selectedProject = { id: projects[0].id, name: projects[0].name };
+        } else {
+          const projectPick = await vscode.window.showQuickPick(
+            projects.map(project => ({ label: project.name, id: project.id })),
+            { placeHolder: 'Select a project', title: 'Connect - Select Project' }
+          );
+          if (!projectPick) {
+            return; // User cancelled
+          }
+          selectedProject = { id: projectPick.id, name: projectPick.label };
+        }
+
+        // Get branches for selected project
+        const branches = await apiService.getBranches(selectedProject.id);
+        if (!branches || branches.length === 0) {
+          throw new Error('No branches found in the selected project.');
+        }
+
+        // Select branch (skip prompt if only one)
+        let selectedBranch: { id: string; name: string; parent_id: string | null };
+        if (branches.length === 1) {
+          selectedBranch = { id: branches[0].id, name: branches[0].name, parent_id: branches[0].parent_id };
+        } else {
+          const branchPick = await vscode.window.showQuickPick(
+            branches.map(branch => ({
+              label: branch.name,
+              id: branch.id,
+              parent_id: branch.parent_id,
+              description: branch.name === 'main' ? '(Default)' : undefined
+            })),
+            { placeHolder: 'Select a branch to connect to', title: 'Connect - Select Branch' }
+          );
+          if (!branchPick) {
+            return; // User cancelled
+          }
+          selectedBranch = { id: branchPick.id, name: branchPick.label, parent_id: branchPick.parent_id };
+        }
+
+        // Connect to the branch
+        await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: `Connecting to branch "${selectedBranch.name}"...`,
+          cancellable: false
+        }, async () => {
+          // Fetch connection info, databases, and roles
+          const [connectionInfos, databases, roles] = await Promise.all([
+            apiService.getBranchConnectionInfo(selectedProject.id, selectedBranch.id),
+            apiService.getDatabases(selectedProject.id, selectedBranch.id),
+            apiService.getRoles(selectedProject.id, selectedBranch.id)
+          ]);
+
+          // Get current state
+          const currentState = await stateService.getViewData();
+
+          // Build connection string for display
+          const firstConnection = connectionInfos[0];
+          const connectionString = firstConnection 
+            ? `postgresql://${firstConnection.user}:${firstConnection.password}@${firstConnection.host}/${firstConnection.database}?sslmode=require`
+            : '';
+
+          // Find parent branch info if exists
+          const parentBranch = selectedBranch.parent_id 
+            ? branches.find(b => b.id === selectedBranch.parent_id) 
+            : null;
+
+          // Update state with connection info
+          await stateService.updateState({
+            selection: {
+              orgs: currentState.orgs.length > 0 ? currentState.orgs : [{ id: selectedOrg.id, name: selectedOrg.name }],
+              projects: currentState.projects.length > 0 ? currentState.projects : projects,
+              branches: branches,
+              selectedOrgId: selectedOrg.id,
+              selectedOrgName: selectedOrg.name,
+              selectedProjectId: selectedProject.id,
+              selectedProjectName: selectedProject.name,
+              selectedBranchId: selectedBranch.id,
+              selectedBranchName: selectedBranch.name,
+              parentBranchId: parentBranch?.id || '',
+              parentBranchName: parentBranch?.name || ''
+            },
+            connection: {
+              ...currentState.connection,
+              connected: true,
+              connectionInfo: connectionString,
+              databases,
+              roles,
+              connectedOrgId: selectedOrg.id,
+              connectedOrgName: selectedOrg.name,
+              connectedProjectId: selectedProject.id,
+              connectedProjectName: selectedProject.name,
+              currentlyConnectedBranch: selectedBranch.id,
+              branchConnectionInfos: connectionInfos,
+              selectedDatabase: databases.length > 0 ? databases[0].name : ''
+            }
+          });
+
+          // Set connected state
+          await stateService.setCurrentlyConnectedBranch(selectedBranch.id);
+          await stateService.setCurrentBranch(selectedBranch.id);
+          await stateService.setBranchConnectionInfos(connectionInfos);
+          await stateService.setDatabases(databases);
+          await stateService.setRoles(roles);
+          await stateService.setIsProxyRunning(true);
+
+          vscode.window.showInformationMessage(`Connected to branch "${selectedBranch.name}".`);
+        });
+
+        // Focus on the Branch Connection view
+        await vscode.commands.executeCommand('neonLocalConnect.focus');
+
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand('neon-local-connect.configureMcpServer', async () => {
+      // Focus on the MCP Server view
+      await vscode.commands.executeCommand('neonLocalMcpServer.focus');
+    }),
+    vscode.commands.registerCommand('neon-local-connect.viewDatabases', async () => {
+      // Focus on the Databases view
+      await vscode.commands.executeCommand('neonLocalSchema.focus');
+    }),
+    vscode.commands.registerCommand('neon-local-connect.getStarted', async () => {
+      // Trigger the "Get started with Neon" flow
+      await connectViewProvider.getStartedWithNeon();
+    }),
+    vscode.commands.registerCommand('neon-local-connect.createBranch', async () => {
+      try {
+        // Check if authenticated
+        if (!authManager.isAuthenticated) {
+          throw new Error('Not authenticated. Please sign in first.');
+        }
+
+        // Get organizations
+        const orgs = await apiService.getOrgs();
+        if (!orgs || orgs.length === 0) {
+          throw new Error('No organizations found.');
+        }
+
+        // Select organization (skip prompt if only one)
+        let selectedOrg: { id: string; name: string };
+        if (orgs.length === 1) {
+          selectedOrg = { id: orgs[0].id, name: orgs[0].name };
+        } else {
+          const orgPick = await vscode.window.showQuickPick(
+            orgs.map(org => ({ label: org.name, id: org.id })),
+            { placeHolder: 'Select an organization', title: 'Create Branch - Select Organization' }
+          );
+          if (!orgPick) {
+            return; // User cancelled
+          }
+          selectedOrg = { id: orgPick.id, name: orgPick.label };
+        }
+
+        // Get projects for selected organization
+        const projects = await apiService.getProjects(selectedOrg.id);
+        if (!projects || projects.length === 0) {
+          throw new Error('No projects found in the selected organization.');
+        }
+
+        // Select project (skip prompt if only one)
+        let selectedProject: { id: string; name: string };
+        if (projects.length === 1) {
+          selectedProject = { id: projects[0].id, name: projects[0].name };
+        } else {
+          const projectPick = await vscode.window.showQuickPick(
+            projects.map(project => ({ label: project.name, id: project.id })),
+            { placeHolder: 'Select a project', title: 'Create Branch - Select Project' }
+          );
+          if (!projectPick) {
+            return; // User cancelled
+          }
+          selectedProject = { id: projectPick.id, name: projectPick.label };
+        }
+
+        // Get branches for selected project
+        const branches = await apiService.getBranches(selectedProject.id);
+        if (!branches || branches.length === 0) {
+          throw new Error('No branches found in the selected project.');
+        }
+
+        // Select parent branch (skip prompt if only one)
+        let selectedParentBranch: { id: string; name: string };
+        if (branches.length === 1) {
+          selectedParentBranch = { id: branches[0].id, name: branches[0].name };
+        } else {
+          const branchPick = await vscode.window.showQuickPick(
+            branches.map(branch => ({
+              label: branch.name,
+              id: branch.id,
+              description: branch.name === 'main' ? '(Default)' : undefined
+            })),
+            { placeHolder: 'Select a parent branch', title: 'Create Branch - Select Parent Branch' }
+          );
+          if (!branchPick) {
+            return; // User cancelled
+          }
+          selectedParentBranch = { id: branchPick.id, name: branchPick.label };
+        }
+
+        // Ask for new branch name
+        const branchName = await vscode.window.showInputBox({
+          prompt: 'Enter a name for the new branch',
+          placeHolder: 'e.g., feature/my-new-branch',
+          title: 'Create Branch - Enter Branch Name',
+          validateInput: (text) => {
+            if (!text || text.trim().length === 0) {
+              return 'Branch name is required';
+            }
+            // Basic validation for branch name format
+            if (!/^[a-zA-Z0-9._/-]+$/.test(text)) {
+              return 'Branch name can only contain letters, numbers, dots, underscores, slashes, and hyphens';
+            }
+            return null;
+          }
+        });
+
+        if (!branchName) {
+          return; // User cancelled
+        }
+
+        // Create the branch with progress indicator
+        let newBranch: any;
+        await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: `Creating branch "${branchName}"...`,
+          cancellable: false
+        }, async () => {
+          newBranch = await apiService.createBranch(
+            selectedProject.id,
+            selectedParentBranch.id,
+            branchName
+          );
+        });
+
+        // Ask if user wants to connect to the new branch
+        const connectChoice = await vscode.window.showInformationMessage(
+          `Branch "${newBranch.name}" created successfully. Would you like to connect to it?`,
+          'Yes',
+          'No'
+        );
+
+        if (connectChoice === 'Yes') {
+          // Connect to the new branch
+          await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Connecting to branch "${newBranch.name}"...`,
+            cancellable: false
+          }, async () => {
+            // Fetch connection info, databases, and roles
+            const [connectionInfos, databases, roles] = await Promise.all([
+              apiService.getBranchConnectionInfo(selectedProject.id, newBranch.id),
+              apiService.getDatabases(selectedProject.id, newBranch.id),
+              apiService.getRoles(selectedProject.id, newBranch.id)
+            ]);
+
+            // Get current state
+            const currentState = await stateService.getViewData();
+
+            // Build connection string for display
+            const firstConnection = connectionInfos[0];
+            const connectionString = firstConnection 
+              ? `postgresql://${firstConnection.user}:${firstConnection.password}@${firstConnection.host}/${firstConnection.database}?sslmode=require`
+              : '';
+
+            // Fetch all branches for the project to include the new one
+            const allBranches = await apiService.getBranches(selectedProject.id);
+
+            // Update state with connection info
+            await stateService.updateState({
+              selection: {
+                orgs: currentState.orgs.length > 0 ? currentState.orgs : [{ id: selectedOrg.id, name: selectedOrg.name }],
+                projects: currentState.projects.length > 0 ? currentState.projects : projects,
+                branches: allBranches,
+                selectedOrgId: selectedOrg.id,
+                selectedOrgName: selectedOrg.name,
+                selectedProjectId: selectedProject.id,
+                selectedProjectName: selectedProject.name,
+                selectedBranchId: newBranch.id,
+                selectedBranchName: newBranch.name,
+                parentBranchId: selectedParentBranch.id,
+                parentBranchName: selectedParentBranch.name
+              },
+              connection: {
+                ...currentState.connection,
+                connected: true,
+                connectionInfo: connectionString,
+                databases,
+                roles,
+                connectedOrgId: selectedOrg.id,
+                connectedOrgName: selectedOrg.name,
+                connectedProjectId: selectedProject.id,
+                connectedProjectName: selectedProject.name,
+                currentlyConnectedBranch: newBranch.id,
+                branchConnectionInfos: connectionInfos,
+                selectedDatabase: databases.length > 0 ? databases[0].name : ''
+              }
+            });
+
+            // Set connected state
+            await stateService.setCurrentlyConnectedBranch(newBranch.id);
+            await stateService.setCurrentBranch(newBranch.id);
+            await stateService.setBranchConnectionInfos(connectionInfos);
+            await stateService.setDatabases(databases);
+            await stateService.setRoles(roles);
+            await stateService.setIsProxyRunning(true);
+
+            vscode.window.showInformationMessage(`Connected to branch "${newBranch.name}".`);
+          });
+
+          // Focus on the Branch Connection view
+          await vscode.commands.executeCommand('neonLocalConnect.focus');
+        }
+
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to create branch: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand('neon-local-connect.queryTable', async () => {
+      try {
+        const schemaService = globalServices.schemaService;
+        if (!schemaService) {
+          throw new Error('Schema service not available. Please ensure you are connected to a database.');
+        }
+
+        // Check if connected
+        const viewData = await stateService.getViewData();
+        if (!viewData.connected) {
+          throw new Error('Not connected to a database. Please connect first.');
+        }
+
+        // Get databases
+        const allDatabases = await schemaService.getDatabases();
+        if (!allDatabases || allDatabases.length === 0) {
+          throw new Error('No databases available.');
+        }
+
+        // Build a map of databases -> schemas -> tables/views
+        const databaseSchemaMap: Map<string, Map<string, { name: string; type: string }[]>> = new Map();
+        
+        for (const db of allDatabases) {
+          const schemas = await schemaService.getSchemas(db.name);
+          const schemaMap: Map<string, { name: string; type: string }[]> = new Map();
+          
+          for (const schema of schemas) {
+            const tables = await schemaService.getTables(db.name, schema.name);
+            const views = await schemaService.getViews(db.name, schema.name);
+            const allItems = [
+              ...tables.map(t => ({ name: t.name, type: 'table' })),
+              ...views.map(v => ({ name: v.name, type: v.metadata?.is_materialized ? 'materialized view' : 'view' }))
+            ];
+            
+            if (allItems.length > 0) {
+              schemaMap.set(schema.name, allItems);
+            }
+          }
+          
+          if (schemaMap.size > 0) {
+            databaseSchemaMap.set(db.name, schemaMap);
+          }
+        }
+
+        // Filter to only databases with tables/views
+        const databases = Array.from(databaseSchemaMap.keys());
+        if (databases.length === 0) {
+          throw new Error('No tables or views found in any database.');
+        }
+
+        // Select database (skip prompt if only one)
+        let selectedDatabase: string;
+        if (databases.length === 1) {
+          selectedDatabase = databases[0];
+        } else {
+          const dbPick = await vscode.window.showQuickPick(
+            databases.map(db => ({ label: db })),
+            { placeHolder: 'Select a database', title: 'Query Table - Select Database' }
+          );
+          if (!dbPick) {
+            return; // User cancelled
+          }
+          selectedDatabase = dbPick.label;
+        }
+
+        // Get schemas with tables/views for selected database
+        const schemaMap = databaseSchemaMap.get(selectedDatabase)!;
+        const schemas = Array.from(schemaMap.keys());
+
+        // Select schema (skip prompt if only one)
+        let selectedSchema: string;
+        if (schemas.length === 1) {
+          selectedSchema = schemas[0];
+        } else {
+          const schemaPick = await vscode.window.showQuickPick(
+            schemas.map(s => ({ label: s })),
+            { placeHolder: 'Select a schema', title: 'Query Table - Select Schema' }
+          );
+          if (!schemaPick) {
+            return; // User cancelled
+          }
+          selectedSchema = schemaPick.label;
+        }
+
+        // Get tables/views for selected schema
+        const tablesAndViews = schemaMap.get(selectedSchema)!;
+
+        // Select table/view (skip prompt if only one)
+        let selectedTable: string;
+        if (tablesAndViews.length === 1) {
+          selectedTable = tablesAndViews[0].name;
+        } else {
+          const tablePick = await vscode.window.showQuickPick(
+            tablesAndViews.map(t => ({ label: t.name, description: t.type })),
+            { placeHolder: 'Select a table or view', title: 'Query Table - Select Table/View' }
+          );
+          if (!tablePick) {
+            return; // User cancelled
+          }
+          selectedTable = tablePick.label;
+        }
+
+        // Generate and execute query
+        const query = `SELECT *\nFROM ${selectedSchema}.${selectedTable}\nLIMIT 100;`;
+        SqlQueryPanel.createOrShow(context, stateService, query, selectedDatabase);
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to query table: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand('neon-local-connect.viewTableData', async () => {
+      try {
+        const schemaService = globalServices.schemaService;
+        if (!schemaService) {
+          throw new Error('Schema service not available. Please ensure you are connected to a database.');
+        }
+
+        // Check if connected
+        const viewData = await stateService.getViewData();
+        if (!viewData.connected) {
+          throw new Error('Not connected to a database. Please connect first.');
+        }
+
+        // Get databases
+        const allDatabases = await schemaService.getDatabases();
+        if (!allDatabases || allDatabases.length === 0) {
+          throw new Error('No databases available.');
+        }
+
+        // Build a map of databases -> schemas -> tables/views
+        const databaseSchemaMap: Map<string, Map<string, { name: string; type: string }[]>> = new Map();
+        
+        for (const db of allDatabases) {
+          const schemas = await schemaService.getSchemas(db.name);
+          const schemaMap: Map<string, { name: string; type: string }[]> = new Map();
+          
+          for (const schema of schemas) {
+            const tables = await schemaService.getTables(db.name, schema.name);
+            const views = await schemaService.getViews(db.name, schema.name);
+            const allItems = [
+              ...tables.map(t => ({ name: t.name, type: 'table' })),
+              ...views.map(v => ({ name: v.name, type: v.metadata?.is_materialized ? 'materialized view' : 'view' }))
+            ];
+            
+            if (allItems.length > 0) {
+              schemaMap.set(schema.name, allItems);
+            }
+          }
+          
+          if (schemaMap.size > 0) {
+            databaseSchemaMap.set(db.name, schemaMap);
+          }
+        }
+
+        // Filter to only databases with tables/views
+        const databases = Array.from(databaseSchemaMap.keys());
+        if (databases.length === 0) {
+          throw new Error('No tables or views found in any database.');
+        }
+
+        // Select database (skip prompt if only one)
+        let selectedDatabase: string;
+        if (databases.length === 1) {
+          selectedDatabase = databases[0];
+        } else {
+          const dbPick = await vscode.window.showQuickPick(
+            databases.map(db => ({ label: db })),
+            { placeHolder: 'Select a database', title: 'View Table Data - Select Database' }
+          );
+          if (!dbPick) {
+            return; // User cancelled
+          }
+          selectedDatabase = dbPick.label;
+        }
+
+        // Get schemas with tables/views for selected database
+        const schemaMap = databaseSchemaMap.get(selectedDatabase)!;
+        const schemas = Array.from(schemaMap.keys());
+
+        // Select schema (skip prompt if only one)
+        let selectedSchema: string;
+        if (schemas.length === 1) {
+          selectedSchema = schemas[0];
+        } else {
+          const schemaPick = await vscode.window.showQuickPick(
+            schemas.map(s => ({ label: s })),
+            { placeHolder: 'Select a schema', title: 'View Table Data - Select Schema' }
+          );
+          if (!schemaPick) {
+            return; // User cancelled
+          }
+          selectedSchema = schemaPick.label;
+        }
+
+        // Get tables/views for selected schema
+        const tablesAndViews = schemaMap.get(selectedSchema)!;
+
+        // Select table/view (skip prompt if only one)
+        let selectedTable: string;
+        if (tablesAndViews.length === 1) {
+          selectedTable = tablesAndViews[0].name;
+        } else {
+          const tablePick = await vscode.window.showQuickPick(
+            tablesAndViews.map(t => ({ label: t.name, description: t.type })),
+            { placeHolder: 'Select a table or view', title: 'View Table Data - Select Table/View' }
+          );
+          if (!tablePick) {
+            return; // User cancelled
+          }
+          selectedTable = tablePick.label;
+        }
+
+        // Open table data panel
+        TableDataPanel.createOrShow(context, stateService, selectedSchema, selectedTable, selectedDatabase);
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to view table data: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
     vscode.commands.registerCommand('neon-local-connect.resetFromParent', async () => {
         try {
             // Get project and branch IDs from state
@@ -455,20 +1042,75 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'neonLocal.connected', shouldShowSchemaView);
   };
 
-  // Initial context update
-  updateViewContexts();
+  // Initial context update - wait for both state service and auth manager to be ready
+  Promise.all([stateService.ready(), authManager.ready()]).then(async () => {
+    console.debug('State service and auth manager ready, updating view contexts...');
+    
+    // Check if we need to restore a connection from a previous session
+    // This needs to happen BEFORE updateViewContexts so the schema view doesn't
+    // try to load data before connection info is available
+    if (stateService.needsConnectionRestore() && authManager.isAuthenticated) {
+      console.debug('Connection needs to be restored from previous session, fetching connection info...');
+      const restoreInfo = stateService.getPendingRestoreInfo();
+      
+      if (restoreInfo) {
+        try {
+          // Fetch connection info, databases, and roles in parallel
+          const [connectionInfos, databases, roles] = await Promise.all([
+            apiService.getBranchConnectionInfo(restoreInfo.projectId, restoreInfo.branchId),
+            apiService.getDatabases(restoreInfo.projectId, restoreInfo.branchId),
+            apiService.getRoles(restoreInfo.projectId, restoreInfo.branchId)
+          ]);
+          
+          // Store the fetched data
+          await stateService.setBranchConnectionInfos(connectionInfos);
+          await stateService.setDatabases(databases);
+          await stateService.setRoles(roles);
+          
+          console.debug('Connection info fetched, marking connection as restored:', {
+            connectionInfos: connectionInfos.length,
+            databases: databases.length,
+            roles: roles.length
+          });
+          
+          // NOW mark as connected - this will trigger view updates
+          await stateService.markConnectionRestored();
+        } catch (error) {
+          console.error('Failed to restore connection info on startup:', error);
+          // Mark restore as failed so we don't keep trying
+          stateService.markConnectionRestoreFailed();
+        }
+      } else {
+        console.debug('No restore info available, skipping connection restore');
+        stateService.markConnectionRestoreFailed();
+      }
+    }
+    
+    await updateViewContexts();
+  });
 
   // Listen for authentication state changes to update context
   const authListener = authManager.onDidChangeAuthentication(async (isAuthenticated) => {
     await updateViewContexts();
     
     // When user signs in, attempt to auto-configure MCP server if not already configured
+    // and sync the token if already configured with a managed config
     if (isAuthenticated) {
-      console.debug('User signed in, checking MCP server auto-configuration...');
+      console.debug('User signed in, checking MCP server auto-configuration and token sync...');
       // Small delay to ensure persistent API token is stored
       setTimeout(async () => {
         await mcpServerViewProvider.autoConfigureIfNeeded();
+        // Sync the MCP token in case the user re-authenticated with a different account
+        await mcpServerViewProvider.syncMcpToken();
       }, 1000);
+    }
+  });
+
+  // Sync MCP token at extension startup (after auth manager is ready)
+  authManager.ready().then(async () => {
+    if (authManager.isAuthenticated) {
+      console.debug('Extension startup: Checking MCP server token sync...');
+      await mcpServerViewProvider.syncMcpToken();
     }
   });
 

@@ -4,7 +4,7 @@ import { history, defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches as searchHighlight } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { foldGutter, indentOnInput, indentUnit, bracketMatching, foldKeymap } from '@codemirror/language';
-import { sql } from '@codemirror/lang-sql';
+import { sql, PostgreSQL } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { indentWithTab } from '@codemirror/commands';
 
@@ -34,18 +34,6 @@ export class EmbeddedSqlEditor {
     private initializeEditor(): void {
         // Detect VS Code theme
         const isDark = document.body.classList.contains('vscode-dark');
-        
-        // SQL keywords and functions for better highlighting
-        const sqlKeywords = [
-            'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER',
-            'ON', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'LIKE', 'BETWEEN', 'IS', 'NULL',
-            'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE',
-            'ALTER', 'DROP', 'INDEX', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES',
-            'CONSTRAINT', 'UNIQUE', 'CHECK', 'DEFAULT', 'AUTO_INCREMENT',
-            'GROUP', 'BY', 'HAVING', 'ORDER', 'ASC', 'DESC', 'LIMIT', 'OFFSET',
-            'UNION', 'ALL', 'INTERSECT', 'EXCEPT', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-            'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'DISTINCT', 'AS'
-        ];
 
         // Create basic setup extensions manually
         const basicExtensions: Extension[] = [
@@ -76,17 +64,10 @@ export class EmbeddedSqlEditor {
             extensions: [
                 ...basicExtensions,
                 sql({
-                    // Enhanced SQL configuration
-                    dialect: {
-                        keywords: sqlKeywords.join(' ').toLowerCase(),
-                        builtin: 'bool boolean bit blob enum long longblob longtext medium mediumblob mediumint mediumtext time timestamp tinyblob tinyint tinytext text bigint int int1 int2 int3 int4 int8 integer float float4 float8 double char varbinary varchar varcharacter precision date datetime year unsigned signed numeric',
-                        atoms: 'false true null unknown',
-                        operatorChars: '*+\\-<>=&|^!?~',
-                        dateSQL: {date: true, time: true, timestamp: true},
-                        support: {ODBCdatetime: true, zerolessFloat: true}
-                    }
+                    // Use PostgreSQL dialect for proper identifier handling (including underscores)
+                    dialect: PostgreSQL
                 }),
-                isDark ? oneDark : [], // Apply dark theme if VS Code is in dark mode
+                // Using CSS variables for theming instead of oneDark to match VS Code/Cursor theme
                 keymap.of([
                     indentWithTab,
                     {
@@ -116,26 +97,45 @@ export class EmbeddedSqlEditor {
                 EditorView.theme({
                     '&': {
                         fontSize: '14px',
-                        fontFamily: 'var(--vscode-editor-font-family, "Consolas", "Monaco", "Courier New", monospace)'
+                        fontFamily: 'var(--vscode-editor-font-family, "Consolas", "Monaco", "Courier New", monospace)',
+                        height: '100%',
+                        flex: '1',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        backgroundColor: 'var(--vscode-editor-background)'
                     },
                     '.cm-content': {
-                        padding: '12px',
-                        minHeight: '200px',
-                        backgroundColor: isDark ? '#1e1e1e' : '#ffffff',
-                        color: isDark ? '#d4d4d4' : '#000000'
+                        padding: '8px 12px 8px 4px',
+                        backgroundColor: 'var(--vscode-editor-background)',
+                        color: 'var(--vscode-editor-foreground)'
                     },
                     '.cm-focused': {
                         outline: 'none'
                     },
                     '.cm-editor': {
-                        borderRadius: '4px',
-                        border: `1px solid ${isDark ? '#3c3c3c' : '#d1d5da'}`
+                        borderRadius: '0',
+                        border: 'none',
+                        backgroundColor: 'var(--vscode-editor-background)'
                     },
                     '.cm-scroller': {
-                        fontFamily: 'var(--vscode-editor-font-family, "Consolas", "Monaco", "Courier New", monospace)'
+                        fontFamily: 'var(--vscode-editor-font-family, "Consolas", "Monaco", "Courier New", monospace)',
+                        flex: '1',
+                        overflow: 'auto',
+                        backgroundColor: 'var(--vscode-editor-background)'
                     },
                     '.cm-line': {
-                        padding: '0 4px'
+                        padding: '0 4px 0 0'
+                    },
+                    '.cm-gutters': {
+                        paddingLeft: '4px',
+                        border: 'none',
+                        backgroundColor: 'var(--vscode-editor-background)'
+                    },
+                    '.cm-activeLineGutter': {
+                        backgroundColor: 'var(--vscode-editor-lineHighlightBackground, var(--vscode-editor-background))'
+                    },
+                    '.cm-activeLine': {
+                        backgroundColor: 'var(--vscode-editor-lineHighlightBackground, transparent)'
                     },
                     // SQL syntax highlighting colors to match VS Code
                     '.cm-keyword': {

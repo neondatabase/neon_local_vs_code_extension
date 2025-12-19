@@ -1146,6 +1146,12 @@ export class SchemaViewProvider {
             vscode.commands.registerCommand('neonLocal.schema.queryTable', (item: SchemaItem) => {
                 this.queryTable(item);
             }),
+            vscode.commands.registerCommand('neonLocal.schema.openSqlEditorForDatabase', (item: SchemaItem) => {
+                this.openSqlEditorForDatabase(item);
+            }),
+            vscode.commands.registerCommand('neonLocal.schema.openSqlEditorForSchema', (item: SchemaItem) => {
+                this.openSqlEditorForSchema(item);
+            }),
             vscode.commands.registerCommand('neonLocal.schema.viewTableData', (item: SchemaItem) => {
                 this.viewTableData(item);
             }),
@@ -1466,6 +1472,28 @@ export class SchemaViewProvider {
         
         const query = `SELECT *\nFROM ${schema}.${tableName}\nLIMIT 100;`;
         console.debug('QueryTable - Generated query:', query);
+        
+        SqlQueryPanel.createOrShow(this.context, this.stateService, query, database);
+    }
+
+    private openSqlEditorForDatabase(item: SchemaItem): void {
+        if (item.type !== 'database') {
+            return;
+        }
+
+        const database = item.name;
+        const query = `-- SQL Editor for database: ${database}\n-- Enter your query below\n\n`;
+        
+        SqlQueryPanel.createOrShow(this.context, this.stateService, query, database);
+    }
+
+    private openSqlEditorForSchema(item: SchemaItem): void {
+        if (item.type !== 'schema') {
+            return;
+        }
+
+        const { database, name: schemaName } = this.parseSchemaItem(item);
+        const query = `-- SQL Editor for schema: ${schemaName}\n-- Enter your query below\n\nSET search_path TO ${schemaName};\n\n`;
         
         SqlQueryPanel.createOrShow(this.context, this.stateService, query, database);
     }

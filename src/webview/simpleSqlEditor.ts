@@ -1,6 +1,6 @@
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { sql } from '@codemirror/lang-sql';
+import { sql, PostgreSQL } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { indentWithTab, history, historyKeymap } from '@codemirror/commands';
 import { searchKeymap } from '@codemirror/search';
@@ -354,6 +354,10 @@ export class SimpleSqlEditor {
             const doc = view.state.doc;
             const tree = syntaxTree(view.state);
             
+            // Pattern to match valid PostgreSQL identifiers (including those with underscores)
+            // PostgreSQL identifiers can contain letters, digits, underscores, and dollar signs
+            const validIdentifierPattern = /^[a-zA-Z_][a-zA-Z0-9_$]*$/;
+            
             // Check for syntax tree errors (parse errors)
             tree.iterate({
                 enter: (node) => {
@@ -362,6 +366,21 @@ export class SimpleSqlEditor {
                         const from = node.from;
                         const to = node.to;
                         const text = doc.sliceString(from, to);
+                        
+                        // Skip errors for text that looks like valid PostgreSQL identifiers
+                        // This handles cases where the parser incorrectly flags underscores
+                        if (validIdentifierPattern.test(text) || text === '_' || /^_+$/.test(text)) {
+                            return;
+                        }
+                        
+                        // Also skip if the error is just underscores within an identifier context
+                        // Check surrounding context to see if it's part of a larger identifier
+                        const contextStart = Math.max(0, from - 20);
+                        const contextEnd = Math.min(doc.length, to + 20);
+                        const context = doc.sliceString(contextStart, contextEnd);
+                        if (/[a-zA-Z0-9_]_+[a-zA-Z0-9_]/.test(context)) {
+                            return;
+                        }
                         
                         diagnostics.push({
                             from,
@@ -434,7 +453,7 @@ export class SimpleSqlEditor {
         const state = EditorState.create({
             doc: '-- Enter your SQL query here\n-- Press Ctrl+Enter to execute\n\n',
             extensions: [
-                sql(), // SQL language support
+                sql({ dialect: PostgreSQL }), // PostgreSQL language support with proper identifier handling
                 history(), // Undo/redo functionality
                 this.createSqlLinter(), // Native CodeMirror SQL linter
                 lintGutter(), // Show lint errors in gutter

@@ -467,9 +467,14 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
           case 'connectionStringsFound':
             // Connection strings were found, but API calls are still in progress to get org/project/branch info
             // Show loading state while enrichment happens
+            // Note: This message is only sent when the backend needs to do API enrichment
+            // (either foreground scan, or background scan that detected changes)
             console.debug('Connection strings found, enriching with API data...', message.count);
-            if (activeTabRef.current === 'app' && !isBackgroundScanning) {
+            if (activeTabRef.current === 'app') {
               setIsLoadingConnections(true);
+              // If this was a background scan that detected changes, reset the flag
+              // since we're now doing a full enrichment with loading UI
+              setIsBackgroundScanning(false);
             }
             break;
           
@@ -1056,12 +1061,27 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
                       }}>
                         {detectedConnections.map((conn, idx) => (
                           <div key={idx} style={{ marginTop: idx > 0 ? '4px' : '0' }}>
-                            <code style={{ 
-                              background: 'var(--vscode-textCodeBlock-background)', 
-                              padding: '1px 4px', 
-                              borderRadius: '2px',
-                              fontSize: '10px'
-                            }}>
+                            <code 
+                              onClick={() => vscode.postMessage({ command: 'openFile', file: conn.file })}
+                              style={{ 
+                                background: 'var(--vscode-textCodeBlock-background)', 
+                                padding: '1px 4px', 
+                                borderRadius: '2px',
+                                fontSize: '10px',
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                                textDecorationColor: 'var(--vscode-textLink-foreground)',
+                                color: 'var(--vscode-textLink-foreground)'
+                              }}
+                              onMouseOver={(e) => {
+                                e.currentTarget.style.textDecorationColor = 'var(--vscode-textLink-activeForeground)';
+                                e.currentTarget.style.color = 'var(--vscode-textLink-activeForeground)';
+                              }}
+                              onMouseOut={(e) => {
+                                e.currentTarget.style.textDecorationColor = 'var(--vscode-textLink-foreground)';
+                                e.currentTarget.style.color = 'var(--vscode-textLink-foreground)';
+                              }}
+                            >
                               {conn.file}
                             </code>
                             <span style={{ marginLeft: '6px', opacity: 0.8 }}>{conn.error}</span>
@@ -1087,9 +1107,40 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
                     <div style={{ lineHeight: '1.5' }}>
                       {detectedConnections.length === 0 
                         ? <>To get started and connect your app to a Neon database, open up the agent chat and type <strong style={{ color: 'var(--vscode-foreground)' }}>Get started with Neon</strong> to begin.</>
-                        : <>The connection strings in this repo reference projects or branches you don't have access to. Use the <strong style={{ color: 'var(--vscode-foreground)' }}>All branches</strong> tab to connect to a different branch.</>
+                        : <>The connection strings in this repo reference projects or branches you don't have access to. If these branches belong to a different Neon account, sign out and sign back in with the correct account. Otherwise, use the <strong style={{ color: 'var(--vscode-foreground)' }}>All branches</strong> tab to connect to a different branch.</>
                       }
                     </div>
+                    {detectedConnections.length > 0 && (
+                      <button
+                        onClick={() => {
+                          vscode.postMessage({ command: 'signOut' });
+                        }}
+                        style={{
+                          marginTop: '16px',
+                          width: '100%',
+                          padding: '10px 16px',
+                          background: 'var(--vscode-button-secondaryBackground)',
+                          color: 'var(--vscode-button-secondaryForeground)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.background = 'var(--vscode-button-secondaryHoverBackground)';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.background = 'var(--vscode-button-secondaryBackground)';
+                        }}
+                      >
+                        Sign out
+                      </button>
+                    )}
                     {detectedConnections.length === 0 && (
                       <button
                         onClick={() => {
@@ -1192,12 +1243,27 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
                       }}>
                         {detectedConnections.filter(c => c.error).map((conn, idx) => (
                           <div key={idx} style={{ marginTop: idx > 0 ? '4px' : '0' }}>
-                            <code style={{ 
-                              background: 'var(--vscode-textCodeBlock-background)', 
-                              padding: '1px 4px', 
-                              borderRadius: '2px',
-                              fontSize: '10px'
-                            }}>
+                            <code 
+                              onClick={() => vscode.postMessage({ command: 'openFile', file: conn.file })}
+                              style={{ 
+                                background: 'var(--vscode-textCodeBlock-background)', 
+                                padding: '1px 4px', 
+                                borderRadius: '2px',
+                                fontSize: '10px',
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                                textDecorationColor: 'var(--vscode-textLink-foreground)',
+                                color: 'var(--vscode-textLink-foreground)'
+                              }}
+                              onMouseOver={(e) => {
+                                e.currentTarget.style.textDecorationColor = 'var(--vscode-textLink-activeForeground)';
+                                e.currentTarget.style.color = 'var(--vscode-textLink-activeForeground)';
+                              }}
+                              onMouseOut={(e) => {
+                                e.currentTarget.style.textDecorationColor = 'var(--vscode-textLink-foreground)';
+                                e.currentTarget.style.color = 'var(--vscode-textLink-foreground)';
+                              }}
+                            >
                               {conn.file}
                             </code>
                             <span style={{ marginLeft: '6px', opacity: 0.8 }}>{conn.error}</span>

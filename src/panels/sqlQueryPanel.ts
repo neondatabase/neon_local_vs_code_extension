@@ -54,14 +54,32 @@ export class SqlQueryPanel {
             this.disposables
         );
 
-        // Send initial data
-        setTimeout(() => {
+        // Send initial data with databases list
+        this.initializeWithDatabases(initialQuery);
+    }
+
+    private async initializeWithDatabases(initialQuery?: string) {
+        try {
+            // Fetch available databases
+            const databases = await this.stateService.getDatabases();
+            
+            // Send initial data with databases list
             this.sendMessage({
                 command: 'initialize',
                 query: initialQuery || '',
-                database: this.database
+                database: this.database,
+                databases: databases || []
             });
-        }, 100);
+        } catch (error) {
+            console.error('Failed to fetch databases:', error);
+            // Fall back to just the current database
+            this.sendMessage({
+                command: 'initialize',
+                query: initialQuery || '',
+                database: this.database,
+                databases: this.database ? [{ name: this.database }] : []
+            });
+        }
     }
 
     private async handleMessage(message: any) {
@@ -127,6 +145,14 @@ export class SqlQueryPanel {
                         error: error instanceof Error ? error.message : 'Failed to get schema',
                         success: false
                     });
+                }
+                break;
+
+            case 'changeDatabase':
+                if (message.database) {
+                    this.database = message.database;
+                    // Update panel title
+                    this.panel.title = `SQL Editor - ${message.database}`;
                 }
                 break;
                 
@@ -342,6 +368,7 @@ export class SqlQueryPanel {
             min-height: 120px;
             max-height: 80vh;
             transition: all 0.3s ease-in-out;
+            overflow: hidden;
         }
 
         .query-section.collapsed {
@@ -355,7 +382,7 @@ export class SqlQueryPanel {
             align-items: center;
             justify-content: space-between;
             padding: 8px 16px;
-            background-color: var(--vscode-toolbar-activeBackground, var(--vscode-tab-activeBackground));
+            background-color: var(--vscode-titleBar-activeBackground);
             border-bottom: 1px solid var(--vscode-panel-border);
             flex-shrink: 0;
         }
@@ -407,20 +434,20 @@ export class SqlQueryPanel {
         }
 
         .control-btn {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
             border: none;
             border-radius: 3px;
-            padding: 4px 8px;
+            padding: 6px 10px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 13px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
         .control-btn:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
+            background-color: var(--vscode-button-hoverBackground);
         }
 
         .control-btn:disabled {
@@ -428,56 +455,121 @@ export class SqlQueryPanel {
             cursor: not-allowed;
         }
 
-        .database-indicator {
+        .database-selector {
+            position: relative;
             display: flex;
             align-items: center;
-            padding: 4px 8px;
-            background-color: var(--vscode-toolbar-activeBackground, var(--vscode-tab-activeBackground));
-            color: var(--vscode-badge-foreground);
-            border: 1px solid var(--vscode-badge-background);
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 500;
-            margin-right: 8px;
-            white-space: nowrap;
-            min-width: 0;
         }
 
-        .database-indicator:empty {
+        .database-selector:empty {
             display: none;
         }
 
-        .database-indicator .db-icon {
-            width: 12px;
-            height: 12px;
-            margin-right: 4px;
-            flex-shrink: 0;
+        .database-selector .db-icon {
+            position: absolute;
+            left: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 14px;
+            height: 14px;
+            pointer-events: none;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .database-indicator .db-icon svg {
+        .database-selector .db-icon svg {
             width: 100%;
             height: 100%;
-            color: var(--vscode-badge-foreground);
+            color: var(--vscode-dropdown-foreground);
+        }
+
+        .database-selector select {
+            background-color: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 3px;
+            padding: 6px 28px 6px 28px;
+            font-size: 13px;
+            font-family: var(--vscode-font-family);
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M7.976 10.072l4.357-4.357.62.618L8.284 11h-.618L3 6.333l.619-.618 4.357 4.357z' fill='%23C5C5C5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 6px center;
+            min-width: 140px;
+            height: auto;
+        }
+
+        .database-selector select:hover {
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .database-selector select:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
         }
 
         .query-editor {
             flex: 1;
-            min-height: 200px;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .embedded-editor {
+            background-color: var(--vscode-editor-background) !important;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            overflow: hidden;
+            flex: 1;
+            min-height: 0;
             display: flex;
             flex-direction: column;
         }
         
-        .embedded-editor {
-            background-color: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            overflow: hidden;
+        /* Override all CodeMirror background colors to match VS Code theme */
+        .embedded-editor .cm-editor,
+        .embedded-editor .cm-editor *,
+        .embedded-editor .cm-scroller,
+        .embedded-editor .cm-content,
+        .embedded-editor .cm-gutters,
+        .embedded-editor .cm-gutter,
+        .embedded-editor .cm-lineNumbers,
+        .embedded-editor .cm-activeLineGutter {
+            background-color: var(--vscode-editor-background) !important;
         }
         
         .embedded-editor .cm-editor {
-            height: 100%;
+            height: 100% !important;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
             font-family: var(--vscode-editor-font-family);
             font-size: var(--vscode-editor-font-size);
+        }
+        
+        .embedded-editor .cm-scroller {
+            flex: 1 !important;
+            min-height: 0 !important;
+            overflow: auto !important;
+        }
+        
+        .embedded-editor .cm-content {
+            min-height: 0 !important;
+            padding: 8px 12px 8px 4px !important;
+        }
+        
+        .embedded-editor .cm-gutters {
+            padding-left: 4px;
+            border-right: none !important;
+        }
+        
+        .embedded-editor .cm-activeLine {
+            background-color: var(--vscode-editor-lineHighlightBackground, transparent) !important;
         }
         
         .embedded-editor .cm-focused {
@@ -866,7 +958,18 @@ export class SqlQueryPanel {
             <div class="toolbar">
                 <div class="toolbar-left">
                     <button id="executeBtn">Run Query</button>
-                    <span id="databaseIndicator" class="database-indicator" title="Current database"></span>
+                    <div id="databaseSelector" class="database-selector">
+                        <span class="db-icon">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M13 4C13 2.5 10.3 1 8 1S3 2.5 3 4v8c0 1.5 2.7 3 5 3s5-1.5 5-3V4z" stroke="currentColor" stroke-width="1" fill="none"/>
+                                <path d="M13 4c0 1.5-2.7 3-5 3S3 5.5 3 4" stroke="currentColor" stroke-width="1" fill="none"/>
+                                <path d="M13 8c0 1.5-2.7 3-5 3S3 9.5 3 8" stroke="currentColor" stroke-width="1" fill="none"/>
+                            </svg>
+                        </span>
+                        <select id="databaseSelect" title="Select database">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
                     <span id="statusText"></span>
                 </div>
                 <div class="toolbar-right">
@@ -900,7 +1003,11 @@ export class SqlQueryPanel {
                     <div class="tab" id="performanceTab">Performance</div>
                 </div>
                 <button class="expand-button" id="expandBtn" title="Expand to full page">
-                    <span id="expandIcon">⛶</span>
+                    <span id="expandIcon">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 10V13H6M13 6V3H10M3 6V3H6M13 10V13H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
                 </button>
             </div>
             
@@ -913,10 +1020,12 @@ export class SqlQueryPanel {
                     <div class="results-controls">
                         <div class="filter-controls">
                             <input type="text" id="filterInput" placeholder="Filter results..." class="filter-input" />
+                        </div>
+                        <div class="icon-buttons">
                             <button id="columnVisibilityBtn" class="control-btn" title="Show/Hide Columns">
-                                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                                    <path d="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h12v1H2V9zm0 3h12v1H2v-1z"/>
-                                    <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11z" fill="none" stroke="currentColor" stroke-width="0.5"/>
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h12v1H2V9zm0 3h12v1H2v-1z" fill="currentColor"/>
+                                    <rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1" fill="none"/>
                                 </svg>
                             </button>
                         </div>
@@ -1065,7 +1174,8 @@ export class SqlQueryPanel {
         window.loadSchemaForAutocomplete = loadSchemaForAutocomplete;
         const exportBtn = document.getElementById('exportBtn');
         const openNeonConsoleBtn = document.getElementById('openNeonConsoleBtn');
-        const databaseIndicator = document.getElementById('databaseIndicator');
+        const databaseSelector = document.getElementById('databaseSelector');
+        const databaseSelect = document.getElementById('databaseSelect');
         const resultsContainer = document.getElementById('resultsContainer');
         const resultsInfo = document.getElementById('resultsInfo');
         const statusBar = document.getElementById('statusBar');
@@ -1096,6 +1206,17 @@ export class SqlQueryPanel {
         expandBtn.addEventListener('click', toggleExpand);
         filterInput.addEventListener('input', applyFilter);
         columnVisibilityBtn.addEventListener('click', toggleColumnVisibility);
+        
+        // Database selector change handler
+        databaseSelect.addEventListener('change', (e) => {
+            const newDatabase = e.target.value;
+            if (newDatabase) {
+                vscode.postMessage({
+                    command: 'changeDatabase',
+                    database: newDatabase
+                });
+            }
+        });
         
         // Tab switching
         resultsTab.addEventListener('click', () => switchTab('results'));
@@ -1147,13 +1268,13 @@ export class SqlQueryPanel {
                 querySection.classList.add('collapsed');
                 resultsSection.classList.add('maximized');
                 splitter.classList.add('hidden');
-                expandIcon.textContent = '⛷';
+                expandIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3H3V5M11 3H13V5M5 13H3V11M11 13H13V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
                 expandBtn.title = 'Collapse from full page';
             } else {
                 querySection.classList.remove('collapsed');
                 resultsSection.classList.remove('maximized');
                 splitter.classList.remove('hidden');
-                expandIcon.textContent = '⛶';
+                expandIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 10V13H6M13 6V3H10M3 6V3H6M13 10V13H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
                 expandBtn.title = 'Expand to full page';
                 
                 // Reset to default height when collapsing
@@ -1183,18 +1304,15 @@ export class SqlQueryPanel {
                     if (message.query) {
                         queryEditor.value = message.query;
                     }
-                    if (message.database) {
-                        databaseIndicator.innerHTML = 
-                            '<span class="db-icon">' +
-                                '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                                    '<path d="M13 4C13 2.5 10.3 1 8 1S3 2.5 3 4v8c0 1.5 2.7 3 5 3s5-1.5 5-3V4z" stroke="currentColor" stroke-width="1" fill="none"/>' +
-                                    '<path d="M13 4c0 1.5-2.7 3-5 3S3 5.5 3 4" stroke="currentColor" stroke-width="1" fill="none"/>' +
-                                    '<path d="M13 8c0 1.5-2.7 3-5 3S3 9.5 3 8" stroke="currentColor" stroke-width="1" fill="none"/>' +
-                                '</svg>' +
-                            '</span>' +
-                            '<span>' + message.database + '</span>';
-                        databaseIndicator.title = 'Current database: ' + message.database;
+                    // Populate database select dropdown
+                    if (message.databases && message.databases.length > 0) {
+                        databaseSelect.innerHTML = message.databases.map(db => 
+                            '<option value="' + db.name + '"' + (db.name === message.database ? ' selected' : '') + '>' + db.name + '</option>'
+                        ).join('');
+                    } else if (message.database) {
+                        databaseSelect.innerHTML = '<option value="' + message.database + '" selected>' + message.database + '</option>';
                     }
+                    databaseSelect.title = 'Select database for queries';
                     updateStatus('Ready');
                     break;
                     

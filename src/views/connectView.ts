@@ -52,6 +52,11 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
         }>;
         timestamp: number;
     };
+    // Cache for raw connection strings (before API enrichment) - used for quick comparison
+    private _rawConnectionStringsCache?: {
+        strings: Array<{ file: string; connectionString: string }>;
+        timestamp: number;
+    };
 
     constructor(
         extensionUri: vscode.Uri,
@@ -171,9 +176,13 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                                (currentOrgIds.length !== newOrgIds.length || 
                                 !currentOrgIds.every((id, index) => id === newOrgIds[index]));
             
-            if (orgsChanged) {
+            // Only clear state if orgs changed AND we're not already connected
+            // This prevents the command palette connect flow from being undone when the view is focused
+            if (orgsChanged && !currentViewData.connected) {
                 console.debug('Different organizations detected after sign-in, clearing state');
                 await this._stateService.clearState();
+            } else if (orgsChanged) {
+                console.debug('Different organizations detected, but user is connected - preserving connection state');
             }
             
             await this._stateService.setOrganizations(orgs);
@@ -232,6 +241,39 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
             projects: false,
             branches: false
         });
+        
+        // If already connected, ensure we have the connection info loaded
+        const finalViewData = await this._stateService.getViewData();
+        if (finalViewData.connected) {
+            const projectId = finalViewData.connection.connectedProjectId;
+            const branchId = finalViewData.connection.currentlyConnectedBranch;
+            const connectionInfos = finalViewData.connection.branchConnectionInfos;
+            
+            // If connected but missing connection info, fetch it
+            if (projectId && branchId && (!connectionInfos || connectionInfos.length === 0)) {
+                console.debug('initializeViewData: Connected but missing connection info, fetching...');
+                try {
+                    const [fetchedConnectionInfos, databases, roles] = await Promise.all([
+                        apiService.getBranchConnectionInfo(projectId, branchId),
+                        apiService.getDatabases(projectId, branchId),
+                        apiService.getRoles(projectId, branchId)
+                    ]);
+                    
+                    await this._stateService.setBranchConnectionInfos(fetchedConnectionInfos);
+                    await this._stateService.setDatabases(databases);
+                    await this._stateService.setRoles(roles);
+                    
+                    console.debug('initializeViewData: Connection info restored', {
+                        connectionInfos: fetchedConnectionInfos.length,
+                        databases: databases.length,
+                        roles: roles.length
+                    });
+                } catch (error) {
+                    console.error('initializeViewData: Failed to fetch connection info', error);
+                    // Don't disconnect here - the extension.ts startup handler will do that if needed
+                }
+            }
+        }
         
         // Update view
         await this.updateView();
@@ -330,6 +372,27 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                     // Show sign-in view without clearing state
                     if (this._view && this._signInView) {
                         this._view.webview.html = this._signInView.getHtml("Sign in to your Neon account to connect to your Neon branch", true);
+                    }
+                    break;
+                case 'signOut':
+                    // Sign out the user - this will trigger the auth state change listener
+                    // which will show the sign-in view
+                    await vscode.commands.executeCommand('neon-local-connect.clearAuth');
+                    break;
+                case 'openFile':
+                    // Open a file in the editor
+                    if (message.file) {
+                        const workspaceFolders = vscode.workspace.workspaceFolders;
+                        if (workspaceFolders && workspaceFolders.length > 0) {
+                            const filePath = path.join(workspaceFolders[0].uri.fsPath, message.file);
+                            const fileUri = vscode.Uri.file(filePath);
+                            try {
+                                await vscode.window.showTextDocument(fileUri);
+                            } catch (error) {
+                                console.error('Failed to open file:', error);
+                                vscode.window.showErrorMessage(`Failed to open file: ${message.file}`);
+                            }
+                        }
                     }
                     break;
                 case 'openNeonConsole':
@@ -803,14 +866,12 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                     await this.saveTabPreference(message.tab);
                     break;
                 case 'scanWorkspaceForConnections':
-                    await this.scanAndSendConnections();
+                    await this.scanAndSendConnections(false);
                     break;
                 case 'backgroundScanWorkspaceForConnections':
-                    // Background scan - clears cache but doesn't show loading screen
-                    this._detectedConnectionsCache = undefined;
-                    this._endpointInfoCache.clear();
-                    console.debug('Background scan: cleared cache, scanning silently...');
-                    await this.scanAndSendConnections();
+                    // Background scan - don't clear cache, compare results instead
+                    console.debug('Background scan: scanning silently...');
+                    await this.scanAndSendConnections(true);
                     break;
                 case 'refreshWorkspaceConnections':
                     // Clear the cache first
@@ -827,7 +888,7 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                     
                     // Re-scan (with a small delay to ensure UI updates)
                     await new Promise(resolve => setTimeout(resolve, 50));
-                    await this.scanAndSendConnections();
+                    await this.scanAndSendConnections(false);
                     break;
                 case 'openChatWithPrompt':
                     try {
@@ -1282,6 +1343,157 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    public async getStartedWithNeon(): Promise<void> {
+        try {
+            const apiService = new NeonApiService(this._extensionContext);
+            
+            // Fetch organizations
+            let orgs: NeonOrg[] = [];
+            try {
+                orgs = await apiService.getOrgs();
+            } catch (error) {
+                console.error('Failed to fetch orgs for chat prompt:', error);
+            }
+            
+            let selectedOrgId: string | undefined;
+            let selectedOrgName: string | undefined;
+            
+            // If more than one org, show picker
+            if (orgs.length > 1) {
+                const orgPick = await vscode.window.showQuickPick(
+                    orgs.map(org => ({
+                        label: org.name,
+                        description: org.id,
+                        id: org.id
+                    })),
+                    {
+                        title: 'Select Organization',
+                        placeHolder: 'Choose an organization for your new Neon project'
+                    }
+                );
+                
+                if (!orgPick) {
+                    return; // User cancelled
+                }
+                
+                selectedOrgId = orgPick.id;
+                selectedOrgName = orgPick.label;
+            } else if (orgs.length === 1) {
+                // Auto-select the only org
+                selectedOrgId = orgs[0].id;
+                selectedOrgName = orgs[0].name;
+            }
+            
+            // Fetch projects for the selected org
+            let selectedProjectId: string | undefined;
+            let selectedProjectName: string | undefined;
+            let isNewProject = false;
+            
+            if (selectedOrgId) {
+                try {
+                    const projects = await apiService.getProjects(selectedOrgId);
+                    
+                    // Build project options with "Create new project" at the top
+                    const projectOptions: vscode.QuickPickItem[] = [
+                        {
+                            label: '$(add) Create new project',
+                            description: 'Start fresh with a new Neon project',
+                            alwaysShow: true
+                        },
+                        { kind: vscode.QuickPickItemKind.Separator, label: 'Existing projects' },
+                        ...projects.map(project => ({
+                            label: project.name,
+                            description: project.id
+                        }))
+                    ];
+                    
+                    const projectPick = await vscode.window.showQuickPick(
+                        projectOptions,
+                        {
+                            title: 'Select Project',
+                            placeHolder: 'Choose a project or create a new one'
+                        }
+                    );
+                    
+                    if (!projectPick) {
+                        return; // User cancelled
+                    }
+                    
+                    if (projectPick.label.includes('Create new project')) {
+                        isNewProject = true;
+                        selectedProjectName = 'New project';
+                    } else {
+                        selectedProjectId = projectPick.description;
+                        selectedProjectName = projectPick.label;
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch projects:', error);
+                    // Continue without project selection
+                }
+            }
+            
+            // Build the prompt with org/project info
+            let prompt = 'Get started with Neon.';
+            if (selectedOrgId) {
+                if (isNewProject) {
+                    prompt += ` Using Neon org ${selectedOrgId} and create a new Neon project.`;
+                } else if (selectedProjectId) {
+                    prompt += ` Using Neon org ${selectedOrgId} and project ${selectedProjectId}.`;
+                }
+            }
+            
+            console.debug('Built prompt:', prompt);
+            
+            // Copy prompt to clipboard first
+            await vscode.env.clipboard.writeText(prompt);
+            console.debug('Copied prompt to clipboard:', prompt);
+            
+            // Try to open Cursor chat and paste the prompt
+            try {
+                // Open Cursor's chat
+                await vscode.commands.executeCommand('aichat.newchataction');
+                console.debug('Opened Cursor chat');
+                
+                // Give chat a moment to open and focus, then paste from clipboard
+                setTimeout(async () => {
+                    try {
+                        // Use clipboard paste action to insert the prompt
+                        await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+                        console.debug('Pasted prompt into chat');
+                    } catch (pasteError) {
+                        console.debug('Could not auto-paste prompt:', pasteError);
+                        // Fallback: show message that prompt is on clipboard
+                        vscode.window.showInformationMessage(`Prompt copied to clipboard - press Cmd+V to paste`);
+                    }
+                }, 150);
+            } catch (cursorError) {
+                console.debug('Cursor chat command failed, trying VS Code:', cursorError);
+                // Fallback: Try VS Code Copilot chat
+                try {
+                    await vscode.commands.executeCommand('workbench.panel.chat.view.copilot.focus');
+                    await vscode.commands.executeCommand('workbench.action.chat.open');
+                    
+                    // Try to paste after chat opens
+                    setTimeout(async () => {
+                        try {
+                            await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+                        } catch (pasteError) {
+                            console.debug('Could not auto-paste in VS Code chat');
+                        }
+                    }, 150);
+                    
+                    console.debug('Opened VS Code chat');
+                } catch (vscodeError) {
+                    console.debug('VS Code chat failed:', vscodeError);
+                    vscode.window.showInformationMessage(`Prompt copied to clipboard! Open chat and paste.`);
+                }
+            }
+        } catch (error) {
+            console.error('Error in getStartedWithNeon:', error);
+            vscode.window.showErrorMessage('Failed to open chat. Try opening it manually.');
+        }
+    }
+
     private async sendWorkspaceInfo() {
         if (!this._view) {
             return;
@@ -1318,23 +1530,55 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
         await this._extensionContext.globalState.update('connectView.activeTab', tab);
     }
 
-    private async scanAndSendConnections() {
+    /**
+     * Compare two connection arrays to see if they're effectively the same.
+     * Used to avoid unnecessary UI updates when background scans find the same connections.
+     */
+    private areConnectionsEqual(
+        connections1: Array<{ file: string; connectionString: string; error?: string }>,
+        connections2: Array<{ file: string; connectionString: string; error?: string }>
+    ): boolean {
+        if (connections1.length !== connections2.length) {
+            return false;
+        }
+        
+        // Create a set of connection signatures from the first array
+        const signatures1 = new Set(
+            connections1.map(c => `${c.file}|${c.connectionString}|${c.error || ''}`)
+        );
+        
+        // Check if all connections from the second array match
+        for (const conn of connections2) {
+            const sig = `${conn.file}|${conn.connectionString}|${conn.error || ''}`;
+            if (!signatures1.has(sig)) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    private async scanAndSendConnections(isBackgroundScan: boolean = false) {
         if (!this._view) {
             return;
         }
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
-            this._view.webview.postMessage({
-                command: 'detectedConnections',
-                connections: []
-            });
+            // Only send if not a background scan or if cache is empty
+            if (!isBackgroundScan || !this._detectedConnectionsCache) {
+                this._view.webview.postMessage({
+                    command: 'detectedConnections',
+                    connections: []
+                });
+            }
             return;
         }
 
-        // Check cache first (cache expires after 5 minutes)
+        // For non-background scans, check cache first (cache expires after 5 minutes)
+        // Background scans always do a fresh scan to detect new connections
         const cacheMaxAge = 5 * 60 * 1000; // 5 minutes
-        if (this._detectedConnectionsCache && (Date.now() - this._detectedConnectionsCache.timestamp) < cacheMaxAge) {
+        if (!isBackgroundScan && this._detectedConnectionsCache && (Date.now() - this._detectedConnectionsCache.timestamp) < cacheMaxAge) {
             console.debug('Using cached detected connections');
             this._view.webview.postMessage({
                 command: 'detectedConnections',
@@ -1342,21 +1586,6 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
             });
             return;
         }
-
-        console.debug('Scanning workspace for connections...');
-        const detectedConnections: Array<{
-            file: string;
-            connectionString: string;
-            database?: string;
-            projectId?: string;
-            branchId?: string;
-            endpointId?: string;
-            projectName?: string;
-            branchName?: string;
-            orgName?: string;
-            orgId?: string;
-            error?: string;
-        }> = [];
 
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
         
@@ -1384,8 +1613,9 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
             'drizzle.config.js'
         ];
 
-        // First pass: find all connection strings (before API enrichment)
-        let totalConnectionsFound = 0;
+        // First pass: find all raw connection strings (before API enrichment)
+        // This is a quick scan that doesn't make any API calls
+        const rawConnectionStrings: Array<{ file: string; connectionString: string }> = [];
         for (const file of filesToCheck) {
             const filePath = path.join(workspaceRoot, file);
             if (fs.existsSync(filePath)) {
@@ -1393,23 +1623,72 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                     const content = fs.readFileSync(filePath, 'utf8');
                     const matches = content.match(neonConnRegex);
                     if (matches) {
-                        totalConnectionsFound += matches.length;
+                        for (const match of matches) {
+                            rawConnectionStrings.push({ file, connectionString: match });
+                        }
                     }
                 } catch (error) {
-                    // Ignore read errors for now, we'll handle them in the detailed pass
+                    // Ignore read errors for now
                 }
             }
         }
 
-        // If connection strings were found, notify frontend to show loading state
-        // while API calls happen for enrichment
-        if (totalConnectionsFound > 0 && this._view) {
-            console.debug(`Found ${totalConnectionsFound} connection strings, enriching with API data...`);
-            this._view.webview.postMessage({
+        // For background scans, check if raw connection strings have changed
+        // If unchanged, skip API enrichment entirely to avoid unnecessary API calls
+        let backgroundScanDetectedChange = false;
+        if (isBackgroundScan && this._rawConnectionStringsCache && this._detectedConnectionsCache) {
+            const previousRaw = this._rawConnectionStringsCache.strings;
+            const rawUnchanged = rawConnectionStrings.length === previousRaw.length &&
+                rawConnectionStrings.every((curr, idx) => 
+                    curr.file === previousRaw[idx]?.file && 
+                    curr.connectionString === previousRaw[idx]?.connectionString
+                );
+            
+            if (rawUnchanged) {
+                console.debug('Background scan: raw connection strings unchanged, skipping API enrichment');
+                // Update timestamps but keep existing data
+                this._rawConnectionStringsCache.timestamp = Date.now();
+                this._detectedConnectionsCache.timestamp = Date.now();
+                return;
+            }
+            console.debug('Background scan: connection strings changed, proceeding with API enrichment');
+            backgroundScanDetectedChange = true;
+        }
+
+        // Update raw cache
+        this._rawConnectionStringsCache = {
+            strings: rawConnectionStrings,
+            timestamp: Date.now()
+        };
+
+        console.debug(`${isBackgroundScan ? 'Background ' : ''}Scanning workspace for connections...`);
+
+        // If connection strings were found, notify frontend to show loading state while API calls happen
+        // For background scans, only show loading if connection strings actually changed
+        const shouldShowLoading = rawConnectionStrings.length > 0 && this._view && 
+            (!isBackgroundScan || backgroundScanDetectedChange);
+        
+        if (shouldShowLoading) {
+            console.debug(`Found ${rawConnectionStrings.length} connection strings, enriching with API data...`);
+            this._view!.webview.postMessage({
                 command: 'connectionStringsFound',
-                count: totalConnectionsFound
+                count: rawConnectionStrings.length
             });
         }
+
+        const detectedConnections: Array<{
+            file: string;
+            connectionString: string;
+            database?: string;
+            projectId?: string;
+            branchId?: string;
+            endpointId?: string;
+            projectName?: string;
+            branchName?: string;
+            orgName?: string;
+            orgId?: string;
+            error?: string;
+        }> = [];
 
         // Second pass: extract details and enrich with API data
         for (const file of filesToCheck) {

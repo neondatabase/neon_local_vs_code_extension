@@ -38,19 +38,39 @@
       },
       {
         "command": "neon-local-connect.clearAuth",
-        "title": "Neon - Serverless Postgres: Clear Authentication"
+        "title": "Neon - Serverless Postgres: Sign Out"
       },
       {
         "command": "neon-local-connect.stopProxy",
         "title": "Neon - Serverless Postgres: Disconnect"
       },
       {
-        "command": "neon-local-connect.openSqlEditor",
-        "title": "Neon - Serverless Postgres: Open SQL Editor"
+        "command": "neon-local-connect.connect",
+        "title": "Neon - Serverless Postgres: Connect"
       },
       {
-        "command": "neon-local-connect.openTableView",
-        "title": "Neon - Serverless Postgres: Open Table View"
+        "command": "neon-local-connect.configureMcpServer",
+        "title": "Neon - Serverless Postgres: Configure MCP Server"
+      },
+      {
+        "command": "neon-local-connect.viewDatabases",
+        "title": "Neon - Serverless Postgres: View Databases"
+      },
+      {
+        "command": "neon-local-connect.getStarted",
+        "title": "Neon - Serverless Postgres: Get Started with Neon"
+      },
+      {
+        "command": "neon-local-connect.createBranch",
+        "title": "Neon - Serverless Postgres: Create Branch"
+      },
+      {
+        "command": "neon-local-connect.queryTable",
+        "title": "Neon - Serverless Postgres: Query Table"
+      },
+      {
+        "command": "neon-local-connect.viewTableData",
+        "title": "Neon - Serverless Postgres: View Table Data"
       },
       {
         "command": "neon-local-connect.launchPsql",
@@ -92,6 +112,16 @@
       {
         "command": "neonLocal.schema.queryTable",
         "title": "Query Table",
+        "icon": "$(play)"
+      },
+      {
+        "command": "neonLocal.schema.openSqlEditorForDatabase",
+        "title": "Open SQL Editor",
+        "icon": "$(play)"
+      },
+      {
+        "command": "neonLocal.schema.openSqlEditorForSchema",
+        "title": "Open SQL Editor",
         "icon": "$(play)"
       },
       {
@@ -561,6 +591,16 @@
           "command": "neonLocal.schema.launchPsql",
           "when": "view == neonLocalSchema && viewItem == database"        
         },
+        {
+          "command": "neonLocal.schema.openSqlEditorForDatabase",
+          "when": "view == neonLocalSchema && viewItem == database",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.openSqlEditorForDatabase",
+          "when": "view == neonLocalSchema && viewItem == database",
+          "group": "database_actions@1"
+        },
 
 
 
@@ -576,6 +616,16 @@
         },
 
 
+        {
+          "command": "neonLocal.schema.openSqlEditorForSchema",
+          "when": "view == neonLocalSchema && viewItem == schema",
+          "group": "inline"
+        },
+        {
+          "command": "neonLocal.schema.openSqlEditorForSchema",
+          "when": "view == neonLocalSchema && viewItem == schema",
+          "group": "schema_actions@0"
+        },
         {
           "command": "neonLocal.schema.editSchema",
           "when": "view == neonLocalSchema && viewItem == schema",

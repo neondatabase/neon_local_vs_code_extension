@@ -151,6 +151,92 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Sync MCP server token with current authenticated user's token (public method for external use)
+     * This should be called at extension startup and after authentication to ensure
+     * the MCP config uses the current user's token
+     */
+    public async syncMcpToken(): Promise<void> {
+        try {
+            console.log('[MCP Server] Checking if MCP token sync is needed...');
+            
+            const config = await this.getMcpConfiguration();
+            
+            // Only sync managed configurations
+            if (!config.isConfigured || !config.isManaged || !config.configPath) {
+                console.log('[MCP Server] Token sync skipped: No managed configuration found');
+                return;
+            }
+
+            // Get current API token from secrets
+            const currentApiToken = await this._context.secrets.get('neon.persistentApiToken');
+            if (!currentApiToken) {
+                console.log('[MCP Server] Token sync skipped: No current API token available');
+                return;
+            }
+
+            // Read the existing config file to get the current MCP token
+            const mcpContent = fs.readFileSync(config.configPath, 'utf8');
+            const mcpConfig = JSON.parse(mcpContent);
+            
+            // Get the servers object based on IDE type
+            const serverKey = this._isCursor ? 'mcpServers' : 'servers';
+            const serversObj = mcpConfig?.[serverKey];
+            const neonKey = this.findNeonServerKey(serversObj);
+            
+            if (!neonKey) {
+                console.log('[MCP Server] Token sync skipped: Neon server key not found');
+                return;
+            }
+
+            const serverConfig = serversObj[neonKey];
+            const authHeader = serverConfig?.headers?.Authorization;
+            
+            if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+                console.log('[MCP Server] Token sync skipped: Invalid Authorization header format');
+                return;
+            }
+
+            // Extract token from the config
+            const configToken = authHeader.substring(7); // Remove "Bearer " prefix
+
+            // Compare tokens
+            if (configToken === currentApiToken) {
+                console.log('[MCP Server] Token sync not needed: Tokens already match');
+                return;
+            }
+
+            // Tokens don't match - update the config
+            console.log('[MCP Server] Token mismatch detected, updating MCP configuration...');
+            
+            // Update the token in the config
+            serversObj[neonKey].headers.Authorization = `Bearer ${currentApiToken}`;
+            
+            // Write the updated config back
+            fs.writeFileSync(config.configPath, JSON.stringify(mcpConfig, null, 2), 'utf8');
+            console.log('[MCP Server] MCP token successfully synchronized');
+
+            // Notify user that a reload is needed for the change to take effect
+            const appName = this._isCursor ? 'Cursor' : 'VS Code';
+            vscode.window.showInformationMessage(
+                `Neon MCP Server token has been updated in ${appName}. Reload the window for the change to take effect.`,
+                'Reload Now',
+                'Later'
+            ).then(selection => {
+                if (selection === 'Reload Now') {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            });
+
+            // Refresh the view
+            await this.refreshView();
+
+        } catch (error) {
+            console.error('[MCP Server] Token sync failed:', error);
+            // Don't show error to user - this is a silent operation
+        }
+    }
+
+    /**
      * Configure MCP server from button click in webview
      */
     private async configureFromButton(): Promise<void> {
