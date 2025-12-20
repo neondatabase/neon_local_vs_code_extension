@@ -33,52 +33,48 @@
         "title": "Neon: Import API Key"
       },
       {
-        "command": "neonLocal.importApiToken",
-        "title": "Neon - Serverless Postgres: Import API Token"
-      },
-      {
         "command": "neon-local-connect.clearAuth",
-        "title": "Neon - Serverless Postgres: Sign Out"
+        "title": "Neon: Sign Out"
       },
       {
         "command": "neon-local-connect.stopProxy",
-        "title": "Neon - Serverless Postgres: Disconnect"
+        "title": "Neon: Disconnect"
       },
       {
         "command": "neon-local-connect.connect",
-        "title": "Neon - Serverless Postgres: Connect"
+        "title": "Neon: Connect"
       },
       {
         "command": "neon-local-connect.configureMcpServer",
-        "title": "Neon - Serverless Postgres: Configure MCP Server"
+        "title": "Neon: Configure MCP Server"
       },
       {
         "command": "neon-local-connect.viewDatabases",
-        "title": "Neon - Serverless Postgres: View Databases"
+        "title": "Neon: View Databases"
       },
       {
         "command": "neon-local-connect.getStarted",
-        "title": "Neon - Serverless Postgres: Get Started with Neon"
+        "title": "Neon: Get Started with Neon"
       },
       {
         "command": "neon-local-connect.createBranch",
-        "title": "Neon - Serverless Postgres: Create Branch"
+        "title": "Neon: Create Branch"
       },
       {
         "command": "neon-local-connect.queryTable",
-        "title": "Neon - Serverless Postgres: Query Table"
+        "title": "Neon: Query Table"
       },
       {
         "command": "neon-local-connect.viewTableData",
-        "title": "Neon - Serverless Postgres: View Table Data"
+        "title": "Neon: View Table Data"
       },
       {
         "command": "neon-local-connect.launchPsql",
-        "title": "Neon - Serverless Postgres: Launch PSQL"
+        "title": "Neon: Launch PSQL"
       },
       {
         "command": "neon-local-connect.configureOAuthPort",
-        "title": "Neon - Serverless Postgres: Configure OAuth Port"
+        "title": "Neon: Configure OAuth Port"
       },
       {
         "command": "neonLocal.connect.refresh",
