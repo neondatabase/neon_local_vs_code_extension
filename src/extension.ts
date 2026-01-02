@@ -70,8 +70,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register core commands
   disposables.push(
-    vscode.commands.registerCommand('neon-local-connect.configure', () => {
-      webviewService.configure();
+    vscode.commands.registerCommand('neon-local-connect.configure', async () => {
+      // Redirect to the proper import API token command
+      await vscode.commands.executeCommand('neonLocal.importApiToken');
     }),
     vscode.commands.registerCommand('neon-local-connect.showPanel', () => {
       webviewService.showPanel(context);
@@ -98,9 +99,14 @@ export async function activate(context: vscode.ExtensionContext) {
               throw new Error('Invalid API token');
             }
             
-            // Token is valid, store it
+            // Token is valid, store it via authManager (matching sign-in flow)
             await authManager.setPersistentApiToken(token);
-            await stateService.setPersistentApiToken(token);
+            
+            // Fetch back from authManager and update stateService (matching sign-in flow)
+            const persistentToken = await authManager.getPersistentApiToken();
+            if (persistentToken) {
+              await stateService.setPersistentApiToken(persistentToken);
+            }
           });
           
           vscode.window.showInformationMessage('API token imported successfully!');
@@ -108,6 +114,20 @@ export async function activate(context: vscode.ExtensionContext) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           vscode.window.showErrorMessage(`Failed to import API token: ${errorMessage}`);
         }
+      }
+    }),
+    vscode.commands.registerCommand('neon-local-connect.signIn', async () => {
+      try {
+        await authManager.signIn();
+        
+        // After sign-in, update stateService with the persistent token (matching sidebar flow)
+        const persistentToken = await authManager.getPersistentApiToken();
+        if (persistentToken) {
+          await stateService.setPersistentApiToken(persistentToken);
+        }
+      } catch (error) {
+        // Error is already shown by authManager.signIn()
+        console.error('Sign in failed:', error);
       }
     }),
     vscode.commands.registerCommand('neon-local-connect.clearAuth', async () => {
