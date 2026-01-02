@@ -346,14 +346,25 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                                 
                                 console.debug('✅ API token validation successful');
                                 
-                                // Token is valid, proceed with storing it permanently
+                                // Token is valid, store it via authManager (matching sign-in flow)
                                 await this._authManager.setPersistentApiToken(token);
-                                await this._stateService.setPersistentApiToken(token);
+                                
+                                // Fetch back from authManager and update stateService (matching sign-in flow)
+                                const persistentToken = await this._authManager.getPersistentApiToken();
+                                if (persistentToken) {
+                                    console.debug('ConnectViewProvider: Updating stateService with persistent API token');
+                                    await this._stateService.setPersistentApiToken(persistentToken);
+                                }
                                 
                                 console.debug('✅ API token imported and stored successfully');
                             });
                             
-                            // The authentication state change listener will handle the UI update
+                            // Explicitly refresh the view after import completes (matching sign-in flow)
+                            if (this._authManager.isAuthenticated && this._view) {
+                                console.debug('ConnectViewProvider: Explicitly refreshing view after token import');
+                                await this.initializeViewData();
+                                this._view.webview.html = this.getWebviewContent(this._view.webview);
+                            }
                             
                         } catch (error) {
                             console.error('❌ API token validation failed:', error);
