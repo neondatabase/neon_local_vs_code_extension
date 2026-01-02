@@ -33,6 +33,10 @@
         "title": "Neon: Import API Key"
       },
       {
+        "command": "neon-local-connect.signIn",
+        "title": "Neon: Sign In"
+      },
+      {
         "command": "neon-local-connect.clearAuth",
         "title": "Neon: Sign Out"
       },
@@ -54,7 +58,7 @@
       },
       {
         "command": "neon-local-connect.getStarted",
-        "title": "Neon: Get Started with Neon"
+        "title": "Neon: Get Started"
       },
       {
         "command": "neon-local-connect.createBranch",

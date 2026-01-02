@@ -116,6 +116,20 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       }
     }),
+    vscode.commands.registerCommand('neon-local-connect.signIn', async () => {
+      try {
+        await authManager.signIn();
+        
+        // After sign-in, update stateService with the persistent token (matching sidebar flow)
+        const persistentToken = await authManager.getPersistentApiToken();
+        if (persistentToken) {
+          await stateService.setPersistentApiToken(persistentToken);
+        }
+      } catch (error) {
+        // Error is already shown by authManager.signIn()
+        console.error('Sign in failed:', error);
+      }
+    }),
     vscode.commands.registerCommand('neon-local-connect.clearAuth', async () => {
       await authManager.signOut();
     }),
