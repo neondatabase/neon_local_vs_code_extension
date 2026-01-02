@@ -235,7 +235,7 @@ export class WebViewService {
         console.debug('WebViewService: Creating new webview panel');
         const panel = vscode.window.createWebviewPanel(
             'neonLocal',
-            'Neon Local Connect',
+            'Neon - Serverless Postgres',
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
@@ -257,11 +257,11 @@ export class WebViewService {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Neon Local Connect</title>
+                <title>Neon - Serverless Postgres</title>
             </head>
             <body>
-                <h1>Neon Local Connect</h1>
-                <p>Please use the Neon Local Connect view in the Activity Bar.</p>
+                <h1>Neon - Serverless Postgres</h1>
+                <p>Please use the Neon - Serverless Postgres view in the Activity Bar.</p>
             </body>
             </html>`;
     }

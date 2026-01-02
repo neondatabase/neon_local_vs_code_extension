@@ -37,25 +37,52 @@ export class ConnectionPoolService {
     }
 
     private async getConnectionConfig(database?: string): Promise<ConnectionConfig> {
-        const viewData = await this.stateService.getViewData();
-        
-        if (!viewData.connected) {
-            throw new Error('Database is not connected. Please connect first.');
-        }
+    const viewData = await this.stateService.getViewData();
 
-        return {
-            host: 'localhost',
-            port: viewData.port,
-            database: database || viewData.selectedDatabase || 'postgres',
-            user: 'neon',
-            password: 'npg',
-            ssl: {
-                rejectUnauthorized: false
-            }
-        };
+    if (!viewData.connected) {
+        throw new Error('Database is not connected. Please connect first.');
     }
 
+    const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+    if (!branchConnectionInfos || branchConnectionInfos.length === 0) {
+        throw new Error('No connection information available. Please reconnect.');
+    }
+
+    // Find connection info for the requested database
+    const requestedDatabase = database || viewData.connection.selectedDatabase;
+    let connectionInfo = branchConnectionInfos.find(info => info.database === requestedDatabase);
+    
+    // If not found, use the first available database from the branch
+    if (!connectionInfo) {
+        if (requestedDatabase) {
+            console.debug(`Database "${requestedDatabase}" not found in branch, using first available database: "${branchConnectionInfos[0].database}"`);
+        }
+        connectionInfo = branchConnectionInfos[0];
+    }
+
+    // Always use the database from the connection info (only connect to databases that exist in the branch)
+    const databaseToUse = connectionInfo.database;
+
+    return {
+        host: connectionInfo.host,
+        port: 5432, // Neon always uses 5432
+        database: databaseToUse,
+        user: connectionInfo.user,
+        password: connectionInfo.password,
+        ssl: {
+            rejectUnauthorized: false
+        }
+    };
+}
+
     private createPool(config: ConnectionConfig): Pool {
+        console.log(`[CONNECTION POOL] Creating pool with config:`, {
+            host: config.host,
+            port: config.port,
+            database: config.database,
+            user: config.user
+        });
+        
         const pool = new Pool({
             ...config,
             max: 5, // Maximum number of clients in the pool
@@ -73,20 +100,28 @@ export class ConnectionPoolService {
             this.handlePoolError(poolKey);
         });
 
+        // Add connection listener to verify database
+        pool.on('connect', (client) => {
+            console.log(`[CONNECTION POOL] New client connected to pool for database: ${config.database}`);
+            client.query('SELECT current_database() as db').then((result) => {
+                console.log(`[CONNECTION POOL] Client connected to database: ${result.rows[0].db} (expected: ${config.database})`);
+            }).catch((err) => {
+                console.error(`[CONNECTION POOL] Error checking current database:`, err);
+            });
+        });
+
         return pool;
     }
 
     async getConnection(database?: string): Promise<ManagedClient> {
         const config = await this.getConnectionConfig(database);
         
-        // Quick proxy check first
-        const isProxyReachable = await this.checkProxyStatus(config);
-        if (!isProxyReachable) {
-            throw new Error(`Unable to connect to database proxy at ${config.host}:${config.port}. Please ensure the Neon proxy container is running and accessible.`);
-        }
+        console.log(`[CONNECTION POOL] Getting connection for database: ${config.database} (requested: ${database})`);
         
         const poolKey = this.getPoolKey(config.database);
         const poolState = this.poolStates.get(poolKey);
+        
+        console.log(`[CONNECTION POOL] Pool key: ${poolKey}, state: ${poolState}`);
 
         // If pool is ending or ended, wait or create new one
         if (poolState === 'ending') {
@@ -103,8 +138,11 @@ export class ConnectionPoolService {
                 this.poolStates.delete(poolKey);
             }
             
+            console.log(`[CONNECTION POOL] Creating new pool for database: ${config.database}`);
             pool = this.createPool(config);
             this.pools.set(poolKey, pool);
+        } else {
+            console.log(`[CONNECTION POOL] Reusing existing pool for database: ${config.database}`);
         }
 
         try {
@@ -241,7 +279,13 @@ export class ConnectionPoolService {
         let client: ManagedClient | null = null;
         
         try {
+            console.log(`[CONNECTION POOL] executeQuery called with database: ${database}`);
             client = await this.getConnection(database);
+            
+            // Verify current database before executing query
+            const dbCheck = await client.query('SELECT current_database() as db');
+            console.log(`[CONNECTION POOL] About to execute query on database: ${dbCheck.rows[0].db} (requested: ${database})`);
+            
             const result = await client.query(query, params);
             return {
                 rows: result.rows,

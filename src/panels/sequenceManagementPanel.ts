@@ -1,0 +1,665 @@
+import * as vscode from 'vscode';
+import { SqlQueryService } from '../services/sqlQuery.service';
+import { StateService } from '../services/state.service';
+
+export interface SequenceDefinition {
+    name: string;
+    schema: string;
+    startValue?: number;
+    incrementBy?: number;
+    minValue?: number;
+    maxValue?: number;
+    cache?: number;
+    cycle?: boolean;
+    ownedBy?: string;
+}
+
+export interface SequenceProperties {
+    name: string;
+    schema: string;
+    dataType: string;
+    startValue: string;
+    minValue: string;
+    maxValue: string;
+    incrementBy: string;
+    cache: string;
+    cycle: boolean;
+    lastValue: string;
+    owner: string;
+}
+
+export class SequenceManagementPanel {
+    private static extractErrorMessage(error: any): string {
+        // Handle PostgreSQL error objects
+        if (error && typeof error === 'object' && 'message' in error) {
+            return error.message;
+        }
+        // Handle Error instances
+        if (error instanceof Error) {
+            return error.message;
+        }
+        // Handle string errors
+        if (typeof error === 'string') {
+            return error;
+        }
+        // Fallback: try to stringify
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
+    public static currentPanels = new Map<string, vscode.WebviewPanel>();
+
+    /**
+     * Create a new sequence
+     */
+    public static async createSequence(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        database?: string
+    ): Promise<void> {
+        const key = `create_sequence_${database || 'default'}.${schema}`;
+        
+        if (SequenceManagementPanel.currentPanels.has(key)) {
+            SequenceManagementPanel.currentPanels.get(key)!.reveal();
+            return;
+        }
+
+        const panel = vscode.window.createWebviewPanel(
+            'createSequence',
+            `Create Sequence: ${schema}`,
+            vscode.ViewColumn.One,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
+            }
+        );
+
+        SequenceManagementPanel.currentPanels.set(key, panel);
+
+        panel.onDidDispose(() => {
+            SequenceManagementPanel.currentPanels.delete(key);
+        });
+
+        try {
+            const initialData = { schema };
+            panel.webview.html = SequenceManagementPanel.getCreateWebviewContent(context, panel, initialData);
+
+            panel.webview.onDidReceiveMessage(async (message) => {
+                switch (message.command) {
+                    case 'createSequence':
+                        await SequenceManagementPanel.executeCreateSequence(
+                            context,
+                            stateService,
+                            message.seqDef,
+                            database,
+                            panel
+                        );
+                        break;
+                    case 'previewSql':
+                        const sql = SequenceManagementPanel.generateCreateSequenceSql(message.seqDef);
+                        panel.webview.postMessage({ command: 'sqlPreview', sql });
+                        break;
+                    case 'cancel':
+                        panel.dispose();
+                        break;
+                }
+            });
+
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open create sequence panel: ${error}`);
+            panel.dispose();
+        }
+    }
+
+    /**
+     * Alter sequence
+     */
+    public static async alterSequence(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        sequenceName: string,
+        database?: string
+    ): Promise<void> {
+        const key = `alter_${database || 'default'}.${schema}.${sequenceName}`;
+        
+        if (SequenceManagementPanel.currentPanels.has(key)) {
+            SequenceManagementPanel.currentPanels.get(key)!.reveal();
+            return;
+        }
+
+        const panel = vscode.window.createWebviewPanel(
+            'alterSequence',
+            `Edit Sequence: ${schema}.${sequenceName}`,
+            vscode.ViewColumn.One,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [context.extensionUri]
+            }
+        );
+
+        SequenceManagementPanel.currentPanels.set(key, panel);
+
+        panel.onDidDispose(() => {
+            SequenceManagementPanel.currentPanels.delete(key);
+        });
+
+        try {
+            const sqlService = new SqlQueryService(stateService, context);
+            
+            // Get current sequence properties
+            const propsResult = await sqlService.executeQuery(`
+                SELECT 
+                    increment_by as increment,
+                    min_value as minimum_value,
+                    max_value as maximum_value,
+                    cycle,
+                    cache_size as cache_value,
+                    start_value,
+                    last_value as current_value
+                FROM pg_sequences
+                WHERE schemaname = $1 AND sequencename = $2
+            `, [schema, sequenceName], database);
+
+            if (propsResult.rows.length === 0) {
+                vscode.window.showErrorMessage(`Sequence "${schema}.${sequenceName}" not found`);
+                panel.dispose();
+                return;
+            }
+
+            const currentProps = propsResult.rows[0];
+
+            const initialData = {
+                schema,
+                sequenceName,
+                currentProps
+            };
+
+            panel.webview.html = SequenceManagementPanel.getEditWebviewContent(context, panel, initialData);
+
+            panel.webview.onDidReceiveMessage(async (message) => {
+                switch (message.command) {
+                    case 'alterSequence':
+                        await SequenceManagementPanel.executeAlterSequence(
+                            context,
+                            stateService,
+                            schema,
+                            sequenceName,
+                            message.seqDef,
+                            database,
+                            panel
+                        );
+                        break;
+                    case 'previewAlterSql':
+                        const sql = SequenceManagementPanel.generateAlterSequenceSql(
+                            schema,
+                            sequenceName,
+                            message.seqDef
+                        );
+                        panel.webview.postMessage({ command: 'sqlPreview', sql });
+                        break;
+                    case 'cancel':
+                        panel.dispose();
+                        break;
+                }
+            });
+
+        } catch (error) {
+            const errorMessage = this.extractErrorMessage(error);
+            vscode.window.showErrorMessage(`Failed to open edit sequence panel: ${errorMessage}`);
+            panel.dispose();
+        }
+    }
+
+    /**
+     * Drop sequence
+     */
+    public static async dropSequence(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        sequenceName: string,
+        cascade: boolean,
+        database?: string
+    ): Promise<void> {
+        try {
+            const sql = `DROP SEQUENCE "${schema}"."${sequenceName}"${cascade ? ' CASCADE' : ' RESTRICT'};`;
+            
+            const sqlService = new SqlQueryService(stateService, context);
+            await sqlService.executeQuery(sql, database);
+
+            vscode.window.showInformationMessage(`Sequence "${schema}.${sequenceName}" dropped successfully!`);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+            
+        } catch (error) {
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
+            vscode.window.showErrorMessage(`Failed to drop sequence: ${errorMessage}`);
+            // Note: Don't throw the error - it's already been displayed to the user
+        }
+    }
+
+    /**
+     * Restart sequence
+     */
+    public static async restartSequence(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        sequenceName: string,
+        database?: string
+    ): Promise<void> {
+        // Prompt user for optional restart value
+        const value = await vscode.window.showInputBox({
+            prompt: 'Enter restart value (leave empty to restart at start value)',
+            placeHolder: 'Optional: e.g., 1000',
+            validateInput: (input) => {
+                if (input && !/^\d+$/.test(input)) {
+                    return 'Please enter a valid number';
+                }
+                return null;
+            }
+        });
+
+        if (value === undefined) {
+            return; // User cancelled
+        }
+
+        const restartValue = value ? parseInt(value) : undefined;
+        try {
+            const sql = restartValue !== undefined
+                ? `ALTER SEQUENCE ${schema}.${sequenceName} RESTART WITH ${restartValue};`
+                : `ALTER SEQUENCE ${schema}.${sequenceName} RESTART;`;
+            
+            const sqlService = new SqlQueryService(stateService, context);
+            await sqlService.executeQuery(sql, database);
+
+            const message = restartValue !== undefined
+                ? `Sequence "${schema}.${sequenceName}" restarted at ${restartValue}!`
+                : `Sequence "${schema}.${sequenceName}" restarted at start value!`;
+            vscode.window.showInformationMessage(message);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+            
+        } catch (error) {
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
+            vscode.window.showErrorMessage(`Failed to restart sequence: ${errorMessage}`);
+        }
+    }
+
+    /**
+     * Set next value
+     */
+    public static async setNextValue(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        sequenceName: string,
+        database?: string
+    ): Promise<void> {
+        // Prompt user for the value
+        const valueStr = await vscode.window.showInputBox({
+            prompt: `Set the current value for sequence ${schema}.${sequenceName}`,
+            placeHolder: 'e.g., 1000',
+            validateInput: (input) => {
+                if (!input) {
+                    return 'Value is required';
+                }
+                if (!/^\d+$/.test(input)) {
+                    return 'Please enter a valid number';
+                }
+                return null;
+            }
+        });
+
+        if (!valueStr) {
+            return; // User cancelled
+        }
+
+        const value = parseInt(valueStr);
+
+        try {
+            const sql = `SELECT setval('${schema}.${sequenceName}', ${value});`;
+            
+            const sqlService = new SqlQueryService(stateService, context);
+            await sqlService.executeQuery(sql, database);
+
+            vscode.window.showInformationMessage(`Sequence "${schema}.${sequenceName}" current value set to ${value}!`);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+            
+        } catch (error) {
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
+            vscode.window.showErrorMessage(`Failed to set sequence value: ${errorMessage}`);
+        }
+    }
+
+    /**
+     * Execute create sequence
+     */
+    private static async executeCreateSequence(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        seqDef: SequenceDefinition,
+        database: string | undefined,
+        panel: vscode.WebviewPanel
+    ): Promise<void> {
+        try {
+            const sql = SequenceManagementPanel.generateCreateSequenceSql(seqDef);
+            const sqlService = new SqlQueryService(stateService, context);
+            await sqlService.executeQuery(sql, database);
+
+            vscode.window.showInformationMessage(`Sequence "${seqDef.schema}.${seqDef.name}" created successfully!`);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+            panel.dispose();
+            
+        } catch (error) {
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
+            panel.webview.postMessage({
+                command: 'error',
+                error: errorMessage
+            });
+        }
+    }
+
+    /**
+     * Execute alter sequence
+     */
+    private static async executeAlterSequence(
+        context: vscode.ExtensionContext,
+        stateService: StateService,
+        schema: string,
+        sequenceName: string,
+        changes: any,
+        database: string | undefined,
+        panel: vscode.WebviewPanel
+    ): Promise<void> {
+        try {
+            const sql = SequenceManagementPanel.generateAlterSequenceSql(schema, sequenceName, changes);
+            const sqlService = new SqlQueryService(stateService, context);
+            await sqlService.executeQuery(sql, database);
+
+            vscode.window.showInformationMessage(`Sequence "${schema}.${sequenceName}" altered successfully!`);
+            await vscode.commands.executeCommand('neonLocal.schema.refresh');
+            panel.dispose();
+            
+        } catch (error) {
+            // Improved error handling to extract meaningful error messages
+            let errorMessage: string;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null) {
+                // Handle PostgreSQL error objects
+                if ('message' in error && typeof error.message === 'string') {
+                    errorMessage = error.message;
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+            } else {
+                errorMessage = String(error);
+            }
+            
+            panel.webview.postMessage({
+                command: 'error',
+                error: errorMessage
+            });
+        }
+    }
+
+    /**
+     * Generate CREATE SEQUENCE SQL
+     */
+    private static generateCreateSequenceSql(seqDef: SequenceDefinition): string {
+        const {
+            name,
+            schema,
+            startValue,
+            incrementBy,
+            minValue,
+            maxValue,
+            cache,
+            cycle
+        } = seqDef;
+
+        let sql = `CREATE SEQUENCE ${schema}.${name}`;
+        
+        const options: string[] = [];
+        
+        if (incrementBy !== undefined) {
+            options.push(`INCREMENT BY ${incrementBy}`);
+        }
+        
+        if (minValue !== undefined) {
+            options.push(`MINVALUE ${minValue}`);
+        } else {
+            options.push('NO MINVALUE');
+        }
+        
+        if (maxValue !== undefined) {
+            options.push(`MAXVALUE ${maxValue}`);
+        } else {
+            options.push('NO MAXVALUE');
+        }
+        
+        if (startValue !== undefined) {
+            options.push(`START WITH ${startValue}`);
+        }
+        
+        if (cache !== undefined && cache > 1) {
+            options.push(`CACHE ${cache}`);
+        }
+        
+        if (cycle) {
+            options.push('CYCLE');
+        } else {
+            options.push('NO CYCLE');
+        }
+        
+        if (options.length > 0) {
+            sql += '\n  ' + options.join('\n  ');
+        }
+        
+        sql += ';';
+        
+        return sql;
+    }
+
+    /**
+     * Generate ALTER SEQUENCE SQL
+     */
+    private static generateAlterSequenceSql(
+        schema: string,
+        sequenceName: string,
+        changes: any
+    ): string {
+        const statements: string[] = [];
+        const options: string[] = [];
+        
+        if (changes.incrementBy !== undefined && changes.incrementBy !== '') {
+            options.push(`INCREMENT BY ${changes.incrementBy}`);
+        }
+        
+        if (changes.minValue !== undefined && changes.minValue !== '') {
+            if (changes.minValue === 'NO MINVALUE') {
+                options.push('NO MINVALUE');
+            } else {
+                options.push(`MINVALUE ${changes.minValue}`);
+            }
+        }
+        
+        if (changes.maxValue !== undefined && changes.maxValue !== '') {
+            if (changes.maxValue === 'NO MAXVALUE') {
+                options.push('NO MAXVALUE');
+            } else {
+                options.push(`MAXVALUE ${changes.maxValue}`);
+            }
+        }
+        
+        if (changes.cache !== undefined && changes.cache !== '') {
+            options.push(`CACHE ${changes.cache}`);
+        }
+        
+        if (changes.cycle !== undefined) {
+            options.push(changes.cycle ? 'CYCLE' : 'NO CYCLE');
+        }
+        
+        if (options.length > 0) {
+            let sql = `ALTER SEQUENCE ${schema}.${sequenceName}`;
+            sql += '\n  ' + options.join('\n  ');
+            sql += ';';
+            statements.push(sql);
+        }
+        
+        // Handle current value change if needed
+        if (changes.currentValue !== undefined && changes.currentValue !== '') {
+            statements.push(`SELECT setval('${schema}.${sequenceName}', ${changes.currentValue});`);
+        }
+        
+        // Handle sequence rename if needed
+        if (changes.newSequenceName && changes.newSequenceName !== sequenceName) {
+            statements.push(`ALTER SEQUENCE ${schema}.${sequenceName} RENAME TO ${changes.newSequenceName};`);
+        }
+        
+        return statements.length > 0 ? statements.join('\n') : '-- No changes to apply';
+    }
+
+    /**
+     * Get webview content for React components (Create Sequence)
+     */
+    private static getCreateWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
+    ): string {
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'createSequence.js')
+        );
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Sequence</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        const vscode = acquireVsCodeApi();
+        window.vscode = vscode;
+        window.initialData = ${JSON.stringify(initialData)};
+    </script>
+    <script src="${scriptUri}"></script>
+</body>
+</html>`;
+    }
+
+    /**
+     * Get webview content for React components (Edit Sequence)
+     */
+    private static getEditWebviewContent(
+        context: vscode.ExtensionContext,
+        panel: vscode.WebviewPanel,
+        initialData: any
+    ): string {
+        const scriptUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'dist', 'editSequence.js')
+        );
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Sequence</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh; 
+            overflow: auto; 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        const vscode = acquireVsCodeApi();
+        window.vscode = vscode;
+        window.initialData = ${JSON.stringify(initialData)};
+    </script>
+    <script src="${scriptUri}"></script>
+</body>
+</html>`;
+    }
+
+}
+
+

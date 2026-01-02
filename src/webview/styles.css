@@ -61,6 +61,17 @@ h1 {
   }
 }
 
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.05);
+  }
+}
+
 select {
   width: 100%;
   padding: 8px;
@@ -149,6 +160,107 @@ button:disabled {
 
 .section {
   margin-bottom: 16px;
+}
+
+.connection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.connection-title {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--vscode-editor-foreground);
+}
+
+.tabs {
+  display: flex;
+  margin-bottom: 16px;
+  gap: 0;
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  font-family: var(--vscode-font-family);
+  max-width: 150px;
+  min-width: 0;
+}
+
+.tab:hover {
+  color: var(--vscode-foreground);
+}
+
+.tab.active {
+  color: var(--vscode-foreground);
+  border-bottom-color: var(--vscode-focusBorder);
+}
+
+.tab-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.detected-connections {
+  margin-top: 4px;
+}
+
+.label-with-refresh {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.label-with-refresh label {
+  margin-bottom: 0;
+}
+
+.refresh-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  color: var(--vscode-icon-foreground);
+  padding: 4px;
+  border-radius: 3px;
+  margin: 0;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background-color: var(--vscode-toolbar-hoverBackground);
+  opacity: 1;
+}
+
+.refresh-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.refresh-button:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
 }
 
 .section label {
@@ -249,7 +361,7 @@ button:disabled {
 
 .connection-string-container {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   font-family: var(--vscode-editor-font-family);
   width: 100%;
@@ -265,6 +377,38 @@ button:disabled {
   color: var(--vscode-foreground);
   min-width: 0;
   overflow-wrap: break-word;
+}
+
+.connection-string.truncated {
+  position: relative;
+}
+
+.expand-button {
+  align-self: flex-start;
+  padding: 4px 8px;
+  background-color: transparent;
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: 2px;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  outline: none;
+}
+
+.expand-button:hover {
+  background-color: transparent;
+}
+
+.expand-button:active {
+  opacity: 0.8;
+}
+
+.expand-button:focus {
+  outline: none;
+  border: none;
 }
 
 .copy-button {
@@ -411,6 +555,8 @@ button:disabled {
   background-color: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border);
   border-radius: 2px;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .database-content .connection-string {

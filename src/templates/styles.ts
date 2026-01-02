@@ -15,7 +15,7 @@ export const getStyles = (): string => `
         margin-right: 10px;
     }
     h1 {
-        margin: 0;
+        margin: 24px 0 32px 0;
         font-size: 20px;
         font-weight: 600;
     }
@@ -42,9 +42,13 @@ export const getStyles = (): string => `
     select:hover:not(:disabled) {
         border-color: var(--vscode-dropdown-listBackground);
     }
+    select:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        color: var(--vscode-descriptionForeground);
+    }
     button {
-        width: 100%;
-        padding: 8px;
+        padding: 8px 24px;
         margin: 4px 0 8px 0;
         background-color: var(--vscode-button-background);
         color: var(--vscode-button-foreground);
@@ -258,6 +262,198 @@ export const getStyles = (): string => `
         font-size: 13px;
         margin: 0 0 16px 0;
         line-height: 1.4;
+    }
+
+    /* Form Styles */
+    .container {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    
+    .section-box {
+        background-color: var(--vscode-editor-background);
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 4px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    
+    .form-group {
+        margin-bottom: 16px;
+    }
+    
+    .form-group:last-child {
+        margin-bottom: 0;
+    }
+    
+    .form-group label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+        font-size: 12px;
+        color: var(--vscode-foreground);
+    }
+    
+    input[type="text"],
+    input[type="number"],
+    input[type="password"],
+    textarea {
+        width: 100%;
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        border: 1px solid var(--vscode-input-border);
+        border-radius: 4px;
+        padding: 8px;
+        font-size: 12px;
+        font-family: var(--vscode-font-family);
+        box-sizing: border-box;
+    }
+    
+    input:focus,
+    select:focus,
+    textarea:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+    
+    input:disabled,
+    textarea:disabled,
+    input[readonly],
+    textarea[readonly] {
+        background-color: var(--vscode-input-background);
+        opacity: 0.6;
+        cursor: not-allowed;
+        color: var(--vscode-descriptionForeground);
+    }
+    
+    .info-text {
+        color: var(--vscode-descriptionForeground);
+        font-size: 11px;
+        margin-top: 4px;
+        line-height: 1.4;
+    }
+    
+    .error {
+        color: var(--vscode-errorForeground);
+        background-color: var(--vscode-inputValidation-errorBackground);
+        border: 1px solid var(--vscode-inputValidation-errorBorder);
+        padding: 12px;
+        border-radius: 4px;
+        margin-bottom: 16px;
+        font-size: 12px;
+    }
+    
+    .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid var(--vscode-panel-border);
+    }
+    
+    .btn {
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        padding: 8px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        margin: 0;
+    }
+    
+    .btn:hover:not(:disabled) {
+        background-color: var(--vscode-button-hoverBackground);
+    }
+    
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    .btn-secondary {
+        background-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+    }
+    
+    .btn-secondary:hover:not(:disabled) {
+        background-color: var(--vscode-button-secondaryHoverBackground);
+    }
+    
+    .sql-preview {
+        background-color: var(--vscode-textCodeBlock-background);
+        border: 1px solid var(--vscode-input-border);
+        border-radius: 4px;
+        padding: 12px;
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 12px;
+        white-space: pre-wrap;
+        max-height: 300px;
+        overflow: auto;
+        margin-top: 12px;
+        color: var(--vscode-editor-foreground);
+    }
+    
+    /* Collapsible Sections */
+    .collapsible-header {
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--vscode-foreground);
+        padding: 0;
+        margin-bottom: 0;
+    }
+    
+    .collapsible-header:hover {
+        opacity: 0.8;
+    }
+    
+    .toggle-icon {
+        display: inline-block;
+        transition: transform 0.2s ease;
+        font-size: 10px;
+        color: var(--vscode-foreground);
+    }
+    
+    .collapsible-content {
+        display: none;
+        padding-top: 12px;
+    }
+    
+    .section.collapsible .section-title {
+        margin-bottom: 0;
+    }
+    
+    .section-box.collapsible .collapsible-content {
+        margin-top: 12px;
+    }
+    
+    .required {
+        color: var(--vscode-errorForeground);
+    }
+    
+    /* Checkbox Group */
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    
+    .checkbox-group input[type="checkbox"] {
+        width: auto;
+        margin: 0;
+    }
+    
+    .checkbox-group label {
+        margin: 0;
+        font-size: 12px;
+        cursor: pointer;
     }
 </style>
 `; 

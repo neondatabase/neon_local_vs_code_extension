@@ -101,7 +101,9 @@ export class NeonApiService {
     // OAuth token did not yield valid credentials. This prevents infinite retry loops.
     private async makeRequest<T>(path: string, method: string = 'GET', data?: any, attempt: number = 0): Promise<T> {
         try {
+            console.debug(`makeRequest: Starting request to ${path} (attempt ${attempt})`);
             const token = await this.getToken();
+            console.debug('makeRequest: Token retrieved', { hasToken: !!token, tokenLength: token?.length });
             if (!token) {
                 throw new Error('No authentication token available');
             }
@@ -120,12 +122,18 @@ export class NeonApiService {
             console.debug('Making request:', {
                 method,
                 path: `/api/v2${path}`,
-                headers: options.headers,
+                hostname: options.hostname,
+                hasToken: !!token,
+                tokenLength: token?.length,
                 data
             });
 
             return new Promise((resolve, reject) => {
                 const req = https.request(options, async (res) => {
+                    console.debug('Response started:', {
+                        statusCode: res.statusCode,
+                        headers: res.headers
+                    });
                     let responseData = '';
                     res.on('data', (chunk) => {
                         responseData += chunk;
@@ -211,6 +219,13 @@ export class NeonApiService {
                     reject(new Error(`Request failed: ${error.message}`));
                 });
 
+                // Set a timeout of 30 seconds for the request
+                req.setTimeout(30000, () => {
+                    console.error('Request timeout after 30 seconds');
+                    req.destroy();
+                    reject(new Error('Request timeout after 30 seconds'));
+                });
+
                 if (data) {
                     const jsonData = JSON.stringify(data);
                     console.debug('Sending request body:', jsonData);
@@ -231,31 +246,9 @@ export class NeonApiService {
             console.debug('Raw organizations response:', JSON.stringify(response, null, 2));
 
             // Ensure we return an array of organizations
-            let orgs = Array.isArray(response) ? response : response.organizations || [];
-            console.debug('Organizations array before processing:', JSON.stringify(orgs, null, 2));
+            const orgs = Array.isArray(response) ? response : response.organizations || [];
+            console.debug('Organizations:', orgs.length);
             
-            // Check if user has access to personal account by attempting to get projects
-            try {
-                await this.getProjects('personal_account');
-                // If successful, add Personal account as the first option
-                orgs = [
-                    { id: 'personal_account', name: 'Personal account' },
-                    ...orgs
-                ];
-            } catch (error) {
-                // If we get the specific error about org_id being required, don't add personal account
-                if (error instanceof Error && error.message.includes('org_id is required')) {
-                    console.debug('User does not have access to personal account, skipping...');
-                } else {
-                    // For other errors, still add personal account as it might be a temporary issue
-                    orgs = [
-                        { id: 'personal_account', name: 'Personal account' },
-                        ...orgs
-                    ];
-                }
-            }
-
-            console.debug('Final processed organizations:', JSON.stringify(orgs, null, 2));
             return orgs;
         } catch (error: unknown) {
             console.error('Error fetching organizations:', error);
@@ -264,15 +257,20 @@ export class NeonApiService {
     }
 
     public async getProjects(orgId: string): Promise<NeonProject[]> {
-        console.debug(`Fetching projects from URL: /projects for orgId: ${orgId}`);
+        if (!orgId) {
+            console.warn('getProjects called without orgId');
+            return [];
+        }
+        
+        console.debug(`Fetching projects for orgId: ${orgId}`);
         let retryCount = 0;
         const maxRetries = 3;
         const retryDelay = 1000;
 
         while (retryCount < maxRetries) {
             try {
-                // For personal account, don't include org_id parameter
-                const path = orgId === 'personal_account' ? '/projects' : `/projects?org_id=${orgId}`;
+                // Request up to 100 projects (Neon API default is 10)
+                const path = `/projects?org_id=${orgId}&limit=100`;
                 console.debug(`Fetching projects from path: ${path}`);
                 
                 const response = await this.makeRequest<any>(path);
@@ -326,6 +324,87 @@ export class NeonApiService {
         }
     }
 
+    public async getEndpointInfo(endpointId: string): Promise<{ project_id: string; branch_id: string; id: string } | null> {
+        try {
+            console.debug(`🔍 API Request - getEndpointInfo: endpointId="${endpointId}"`);
+            
+            // The endpoint ID format is typically ep-xxx-xxx, we need to find which project it belongs to
+            // Unfortunately, there's no direct API to look up an endpoint by ID without knowing the project
+            // So we need to search through projects
+            const orgs = await this.getOrgs();
+            
+            for (const org of orgs) {
+                const projects = await this.getProjects(org.id);
+                
+                for (const project of projects) {
+                    try {
+                        // Get endpoints for this project
+                        const response = await this.makeRequest<any>(`/projects/${project.id}/endpoints`);
+                        const endpoints = Array.isArray(response) ? response : response.endpoints || [];
+                        
+                        const endpoint = endpoints.find((ep: any) => ep.id === endpointId);
+                        if (endpoint) {
+                            console.debug(`✅ Found endpoint:`, endpoint);
+                            return {
+                                id: endpoint.id,
+                                project_id: endpoint.project_id || project.id,
+                                branch_id: endpoint.branch_id
+                            };
+                        }
+                    } catch (error) {
+                        // Continue searching other projects
+                        console.debug(`No endpoint found in project ${project.id}`);
+                    }
+                }
+            }
+            
+            console.warn(`❌ Endpoint ${endpointId} not found in any project`);
+            return null;
+        } catch (error: unknown) {
+            console.error(`❌ Error fetching endpoint info for "${endpointId}":`, error);
+            return null;
+        }
+    }
+
+    public async getProject(projectId: string): Promise<{ id: string; name: string; org_id?: string } | null> {
+        try {
+            console.debug(`🔍 API Request - getProject: projectId="${projectId}"`);
+            console.debug(`📡 Making API request to: /projects/${projectId}`);
+            
+            const response = await this.makeRequest<any>(`/projects/${projectId}`);
+            console.debug(`✅ getProject response:`, response);
+            
+            const project = response.project || response;
+            return {
+                id: project.id,
+                name: project.name,
+                org_id: project.org_id
+            };
+        } catch (error: unknown) {
+            console.error(`❌ Error fetching project "${projectId}":`, error);
+            return null;
+        }
+    }
+
+    public async getBranch(projectId: string, branchId: string): Promise<{ id: string; name: string } | null> {
+        try {
+            console.debug(`🔍 API Request - getBranch: projectId="${projectId}", branchId="${branchId}"`);
+            console.debug(`📡 Making API request to: /projects/${projectId}/branches/${branchId}`);
+            
+            const response = await this.makeRequest<any>(`/projects/${projectId}/branches/${branchId}`);
+            console.debug(`✅ getBranch response:`, response);
+            
+            const branch = response.branch || response;
+            return {
+                id: branch.id,
+                name: branch.name
+            };
+        } catch (error: unknown) {
+            console.error(`❌ Error fetching branch for project="${projectId}", branch="${branchId}":`, error);
+            return null;
+        }
+    }
+
     public async getDatabases(projectId: string, branchId: string): Promise<NeonDatabase[]> {
         try {
             console.debug(`🔍 API Request - getDatabases: projectId="${projectId}", branchId="${branchId}"`);
@@ -342,6 +421,46 @@ export class NeonApiService {
         } catch (error: unknown) {
             console.error(`❌ Error fetching databases for project="${projectId}", branch="${branchId}":`, error);
             throw new Error(`Failed to fetch databases: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    public async createDatabase(
+        projectId: string, 
+        branchId: string, 
+        name: string, 
+        ownerName?: string
+    ): Promise<NeonDatabase> {
+        try {
+            console.debug(`🔍 API Request - createDatabase: projectId="${projectId}", branchId="${branchId}", name="${name}", ownerName="${ownerName}"`);
+            
+            const requestBody: any = {
+                database: {
+                    name: name
+                }
+            };
+            
+            if (ownerName) {
+                requestBody.database.owner_name = ownerName;
+            }
+            
+            console.debug(`📡 Making API POST request to: /projects/${projectId}/branches/${branchId}/databases`, requestBody);
+            
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/databases`,
+                'POST',
+                requestBody
+            );
+            
+            console.debug(`✅ createDatabase response:`, response);
+            
+            // The API returns a database object
+            const database = response.database || response;
+            console.debug(`📊 Created database:`, database);
+            
+            return database;
+        } catch (error: unknown) {
+            console.error(`❌ Error creating database:`, error);
+            throw new Error(`Failed to create database: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -449,6 +568,165 @@ export class NeonApiService {
         } catch (error: unknown) {
             console.error('Error creating branch:', error);
             throw new Error(`Failed to create branch: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    public async createRole(projectId: string, branchId: string, roleName: string): Promise<any> {
+        try {
+            const payload = {
+                role: {
+                    name: roleName
+                }
+            };
+
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/roles`, 
+                'POST', 
+                payload
+            );
+            return response;
+        } catch (error: unknown) {
+            console.error('Error creating role:', error);
+            throw new Error(`Failed to create role: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    public async resetRolePassword(projectId: string, branchId: string, roleName: string): Promise<any> {
+        try {
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/roles/${roleName}/reset_password`, 
+                'POST',
+                {}
+            );
+            return response;
+        } catch (error: unknown) {
+            console.error('Error resetting role password:', error);
+            throw new Error(`Failed to reset role password: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    public async deleteRole(projectId: string, branchId: string, roleName: string): Promise<any> {
+        try {
+            const response = await this.makeRequest<any>(
+                `/projects/${projectId}/branches/${branchId}/roles/${roleName}`, 
+                'DELETE'
+            );
+            return response;
+        } catch (error: unknown) {
+            console.error('Error deleting role:', error);
+            throw new Error(`Failed to delete role: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Creates a new API key for the authenticated user.
+     * Returns the key which should be stored securely as it's only shown once.
+     * @param keyName - A user-specified name for the API key
+     * @returns Object containing the API key ID and the key itself
+     */
+    public async createApiKey(keyName: string): Promise<{ id: string; key: string }> {
+        try {
+            console.debug('Creating API key with name:', keyName);
+            const payload = {
+                key_name: keyName
+            };
+
+            const response = await this.makeRequest<any>('/api_keys', 'POST', payload);
+            console.debug('API key creation response:', JSON.stringify(response, null, 2));
+            
+            // The response format from Neon API docs is typically nested
+            // It could be { id, key } or { api_key: { id, key } } or similar
+            let id: string;
+            let key: string;
+            
+            if (response.id && response.key) {
+                // Direct format
+                id = response.id;
+                key = response.key;
+            } else if (response.api_key) {
+                // Nested format
+                id = response.api_key.id;
+                key = response.api_key.key;
+            } else {
+                console.error('Unexpected API key response format:', response);
+                throw new Error('Unexpected API response format');
+            }
+            
+            console.debug('API key created successfully, ID:', id);
+            return { id, key };
+        } catch (error: unknown) {
+            console.error('Error creating API key:', error);
+            throw new Error(`Failed to create API key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Get complete connection information for all databases in a branch.
+     * This includes host, database name, user (owner), and password for each database.
+     * Similar to the Python `get_branch_connection_info` method.
+     */
+    public async getBranchConnectionInfo(projectId: string, branchId: string): Promise<Array<{
+        host: string;
+        database: string;
+        user: string;
+        password: string;
+    }>> {
+        try {
+            console.debug(`Fetching connection info for project=${projectId}, branch=${branchId}`);
+            
+            // Get the endpoint host for the branch
+            const host = await this.getBranchEndpoint(projectId, branchId);
+            console.debug(`Endpoint host: ${host}`);
+            
+            // Get all databases in the branch
+            const databases = await this.getDatabases(projectId, branchId);
+            console.debug(`Found ${databases.length} databases`);
+            
+            if (!databases || databases.length === 0) {
+                throw new Error('No databases found in the branch');
+            }
+            
+            // For each database, get the owner's password and build connection info
+            const connectionInfoPromises = databases.map(async (db) => {
+                if (!db.name || !db.owner_name) {
+                    console.warn(`Database ${db.name || 'unknown'} missing name or owner, skipping`);
+                    return null;
+                }
+                
+                try {
+                    const password = await this.getRolePassword(projectId, branchId, db.owner_name);
+                    return {
+                        host,
+                        database: db.name,
+                        user: db.owner_name,
+                        password
+                    };
+                } catch (error) {
+                    console.error(`Failed to get password for ${db.owner_name}:`, error);
+                    return null;
+                }
+            });
+            
+            const connectionInfos = await Promise.all(connectionInfoPromises);
+            
+            // Filter out any null values (databases that failed)
+            const validConnectionInfos = connectionInfos.filter(info => info !== null) as Array<{
+                host: string;
+                database: string;
+                user: string;
+                password: string;
+            }>;
+            
+            if (validConnectionInfos.length === 0) {
+                throw new Error('Failed to get connection info for any database');
+            }
+            
+            console.debug(`Successfully built connection info for ${validConnectionInfos.length} databases`);
+            return validConnectionInfos;
+            
+        } catch (error: unknown) {
+            console.error('Error getting branch connection info:', error);
+            throw new Error(`Failed to get branch connection info: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 }

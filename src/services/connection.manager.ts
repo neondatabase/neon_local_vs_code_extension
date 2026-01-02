@@ -33,18 +33,38 @@ export class ConnectionManager {
     }
 
     private async getConnectionConfig(database?: string): Promise<ConnectionConfig> {
-        const viewData = this.stateService.getViewData();
+        const viewData = await this.stateService.getViewData();
         
         if (!viewData.connected) {
             throw new Error('Database is not connected. Please connect first.');
         }
 
+        const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+        if (!branchConnectionInfos || branchConnectionInfos.length === 0) {
+            throw new Error('No connection information available. Please reconnect.');
+        }
+
+        // Find connection info for the requested database
+        const requestedDatabase = database || viewData.connection.selectedDatabase;
+        let connectionInfo = branchConnectionInfos.find(info => info.database === requestedDatabase);
+        
+        // If not found, use the first available database from the branch
+        if (!connectionInfo) {
+            if (requestedDatabase) {
+                console.debug(`Database "${requestedDatabase}" not found in branch, using first available database: "${branchConnectionInfos[0].database}"`);
+            }
+            connectionInfo = branchConnectionInfos[0];
+        }
+
+        // Always use the database from the connection info (only connect to databases that exist in the branch)
+        const databaseToUse = connectionInfo.database;
+
         return {
-            host: 'localhost',
-            port: viewData.port,
-            database: database || viewData.selectedDatabase || 'postgres',
-            user: 'neon',
-            password: 'npg',
+            host: connectionInfo.host,
+            port: 5432, // Neon always uses 5432
+            database: databaseToUse,
+            user: connectionInfo.user,
+            password: connectionInfo.password,
             ssl: {
                 rejectUnauthorized: false
             }
@@ -60,12 +80,18 @@ export class ConnectionManager {
             return client;
         } catch (error) {
             console.error('Failed to connect to database:', error);
-            throw new Error(`Unable to connect to database ${config.database}. Please ensure the Neon proxy is running and accessible.`);
+            throw new Error(`Unable to connect to database ${config.database}. ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
     public async getConnection(database?: string): Promise<Client> {
-        const targetDatabase = database || this.stateService.getViewData().selectedDatabase || 'postgres';
+        // Get the target database, falling back to the first available database from connection info
+        const viewData = await this.stateService.getViewData();
+        const branchConnectionInfos = viewData.connection.branchConnectionInfos;
+        const firstAvailableDatabase = branchConnectionInfos && branchConnectionInfos.length > 0 
+            ? branchConnectionInfos[0].database 
+            : 'neondb';
+        const targetDatabase = database || viewData.selectedDatabase || firstAvailableDatabase;
 
         // If we have a connection to the same database, return it
         if (this.client && this.currentDatabase === targetDatabase) {
@@ -114,12 +140,12 @@ export class ConnectionManager {
     }
 
     public async executeQuery<T = any>(
-        query: string, 
-        params: any[] = [], 
+        query: string,
+        params: any[] = [],
         database?: string
     ): Promise<{ rows: T[]; rowCount: number }> {
         const client = await this.getConnection(database);
-        
+
         try {
             const result = await client.query(query, params);
             return {
@@ -128,12 +154,12 @@ export class ConnectionManager {
             };
         } catch (error) {
             console.error('Query execution failed:', error);
-            
+
             // If the error indicates a connection issue, clean up and retry once
             if (this.isConnectionError(error)) {
                 console.log('Connection error detected, retrying with new connection...');
                 await this.disconnect();
-                
+
                 const newClient = await this.getConnection(database);
                 const retryResult = await newClient.query(query, params);
                 return {
@@ -141,7 +167,7 @@ export class ConnectionManager {
                     rowCount: retryResult.rowCount || 0
                 };
             }
-            
+
             throw error;
         }
     }
@@ -154,9 +180,9 @@ export class ConnectionManager {
             'ETIMEDOUT',
             'CONNECTION_TERMINATED'
         ];
-        
-        return connectionErrorCodes.some(code => 
-            error.code === code || 
+
+        return connectionErrorCodes.some(code =>
+            error.code === code ||
             error.message?.includes(code) ||
             error.message?.includes('connection')
         );

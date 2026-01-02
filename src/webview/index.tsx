@@ -1,8 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { MainApp } from './components/App';
-import { DatabaseView } from './components/DatabaseView';
-import { ActionsView } from './components/ActionsView';
 import { StateProvider } from './context/StateContext';
 import './styles.css';
 
@@ -26,12 +24,6 @@ let Component;
 switch (viewType) {
   case 'neonLocalConnect':
     Component = MainApp;
-    break;
-  case 'neonLocalDatabase':
-    Component = DatabaseView;
-    break;
-  case 'neonLocalActions':
-    Component = ActionsView;
     break;
   default:
     console.error('Unknown view type:', viewType);

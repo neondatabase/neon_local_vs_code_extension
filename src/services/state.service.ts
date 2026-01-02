@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import { ViewData, NeonBranch, NeonOrg, NeonProject, NeonDatabase, NeonRole } from '../types';
-import { FileService } from './file.service';
+import { ViewData, NeonBranch, NeonOrg, NeonProject, NeonDatabase, NeonRole, BranchConnectionInfo } from '../types';
 import { ConfigurationManager } from '../utils';
 
 interface ConnectionState {
@@ -20,6 +19,7 @@ interface ConnectionState {
     roles: NeonRole[];
     persistentApiToken?: string;
     port: number;
+    branchConnectionInfos?: BranchConnectionInfo[];
 }
 
 interface SelectionState {
@@ -92,12 +92,15 @@ export interface IStateService {
     setDatabases(databases: NeonDatabase[]): Promise<void>;
     setRoles(roles: NeonRole[]): Promise<void>;
     getRoles(): Promise<NeonRole[]>;
+    setBranchConnectionInfos(infos: BranchConnectionInfo[]): Promise<void>;
+    getBranchConnectionInfos(): BranchConnectionInfo[];
 }
 
 export class StateService implements IStateService {
     private readonly context: vscode.ExtensionContext;
     private state: vscode.Memento;
-    private fileService: FileService;
+    private _initializationPromise: Promise<void>;
+    private _needsConnectionRestore: boolean = false;
     private _state: State = {
         connection: {
             connected: false,
@@ -140,10 +143,18 @@ export class StateService implements IStateService {
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
         this.state = context.globalState;
-        this.fileService = new FileService(context);
-        this.loadState().catch(error => {
+        this._initializationPromise = this.loadState().catch(error => {
             console.error('Error loading initial state:', error);
         });
+    }
+
+    /**
+     * Returns a promise that resolves once the state has been fully loaded from storage.
+     * Call this before reading state values on extension startup to ensure they reflect
+     * the persisted values.
+     */
+    public async ready(): Promise<void> {
+        await this._initializationPromise;
     }
 
     private async loadState() {
@@ -168,10 +179,36 @@ export class StateService implements IStateService {
         const connectedProjectName = await this.state.get<string>('neonLocal.connectedProjectName', '');
         const persistentApiToken = await ConfigurationManager.getSecureToken(this.context, 'persistentApiToken');
         const port = config.get<number>('port', 5432);
+        
+        // Check if we should restore the connected state from the previous session
+        // We restore it if:
+        // 1. The user was connected before VS Code closed
+        // 2. We have a valid API token
+        // 3. We have the necessary connection info (project, branch)
+        const wasConnectedBeforeClose = await this.state.get<boolean>('neonLocal.wasConnectedBeforeClose', false);
+        const shouldRestoreConnection = wasConnectedBeforeClose && 
+            !!persistentApiToken && 
+            !!connectedProjectId && 
+            !!currentlyConnectedBranch;
+        
+        console.debug('State service: Connection state info', {
+            wasConnectedBeforeClose,
+            hasToken: !!persistentApiToken,
+            hasProject: !!connectedProjectId,
+            hasBranch: !!currentlyConnectedBranch,
+            shouldRestoreConnection
+        });
+
+        // NOTE: We DON'T set connected: true here even if shouldRestoreConnection is true.
+        // This is because the branchConnectionInfos need to be fetched first before we can
+        // actually use the connection. The extension.ts will check needsConnectionRestore()
+        // and fetch the connection info, THEN set connected: true.
+        // Store the restoration info so extension.ts can check it
+        this._needsConnectionRestore = shouldRestoreConnection;
 
         this._state = {
             connection: {
-                connected: false,
+                connected: false,  // Will be set to true after connection info is fetched
                 isStarting: false,
                 type: connectionType,
                 driver: selectedDriver as 'postgres' | 'serverless',
@@ -231,7 +268,9 @@ export class StateService implements IStateService {
             this.state.update('neonLocal.connectedOrgName', this._state.connection.connectedOrgName),
             this.state.update('neonLocal.connectedProjectId', this._state.connection.connectedProjectId),
             this.state.update('neonLocal.connectedProjectName', this._state.connection.connectedProjectName),
-            this.state.update('neonLocal.port', this._state.connection.port)
+            this.state.update('neonLocal.port', this._state.connection.port),
+            // Persist connected state so it can be restored on next VS Code startup
+            this.state.update('neonLocal.wasConnectedBeforeClose', this._state.connection.connected)
         ]);
     }
 
@@ -410,6 +449,8 @@ export class StateService implements IStateService {
                 branches: false
             }
         };
+        // Also clear the persisted connection state
+        await this.state.update('neonLocal.wasConnectedBeforeClose', false);
         await this.saveState();
     }
 
@@ -435,7 +476,8 @@ export class StateService implements IStateService {
                 parentBranchId: this._state.selection.parentBranchId,
                 parentBranchName: this._state.selection.parentBranchName,
                 persistentApiToken: this._state.connection.persistentApiToken,
-                port: this._state.connection.port
+                port: this._state.connection.port,
+                branchConnectionInfos: this._state.connection.branchConnectionInfos
             },
             connected: this._state.connection.connected,
             isStarting: this._state.connection.isStarting,
@@ -619,5 +661,62 @@ export class StateService implements IStateService {
                 port: value
             }
         });
+    }
+
+    public async setBranchConnectionInfos(infos: BranchConnectionInfo[]): Promise<void> {
+        await this.updateState({
+            connection: {
+                ...this._state.connection,
+                branchConnectionInfos: infos
+            }
+        });
+    }
+
+    public getBranchConnectionInfos(): BranchConnectionInfo[] {
+        return this._state.connection.branchConnectionInfos || [];
+    }
+
+    /**
+     * Check if the connection needs to be restored from a previous session.
+     * This is true when the user was connected before VS Code closed but
+     * we haven't fetched the connection info yet.
+     */
+    public needsConnectionRestore(): boolean {
+        return this._needsConnectionRestore;
+    }
+
+    /**
+     * Get the info needed to restore the connection.
+     * Returns null if no restore is needed.
+     */
+    public getPendingRestoreInfo(): { projectId: string; branchId: string } | null {
+        if (!this._needsConnectionRestore) {
+            return null;
+        }
+        const projectId = this._state.connection.connectedProjectId;
+        const branchId = this._state.connection.currentlyConnectedBranch;
+        if (projectId && branchId) {
+            return { projectId, branchId };
+        }
+        return null;
+    }
+
+    /**
+     * Mark the connection as restored. Called after connection info has been
+     * successfully fetched and stored.
+     */
+    public async markConnectionRestored(): Promise<void> {
+        this._needsConnectionRestore = false;
+        await this.setIsProxyRunning(true);
+        console.debug('State service: Connection restore completed');
+    }
+
+    /**
+     * Mark the connection restore as failed. Called when connection info
+     * couldn't be fetched on startup.
+     */
+    public markConnectionRestoreFailed(): void {
+        this._needsConnectionRestore = false;
+        console.debug('State service: Connection restore failed');
     }
 } 
