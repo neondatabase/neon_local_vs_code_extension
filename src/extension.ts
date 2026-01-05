@@ -13,6 +13,105 @@ import { AuthManager } from './auth/authManager';
 import { SqlQueryPanel } from './panels/sqlQueryPanel';
 import { TableDataPanel } from './panels/tableDataPanel';
 
+/**
+ * URI Handler for the Neon extension
+ * Supports the following URIs:
+ * - vscode://databricks.neon-local-connect/import-api-key?token=xxx
+ * - vscode://databricks.neon-local-connect/sign-in
+ */
+class NeonUriHandler implements vscode.UriHandler {
+  constructor(
+    private readonly authManager: AuthManager,
+    private readonly apiService: NeonApiService,
+    private readonly stateService: StateService
+  ) {}
+
+  async handleUri(uri: vscode.Uri): Promise<void> {
+    console.debug('NeonUriHandler: Received URI:', uri.toString());
+    
+    const path = uri.path;
+    const query = new URLSearchParams(uri.query);
+
+    switch (path) {
+      case '/import-api-key':
+        await this.handleImportApiKey(query);
+        break;
+      case '/sign-in':
+        await this.handleSignIn();
+        break;
+      default:
+        vscode.window.showWarningMessage(`Unknown Neon URI path: ${path}`);
+    }
+  }
+
+  private async handleImportApiKey(query: URLSearchParams): Promise<void> {
+    let token = query.get('token');
+
+    // If no token in URL, prompt for it
+    if (!token) {
+      token = await vscode.window.showInputBox({
+        prompt: 'Enter your Neon API token',
+        password: true,
+        ignoreFocusOut: true,
+        placeHolder: 'Paste your API token here'
+      });
+    }
+
+    if (!token) {
+      return; // User cancelled
+    }
+
+    try {
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Validating API token...",
+        cancellable: false
+      }, async () => {
+        const isValid = await this.apiService.validateToken(token!);
+        
+        if (!isValid) {
+          throw new Error('Invalid API token');
+        }
+        
+        // Token is valid, store it via authManager (matching sign-in flow)
+        await this.authManager.setPersistentApiToken(token!);
+        
+        // Fetch back from authManager and update stateService (matching sign-in flow)
+        const persistentToken = await this.authManager.getPersistentApiToken();
+        if (persistentToken) {
+          await this.stateService.setPersistentApiToken(persistentToken);
+        }
+      });
+      
+      vscode.window.showInformationMessage('API token imported successfully!');
+      
+      // Focus the connect view
+      await vscode.commands.executeCommand('neonLocalConnect.focus');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      vscode.window.showErrorMessage(`Failed to import API token: ${errorMessage}`);
+    }
+  }
+
+  private async handleSignIn(): Promise<void> {
+    try {
+      await this.authManager.signIn();
+      
+      // After sign-in, update stateService with the persistent token (matching sidebar flow)
+      const persistentToken = await this.authManager.getPersistentApiToken();
+      if (persistentToken) {
+        await this.stateService.setPersistentApiToken(persistentToken);
+      }
+      
+      // Focus the connect view
+      await vscode.commands.executeCommand('neonLocalConnect.focus');
+    } catch (error) {
+      // Error is already shown by authManager.signIn()
+      console.error('Sign in via URI failed:', error);
+    }
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   // Initialize services
   const stateService = new StateService(context);
@@ -22,6 +121,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initialize webview service
   await webviewService.initialize();
+
+  // Register URI handler for external links
+  // Supports: vscode://databricks.neon-local-connect/import-api-key?token=xxx
+  //           vscode://databricks.neon-local-connect/sign-in
+  const uriHandler = new NeonUriHandler(authManager, apiService, stateService);
+  context.subscriptions.push(vscode.window.registerUriHandler(uriHandler));
 
   // Register the viewDataChanged command first
   context.subscriptions.push(
@@ -110,6 +215,9 @@ export async function activate(context: vscode.ExtensionContext) {
           });
           
           vscode.window.showInformationMessage('API token imported successfully!');
+          
+          // Focus the connect view
+          await vscode.commands.executeCommand('neonLocalConnect.focus');
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           vscode.window.showErrorMessage(`Failed to import API token: ${errorMessage}`);
@@ -125,6 +233,9 @@ export async function activate(context: vscode.ExtensionContext) {
         if (persistentToken) {
           await stateService.setPersistentApiToken(persistentToken);
         }
+        
+        // Focus the connect view
+        await vscode.commands.executeCommand('neonLocalConnect.focus');
       } catch (error) {
         // Error is already shown by authManager.signIn()
         console.error('Sign in failed:', error);
