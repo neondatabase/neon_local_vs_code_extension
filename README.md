@@ -1,6 +1,6 @@
 # Neon - Serverless Postgres
 
-Connect to any Neon branch and manage your database directly from VS Code or Cursor. Browse schemas, run queries, edit table data, and get connection strings—all without leaving your editor.
+Connect to any Neon branch and manage your database directly in your IDE. Browse schemas, run queries, edit table data, and get connection strings—all without leaving your editor.
 
 ![Branch Connection](/resources/connected.png)
 
@@ -10,13 +10,8 @@ Connect to any Neon branch and manage your database directly from VS Code or Cur
 - Connect to any Neon project and branch
 - Automatic detection of Neon connection strings in your workspace
 - One-click connection string copying for your `.env` file
-- Switch between branches instantly
 
-### AI Agent Integration
-- **Automatic MCP Server configuration** — enables AI-powered database features with your coding agent
-- Chat with your database using natural language
-- AI-assisted SQL generation and schema understanding
-- View and manage MCP server status directly in the extension
+![Branch Connection](/resources/Branch_detected.png)
 
 ### Database Explorer
 Browse your database structure with an intuitive tree view:
@@ -27,24 +22,6 @@ Browse your database structure with an intuitive tree view:
 
 ![Database Schema View](/resources/database_schema_view.png)
 
-### SQL Editor
-Execute SQL queries directly in your IDE:
-- Syntax highlighting
-- Results in tabular format with sorting and filtering
-- Export to CSV, JSON, or SQL
-- Query execution statistics
-
-![SQL Editor](/resources/sql_editor_view.png)
-
-### Table Data Editor
-View and edit data with a spreadsheet-like interface:
-- Paginated display for large datasets
-- Inline editing, insert, and delete operations
-- Column visibility and sorting controls
-- Real-time data validation
-
-![Table Data View](/resources/table_data_view.png)
-
 ### Database Management
 Professional-grade PostgreSQL management tools:
 - Create and drop databases and schemas
@@ -53,6 +30,32 @@ Professional-grade PostgreSQL management tools:
 - View and sequence management
 - User and role management
 - Data import/export (CSV, JSON, SQL)
+
+### SQL Editor
+Execute SQL queries directly in your IDE:
+- Syntax highlighting
+- Results in tabular format with sorting and filtering
+- Export to CSV, JSON, or SQL
+- Query execution statistics
+
+![SQL Editor](/resources/updated_sql_editor.png)
+
+### Table Data Editor
+View and edit data with a spreadsheet-like interface:
+- Paginated display for large datasets
+- Inline editing, insert, and delete operations
+- Column visibility and sorting controls
+- Real-time data validation
+
+![Table Data View](/resources/updated_table_view.png)
+
+### AI Agent Integration
+- **Automatic MCP Server configuration** — enables AI-powered database features with your coding agent
+- Chat with your database using natural language
+- AI-assisted SQL generation and schema understanding
+- View and manage MCP server status directly in the extension
+
+![MCP Server View](/resources/MCP_server.png)
 
 ## Requirements
 
@@ -107,7 +110,10 @@ Access these commands via the Command Palette (`Ctrl+Shift+P`):
 | `Neon: Sign In` | Sign in to your Neon account |
 | `Neon: Sign Out` | Sign out from your Neon account |
 | `Neon: Open SQL Editor` | Open a new SQL editor tab |
+| `Neon: View Databases` | Open the database tree view |
 | `Neon: Refresh Databases` | Refresh the database tree view |
+| `Neon: Create Branches`  | Create Neon branches |
+| `Neon: Get Started`  | Automatically configure your project to work with Neon |
 
 ## Troubleshooting
 
