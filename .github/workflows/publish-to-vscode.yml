@@ -2,11 +2,6 @@ name: Publish to VS Code Marketplace
 
 on:
     workflow_dispatch:
-        inputs:
-            version:
-                description: "Release tag"
-                required: true
-                type: string
 
     release:
         types: [published]
