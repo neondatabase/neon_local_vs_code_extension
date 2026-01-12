@@ -18,6 +18,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onUri",
     "onCommand:neon-local-connect.configure",
     "onCommand:neon-local-connect.stopProxy",
     "onCommand:neon-local-connect.clearAuth",
