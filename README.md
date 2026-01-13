@@ -54,8 +54,11 @@ View and edit data with a spreadsheet-like interface:
 - Chat with your database using natural language
 - AI-assisted SQL generation and schema understanding
 - View and manage MCP server status directly in the extension
+- **Read-only mode** — restrict MCP Server to read-only operations
 
 ![MCP Server View](/resources/MCP_server.png)
+
+To enable read-only mode: open the MCP Server panel, check "Read-only mode", and reload the window. This prevents accidental data modifications when using AI features.
 
 ## Requirements
 
@@ -100,6 +103,7 @@ DATABASE_URL="postgresql://user:password@ep-example-123456.us-east-2.aws.neon.te
 This extension contributes the following settings:
 
 * `neon.mcpServer.autoConfigEnabled` — Automatically configure the Neon MCP server on sign-in (default: `true`)
+* `neon.mcpServer.readOnlyMode` — Restrict MCP server to read-only operations (default: `false`)
 
 ## Commands
 
@@ -125,6 +129,7 @@ Access these commands via the Command Palette (`Ctrl+Shift+P`):
 - Check the MCP Server panel status
 - Try disabling and re-enabling the MCP server
 - Reload the window after configuration changes
+- Disable read-only mode if you need write operations (INSERT, UPDATE, DELETE)
 
 **Database view not updating**
 - Use the refresh button in the Databases view title bar
