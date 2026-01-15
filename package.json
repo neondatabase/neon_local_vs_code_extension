@@ -2,7 +2,7 @@
   "name": "neon-local-connect",
   "displayName": "Neon - Serverless Postgres",
   "description": "Local development environment for Neon Databases with branch management",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "publisher": "databricks",
   "repository": {
     "type": "git",
@@ -165,7 +165,6 @@
         "title": "Edit Table Schema",
         "icon": "$(edit)"
       },
-
       {
         "command": "neonLocal.schema.createSchema",
         "title": "Create Schema",
@@ -251,13 +250,11 @@
         "title": "Reset Password (Neon API)",
         "icon": "$(sync)"
       },
-
       {
         "command": "neonLocal.schema.editRole",
         "title": "Edit Role",
         "icon": "$(edit)"
       },
-
       {
         "command": "neonLocal.schema.dropRole",
         "title": "Drop Role",
@@ -550,7 +547,6 @@
         }
       ],
       "view/item/context": [
-        
         {
           "command": "neonLocal.schema.showContextMenu",
           "when": "view == neonLocalSchema && (viewItem == connection || viewItem == database || viewItem == schema || viewItem == table || viewItem == regularView || viewItem == materializedView || viewItem == function || viewItem == sequence || viewItem == foreignkey || viewItem == triggerEnabled || viewItem == triggerDisabled || viewItem == regularRole || viewItem == neonSuperuserRole || viewItem == container || viewItem == column || viewItem == index || viewItem == constraint || viewItem == policy)",
@@ -561,10 +557,6 @@
           "when": "view == neonLocalSchema && (viewItem == table || viewItem == regularView || viewItem == materializedView)",
           "group": "inline"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.resetFromParent",
           "when": "view == neonLocalSchema && viewItem == connection"
@@ -573,10 +565,6 @@
           "command": "neonLocal.schema.openInConsole",
           "when": "view == neonLocalSchema && viewItem == connection"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createDatabase",
           "when": "view == neonLocalSchema && viewItem == databasesContainer",
@@ -586,11 +574,9 @@
           "command": "neonLocal.schema.createDatabase",
           "when": "view == neonLocalSchema && (viewItem == databasesContainer)"
         },
-
-
         {
           "command": "neonLocal.schema.launchPsql",
-          "when": "view == neonLocalSchema && viewItem == database"        
+          "when": "view == neonLocalSchema && viewItem == database"
         },
         {
           "command": "neonLocal.schema.openSqlEditorForDatabase",
@@ -602,10 +588,6 @@
           "when": "view == neonLocalSchema && viewItem == database",
           "group": "database_actions@1"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createSchema",
           "when": "view == neonLocalSchema && viewItem == schemasContainer",
@@ -615,8 +597,6 @@
           "command": "neonLocal.schema.createSchema",
           "when": "view == neonLocalSchema && viewItem == schemasContainer"
         },
-
-
         {
           "command": "neonLocal.schema.openSqlEditorForSchema",
           "when": "view == neonLocalSchema && viewItem == schema",
@@ -637,10 +617,6 @@
           "when": "view == neonLocalSchema && viewItem == schema",
           "group": "schema_actions@2"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createTable",
           "when": "view == neonLocalSchema && viewItem == tablesContainer",
@@ -650,8 +626,6 @@
           "command": "neonLocal.schema.createTable",
           "when": "view == neonLocalSchema && viewItem == tablesContainer"
         },
-
-
         {
           "command": "neonLocal.schema.viewTableData",
           "when": "view == neonLocalSchema && viewItem == table",
@@ -692,10 +666,6 @@
           "when": "view == neonLocalSchema && viewItem == table",
           "group": "2_table_danger@2"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createColumn",
           "when": "view == neonLocalSchema && viewItem == columnsContainer",
@@ -705,8 +675,6 @@
           "command": "neonLocal.schema.createColumn",
           "when": "view == neonLocalSchema && viewItem == columnsContainer"
         },
-        
-
         {
           "command": "neonLocal.schema.editColumn",
           "when": "view == neonLocalSchema && viewItem == column",
@@ -717,10 +685,6 @@
           "when": "view == neonLocalSchema && viewItem == column",
           "group": "column_actions@2"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createIndex",
           "when": "view == neonLocalSchema && viewItem == indexesContainer",
@@ -730,8 +694,6 @@
           "command": "neonLocal.schema.createIndex",
           "when": "view == neonLocalSchema && viewItem == indexesContainer"
         },
-
-
         {
           "command": "neonLocal.schema.reindexIndex",
           "when": "view == neonLocalSchema && viewItem == index",
@@ -742,10 +704,6 @@
           "when": "view == neonLocalSchema && viewItem == index",
           "group": "index_actions@2"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createConstraint",
           "when": "view == neonLocalSchema && viewItem == constraintsContainer",
@@ -755,8 +713,6 @@
           "command": "neonLocal.schema.createConstraint",
           "when": "view == neonLocalSchema && viewItem == constraintsContainer"
         },
-
-
         {
           "command": "neonLocal.schema.editConstraint",
           "when": "view == neonLocalSchema && viewItem == constraint",
@@ -767,10 +723,6 @@
           "when": "view == neonLocalSchema && viewItem == constraint",
           "group": "constraint_actions@2"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createPolicy",
           "when": "view == neonLocalSchema && viewItem == policiesContainer",
@@ -780,8 +732,6 @@
           "command": "neonLocal.schema.createPolicy",
           "when": "view == neonLocalSchema && viewItem == policiesContainer"
         },
-
-
         {
           "command": "neonLocal.schema.editPolicy",
           "when": "view == neonLocalSchema && viewItem == policy",
@@ -792,10 +742,6 @@
           "when": "view == neonLocalSchema && viewItem == policy",
           "group": "policy_actions@2"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createView",
           "when": "view == neonLocalSchema && viewItem == viewsContainer",
@@ -805,8 +751,6 @@
           "command": "neonLocal.schema.createView",
           "when": "view == neonLocalSchema && viewItem == viewsContainer"
         },
-
-
         {
           "command": "neonLocal.schema.queryTable",
           "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
@@ -827,11 +771,6 @@
           "when": "view == neonLocalSchema && (viewItem == regularView || viewItem == materializedView)",
           "group": "view_actions@4"
         },
-
-
-
-
-
         {
           "command": "neonLocal.schema.createSequence",
           "when": "view == neonLocalSchema && viewItem == sequencesContainer",
@@ -841,8 +780,6 @@
           "command": "neonLocal.schema.createSequence",
           "when": "view == neonLocalSchema && viewItem == sequencesContainer"
         },
-
-
         {
           "command": "neonLocal.schema.alterSequence",
           "when": "view == neonLocalSchema && viewItem == sequence",
@@ -853,10 +790,6 @@
           "when": "view == neonLocalSchema && viewItem == sequence",
           "group": "sequence_actions@2"
         },
-
-
-
-
         {
           "command": "neonLocal.schema.createUser",
           "when": "view == neonLocalSchema && viewItem == rolesContainer",
@@ -866,8 +799,6 @@
           "command": "neonLocal.schema.createUser",
           "when": "view == neonLocalSchema && viewItem == rolesContainer"
         },
-
-
         {
           "command": "neonLocal.schema.editRole",
           "when": "view == neonLocalSchema && viewItem == regularRole",
