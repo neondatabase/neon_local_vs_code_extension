@@ -1147,7 +1147,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         <div id="checkbox-container" class="checkbox-container hidden">
             <input type="checkbox" id="read-only-checkbox">
             <label for="read-only-checkbox">
-                <strong>Read-only mode</strong>
+                <strong>Enable read-only mode</strong>
                 <span class="checkbox-label-description">Restrict MCP Server to read-only tools and read-only SQL transactions</span>
             </label>
         </div>
