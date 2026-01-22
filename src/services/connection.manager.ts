@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import * as vscode from 'vscode';
 import { StateService } from './state.service';
+import { ExtensionInfo } from '../utils';
 
 export interface ConnectionConfig {
     host: string;
@@ -11,6 +12,7 @@ export interface ConnectionConfig {
     ssl?: {
         rejectUnauthorized: boolean;
     };
+    application_name?: string;
 }
 
 export class ConnectionManager {
@@ -67,7 +69,8 @@ export class ConnectionManager {
             password: connectionInfo.password,
             ssl: {
                 rejectUnauthorized: false
-            }
+            },
+            application_name: ExtensionInfo.getApplicationName()
         };
     }
 
