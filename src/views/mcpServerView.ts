@@ -10,6 +10,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
     private readonly _isCursor: boolean;
     private readonly _context: vscode.ExtensionContext;
     private static readonly AUTO_CONFIG_ENABLED_KEY = 'neon.mcpServer.autoConfigEnabled';
+    private static readonly READ_ONLY_MODE_KEY = 'neon.mcpServer.readOnlyMode';
     
     // Expected Neon MCP server configuration (HTTP format)
     private static readonly EXPECTED_NEON_CONFIG = {
@@ -85,6 +86,28 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             enabled
         );
         console.log('[MCP Server] Auto-configuration', enabled ? 'enabled' : 'disabled');
+    }
+
+    /**
+     * Check if read-only mode is enabled
+     */
+    private async isReadOnlyModeEnabled(): Promise<boolean> {
+        const enabled = this._context.globalState.get<boolean>(
+            MCPServerViewProvider.READ_ONLY_MODE_KEY,
+            false
+        );
+        return enabled;
+    }
+
+    /**
+     * Set read-only mode enabled/disabled state
+     */
+    private async setReadOnlyModeEnabled(enabled: boolean): Promise<void> {
+        await this._context.globalState.update(
+            MCPServerViewProvider.READ_ONLY_MODE_KEY,
+            enabled
+        );
+        console.log('[MCP Server] Read-only mode', enabled ? 'enabled' : 'disabled');
     }
 
     /**
@@ -502,6 +525,43 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Handle read-only mode toggle from webview
+     */
+    private async handleReadOnlyModeToggle(enabled: boolean): Promise<void> {
+        try {
+            await this.setReadOnlyModeEnabled(enabled);
+            
+            const config = await this.getMcpConfiguration();
+            
+            if (config.isConfigured && config.isManaged) {
+                // Automatically update the MCP server configuration
+                await this.installToMcpJson(config.configScope || 'user');
+                
+                const appName = this._isCursor ? 'Cursor' : 'VS Code';
+                vscode.window.showInformationMessage(
+                    `Read-only mode ${enabled ? 'enabled' : 'disabled'}. Reload ${appName} to apply changes.`,
+                    'Reload Now',
+                    'Later'
+                ).then(selection => {
+                    if (selection === 'Reload Now') {
+                        vscode.commands.executeCommand('workbench.action.reloadWindow');
+                    }
+                });
+            }
+            
+            await this.refreshView();
+        } catch (error) {
+            console.error('[MCP Server] Failed to toggle read-only mode:', error);
+            vscode.window.showErrorMessage(
+                `Failed to toggle read-only mode: ${error instanceof Error ? error.message : 'Unknown error'}`
+            );
+            
+            // Refresh view to reset checkbox state and re-enable it
+            await this.refreshView();
+        }
+    }
+
+    /**
      * Refresh the view (public method for command)
      */
     public async refreshView(): Promise<void> {
@@ -551,6 +611,10 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 case 'openMcpConfigFile':
                     console.log('[MCP Server] Handling openMcpConfigFile message');
                     await this.openMcpConfigFile();
+                    break;
+                case 'toggleReadOnlyMode':
+                    console.log('[MCP Server] Handling toggleReadOnlyMode message:', message.enabled);
+                    await this.handleReadOnlyModeToggle(message.enabled);
                     break;
             }
         });
@@ -602,7 +666,8 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             isConfigured: config.isConfigured,
             isManaged: config.isManaged,
             configScope: config.configScope,
-            autoConfigEnabled
+            autoConfigEnabled,
+            readOnlyMode: config.readOnlyMode
         });
         
         this._view.webview.postMessage({
@@ -619,6 +684,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         isManaged: boolean;
         configScope: 'user' | 'workspace' | null;
         configPath: string | null;
+        readOnlyMode: boolean;
     }> {
         // Both Cursor and VS Code use mcp.json with the same format:
         // { "mcpServers": { "Neon": { ... } } }
@@ -630,6 +696,7 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
         isManaged: boolean;
         configScope: 'user' | 'workspace' | null;
         configPath: string | null;
+        readOnlyMode: boolean;
     }> {
         // Check workspace .vscode/mcp.json first
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -653,12 +720,14 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                         if (hasNeonServer) {
                             const serverConfig = serversObj[neonKey];
                             const isManaged = this.isExtensionManagedConfig(serverConfig);
+                            const readOnlyMode = serverConfig?.headers?.['x-read-only'] === 'true';
                             console.log(`[MCP Server] Workspace Neon config is managed:`, isManaged);
                             return {
                                 isConfigured: true,
                                 isManaged,
                                 configScope: 'workspace',
-                                configPath: workspaceMcpPath
+                                configPath: workspaceMcpPath,
+                                readOnlyMode
                             };
                         }
                     }
@@ -688,12 +757,14 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                     if (hasNeonServer) {
                         const serverConfig = serversObj[neonKey];
                         const isManaged = this.isExtensionManagedConfig(serverConfig);
+                        const readOnlyMode = serverConfig?.headers?.['x-read-only'] === 'true';
                         console.log(`[MCP Server] User Neon config is managed:`, isManaged);
                         return {
                             isConfigured: true,
                             isManaged,
                             configScope: 'user',
-                            configPath: userMcpPath
+                            configPath: userMcpPath,
+                            readOnlyMode
                         };
                     }
                 }
@@ -707,7 +778,8 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             isConfigured: false,
             isManaged: false,
             configScope: null,
-            configPath: null
+            configPath: null,
+            readOnlyMode: false
         };
     }
 
@@ -830,12 +902,19 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             mcpConfig[serverKey] = {};
         }
         
+        const headers: Record<string, string> = {
+            Authorization: `Bearer ${apiToken}`
+        };
+        
+        const readOnlyMode = await this.isReadOnlyModeEnabled();
+        if (readOnlyMode) {
+            headers['x-read-only'] = 'true';
+        }
+        
         mcpConfig[serverKey]['Neon'] = {
             type: 'http',
             url: 'https://mcp.neon.tech/mcp',
-            headers: {
-                Authorization: `Bearer ${apiToken}`
-            }
+            headers
         };
 
         // Write mcp.json back to file with pretty formatting
@@ -1017,6 +1096,36 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             gap: 4px;
             margin-top: 12px;
         }
+        
+        .checkbox-container {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 12px;
+            margin-top: 12px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .checkbox-container input[type="checkbox"] {
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        
+        .checkbox-container label {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            cursor: pointer;
+        }
+        
+        .checkbox-label-description {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+        }
     </style>
 </head>
 <body>
@@ -1033,6 +1142,14 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                 <div class="status-secondary" id="configured-message">Auto-configuration is enabled.</div>
                 <a href="#" id="view-config-link" class="view-config-link">View configuration</a>
             </div>
+        </div>
+        
+        <div id="checkbox-container" class="checkbox-container hidden">
+            <input type="checkbox" id="read-only-checkbox">
+            <label for="read-only-checkbox">
+                <strong>Enable read-only mode</strong>
+                <span class="checkbox-label-description">Restrict MCP Server to read-only tools and read-only SQL transactions</span>
+            </label>
         </div>
     </div>
     
@@ -1106,6 +1223,28 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             vscode.postMessage({ command: 'openMcpConfigFile' });
         });
         
+        // Read-only mode checkbox handler
+        let isProcessingReadOnlyToggle = false;
+        document.getElementById('read-only-checkbox').addEventListener('change', function(e) {
+            // Prevent multiple simultaneous operations
+            if (isProcessingReadOnlyToggle) {
+                e.preventDefault();
+                return;
+            }
+            
+            isProcessingReadOnlyToggle = true;
+            const checkbox = e.target;
+            const enabled = checkbox.checked;
+            
+            // Disable checkbox while processing
+            checkbox.disabled = true;
+            
+            vscode.postMessage({ 
+                command: 'toggleReadOnlyMode',
+                enabled: enabled
+            });
+        });
+        
         // Handle messages from extension
         window.addEventListener('message', event => {
             const message = event.data;
@@ -1113,6 +1252,14 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             if (message.command === 'configurationStatus') {
                 const configureButton = document.getElementById('configure-button');
                 const reconfigureButton = document.getElementById('reconfigure-button');
+                const readOnlyCheckbox = document.getElementById('read-only-checkbox');
+                const checkboxContainer = document.getElementById('checkbox-container');
+                
+                // Re-enable checkbox after processing completes
+                if (readOnlyCheckbox) {
+                    readOnlyCheckbox.disabled = false;
+                }
+                isProcessingReadOnlyToggle = false;
                 
                 // Hide all views first
                 document.getElementById('configured-view').classList.add('hidden');
@@ -1123,6 +1270,14 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
                     if (message.isManaged) {
                         // Show configured view for managed configs
                         document.getElementById('configured-view').classList.remove('hidden');
+                        
+                        // Show and update read-only checkbox for managed configs
+                        if (checkboxContainer) {
+                            checkboxContainer.classList.remove('hidden');
+                        }
+                        if (readOnlyCheckbox && 'readOnlyMode' in message) {
+                            readOnlyCheckbox.checked = message.readOnlyMode;
+                        }
                         
                         const configuredMsg = document.getElementById('configured-message');
                         if (message.autoConfigEnabled) {
@@ -1156,10 +1311,19 @@ export class MCPServerViewProvider implements vscode.WebviewViewProvider {
             } else if (message.command === 'configurationFailed') {
                 const configureButton = document.getElementById('configure-button');
                 const reconfigureButton = document.getElementById('reconfigure-button');
+                const readOnlyCheckbox = document.getElementById('read-only-checkbox');
+                
                 configureButton.disabled = false;
                 configureButton.textContent = 'Configure MCP Server';
                 reconfigureButton.disabled = false;
                 reconfigureButton.textContent = 'Re-configure MCP Server';
+                
+                // Re-enable checkbox after failure
+                if (readOnlyCheckbox) {
+                    readOnlyCheckbox.disabled = false;
+                }
+                isProcessingReadOnlyToggle = false;
+                
                 // The error message will be shown via VS Code notification
             }
         });
