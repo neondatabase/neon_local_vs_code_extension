@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { NeonBranch, NeonOrg, NeonProject, NeonDatabase, NeonRole } from '../types';
 import { AuthManager } from '../auth/authManager';
+import { ExtensionInfo } from '../utils';
 import * as https from 'https';
 
 interface NetworkError extends Error {
@@ -52,7 +53,8 @@ export class NeonApiService {
                 headers: {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'User-Agent': ExtensionInfo.getUserAgent()
                 }
             };
 
@@ -115,7 +117,8 @@ export class NeonApiService {
                 headers: {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'User-Agent': ExtensionInfo.getUserAgent()
                 }
             };
 

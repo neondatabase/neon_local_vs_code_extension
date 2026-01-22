@@ -493,7 +493,7 @@
         {
           "id": "neon-local-connect",
           "title": "Neon - Serverless Postgres",
-          "icon": "resources/Neon_logo.png"
+          "icon": "resources/Nl.svg"
         }
       ]
     },

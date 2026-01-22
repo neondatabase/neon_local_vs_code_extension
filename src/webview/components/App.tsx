@@ -1101,7 +1101,7 @@ export const MainApp: React.FC<MainAppProps> = ({ vscode }) => {
                   }}>
                     <div style={{ fontWeight: 500, fontSize: '14px', marginBottom: '8px', color: 'var(--vscode-foreground)' }}>
                       {detectedConnections.length === 0 
-                        ? 'No Neon connection strings detected in this repo.'
+                        ? 'No Neon connection strings detected in this workspace.'
                         : 'No accessible Neon branches found.'}
                     </div>
                     <div style={{ lineHeight: '1.5' }}>
