@@ -651,8 +651,8 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage(`Connected to branch "${selectedBranch.name}".`);
         });
 
-        // Focus on the Branch Connection view
-        await vscode.commands.executeCommand('neonLocalConnect.focus');
+        // Focus on the Databases view to show the connected schema
+        await vscode.commands.executeCommand('neonLocalSchema.focus');
 
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
@@ -854,8 +854,8 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage(`Connected to branch "${newBranch.name}".`);
           });
 
-          // Focus on the Branch Connection view
-          await vscode.commands.executeCommand('neonLocalConnect.focus');
+          // Focus on the Databases view to show the connected schema
+          await vscode.commands.executeCommand('neonLocalSchema.focus');
         }
 
       } catch (error) {
