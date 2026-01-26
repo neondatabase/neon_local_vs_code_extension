@@ -1,0 +1,67 @@
+name: Publish Official Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: 'Type "release" to confirm publishing an official (non-pre-release) version'
+        required: true
+        type: string
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation
+        if: ${{ github.event.inputs.confirm_release != 'release' }}
+        run: |
+          echo "Error: You must type 'release' to confirm publishing an official release."
+          exit 1
+
+  publish-release:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: Production
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build extension
+        run: npm run package
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Package extension
+        run: |
+          vsce package --baseContentUrl https://github.com/neondatabase/neon_local_vs_code_extension/raw/main --baseImagesUrl https://github.com/neondatabase/neon_local_vs_code_extension/raw/main
+          ls -lR *.vsix
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          vsce -V
+          vsce publish -p ${{ secrets.VSCE_TOKEN }} --packagePath neon-local-connect*.vsix --allow-star-activation --skip-duplicate
+        env:
+          VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
+
+      - name: Install ovsx
+        run: npm install -g ovsx
+
+      - name: Publish to Open VSX
+        run: |
+          ovsx verify-pat databricks
+          ovsx publish --packagePath neon-local-connect*.vsix --skip-duplicate
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
