@@ -1206,6 +1206,17 @@ export async function activate(context: vscode.ExtensionContext) {
           
           // NOW mark as connected - this will trigger view updates
           await stateService.markConnectionRestored();
+          
+          // Explicitly refresh the schema view after connection restore
+          // Use a small delay to ensure the view is ready
+          setTimeout(async () => {
+            try {
+              await vscode.commands.executeCommand('neonLocal.schema.refresh');
+              console.debug('Schema view refreshed after connection restore');
+            } catch (error) {
+              console.debug('Schema view refresh skipped (view may not be visible):', error);
+            }
+          }, 500);
         } catch (error) {
           console.error('Failed to restore connection info on startup:', error);
           // Mark restore as failed so we don't keep trying
