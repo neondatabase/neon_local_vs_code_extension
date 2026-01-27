@@ -2,7 +2,7 @@
   "name": "neon-local-connect",
   "displayName": "Neon - Serverless Postgres",
   "description": "Local development environment for Neon Databases with branch management",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "publisher": "databricks",
   "repository": {
     "type": "git",
