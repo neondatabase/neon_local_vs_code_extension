@@ -457,11 +457,19 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
             }
 
             const cacheKey = element.id;
-            if (this.schemaCache.has(cacheKey)) {
-                console.debug(`Schema view: Returning cached data for ${cacheKey}`);
-                return this.schemaCache.get(cacheKey)!;
+            const cachedData = this.schemaCache.get(cacheKey);
+            
+            // If we have cached data, return it immediately but also refresh in background
+            if (cachedData) {
+                console.debug(`Schema view: Returning cached data for ${cacheKey}, refreshing in background`);
+                
+                // Refresh this node's children in the background
+                this.refreshNodeInBackground(element, cacheKey, cachedData);
+                
+                return cachedData;
             }
 
+            // No cached data - fetch synchronously
             let children: SchemaItem[] = [];
 
             switch (element.type) {
@@ -509,6 +517,73 @@ export class SchemaTreeProvider implements vscode.TreeDataProvider<SchemaItem> {
             vscode.window.showErrorMessage(`Failed to load schema: ${error instanceof Error ? error.message : 'Unknown error'}`);
             return [];
         }
+    }
+
+    /**
+     * Refresh a node's children in the background and update the view if data has changed
+     */
+    private async refreshNodeInBackground(element: SchemaItem, cacheKey: string, cachedData: SchemaItem[]): Promise<void> {
+        try {
+            let freshChildren: SchemaItem[] = [];
+
+            switch (element.type) {
+                case 'connection':
+                    freshChildren = await this.getConnectionChildren();
+                    break;
+                case 'database':
+                    // Static structure, no need to refresh
+                    return;
+                case 'schema':
+                    freshChildren = await this.getSchemaContainers(element);
+                    break;
+                case 'container':
+                    freshChildren = await this.getContainerChildren(element);
+                    break;
+                case 'table':
+                case 'view':
+                    const tableDatabase = element.metadata?.database || this.getFirstAvailableDatabase();
+                    const tableSchema = element.metadata?.schema || 'public';
+                    const tableName = element.name;
+                    freshChildren = await this.getTableContainers(tableDatabase, tableSchema, tableName, element.type);
+                    break;
+                default:
+                    return;
+            }
+
+            // Check if data has changed by comparing IDs and names
+            const hasChanged = this.hasDataChanged(cachedData, freshChildren);
+            
+            if (hasChanged) {
+                console.debug(`Schema view: Data changed for ${cacheKey}, updating view`);
+                this.schemaCache.set(cacheKey, freshChildren);
+                // Fire change event for this specific element to update its children
+                this._onDidChangeTreeData.fire(element);
+            } else {
+                console.debug(`Schema view: No changes detected for ${cacheKey}`);
+            }
+        } catch (error) {
+            console.error(`Error refreshing node ${cacheKey} in background:`, error);
+            // Don't show error to user - background refresh failure is not critical
+        }
+    }
+
+    /**
+     * Check if the data has changed by comparing item IDs and names
+     */
+    private hasDataChanged(oldData: SchemaItem[], newData: SchemaItem[]): boolean {
+        if (oldData.length !== newData.length) {
+            return true;
+        }
+        
+        // Compare by ID and name
+        const oldIds = new Set(oldData.map(item => `${item.id}:${item.name}`));
+        for (const item of newData) {
+            if (!oldIds.has(`${item.id}:${item.name}`)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     private getConnectionRoot(viewData: any): SchemaItem[] {
@@ -1030,6 +1105,7 @@ export class SchemaViewProvider {
     private treeView: vscode.TreeView<SchemaItem>;
     private lastConnectionState: boolean = false;
     private lastConnectedBranch: string = '';
+    private lastVisibleState: boolean = false;
     private schemaService: SchemaService;
 
     constructor(
@@ -1043,6 +1119,25 @@ export class SchemaViewProvider {
         this.treeView = vscode.window.createTreeView('neonLocalSchema', {
             treeDataProvider: this.treeDataProvider,
             showCollapseAll: true
+        });
+
+        // Refresh data in background when view transitions from hidden to visible
+        // This shows cached data immediately for fast UX, then updates with fresh data
+        this.treeView.onDidChangeVisibility(async (e) => {
+            const wasVisible = this.lastVisibleState;
+            this.lastVisibleState = e.visible;
+            
+            // Only refresh when transitioning from hidden to visible (not on collapse)
+            if (e.visible && !wasVisible) {
+                const viewData = await this.stateService.getViewData();
+                if (viewData.connected) {
+                    // Small delay to allow cached data to render first
+                    setTimeout(() => {
+                        console.debug('Schema view: View became visible (was hidden), refreshing data in background');
+                        this.treeDataProvider.refresh();
+                    }, 100);
+                }
+            }
         });
 
         this.registerCommands();

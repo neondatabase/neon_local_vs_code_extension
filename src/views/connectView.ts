@@ -826,6 +826,9 @@ export class ConnectViewProvider implements vscode.WebviewViewProvider {
                                 await this.updateView();
                                 
                                 vscode.window.showInformationMessage('Successfully connected to Neon database!');
+                                
+                                // Focus on the Databases view to show the connected schema
+                                await vscode.commands.executeCommand('neonLocalSchema.focus');
                             } catch (progressError) {
                                 // Re-throw the error to be handled by the outer catch block
                                 throw progressError;
